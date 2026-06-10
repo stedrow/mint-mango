@@ -110,7 +110,7 @@ public class MainActivity extends Activity {
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
 
     private TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
-    private TextView tvPlayerTrackCount, tvPlayerShuffleStatus;
+    private TextView tvPlayerTrackCount, tvPlayerShuffleStatus, tvPlayerRepeatStatus;
     private ProgressBar playerProgress, volumeProgress, pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
 
@@ -152,7 +152,7 @@ public class MainActivity extends Activity {
     private TextView tvMenuPreviewTitle, tvMenuPreviewArtist;
     private SharedPreferences prefs;
     private boolean isShuffleMode = false;
-    private boolean isRepeatMode = false;
+    private int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
     private boolean isSoundEffectEnabled = true;
     private boolean isVibrationEnabled = true;
     private boolean isPickingBackground = false;
@@ -354,7 +354,11 @@ public class MainActivity extends Activity {
             }
 
             isShuffleMode = prefs.getBoolean("shuffle", false);
-            isRepeatMode = prefs.getBoolean("repeat", false);
+            if (prefs.contains("repeat_mode")) {
+                repeatMode = prefs.getInt("repeat_mode", 0);
+            } else {
+                repeatMode = prefs.getBoolean("repeat", false) ? 1 : 0;
+            }
             isSoundEffectEnabled = prefs.getBoolean("sound", true);
             applySoundSetting(); // 💡 [여기 추가] 앱이 켜질 때 저장된 값으로 시스템 소리 제어 적용
             isVibrationEnabled = prefs.getBoolean("vibrate", true);
@@ -521,8 +525,8 @@ public class MainActivity extends Activity {
         playerProgress = findViewById(R.id.player_progress);
         tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
         tvPlayerShuffleStatus = findViewById(R.id.tv_player_shuffle_status);
-        if (isShuffleMode)
-            tvPlayerShuffleStatus.setVisibility(View.VISIBLE);
+        tvPlayerRepeatStatus = findViewById(R.id.tv_player_repeat_status);
+        updatePlayerStatusIndicators();
 
         // 💡 R.drawable.뒤에 방금 추가한 파일의 이름을 적어줍니다.
         setupMenuButton(btnNowPlaying, R.drawable.music_circle);
@@ -1288,12 +1292,10 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
         // 💡 촌스러운 빨강/초록/하늘색을 빼고 세련된 모노톤으로!
-        if (rightText.equals("ON"))
+        if (rightText.equals("ON") || rightText.equals("ONE") || rightText.equals("ALL"))
             tvRight.setTextColor(0xFFFFFFFF); // 켜짐: 눈에 띄는 순백색
-        else if (rightText.equals("OFF"))
-            tvRight.setTextColor(0xFF888888); // 꺼짐: 얌전한 회색
         else
-            tvRight.setTextColor(0xFF888888); // 기타(화살표 등): 회색
+            tvRight.setTextColor(0xFF888888); // 꺼짐/기타: 얌전한 회색
 
         layout.addView(tvLeft);
         layout.addView(tvRight);
@@ -1317,10 +1319,8 @@ public class MainActivity extends Activity {
 
                     TextView rightTv = (TextView) layout.getChildAt(1);
                     String currentText = rightTv.getText().toString();
-                    if (currentText.equals("ON"))
+                    if (currentText.equals("ON") || currentText.equals("ONE") || currentText.equals("ALL"))
                         rightTv.setTextColor(0xFFFFFFFF);
-                    else if (currentText.equals("OFF"))
-                        rightTv.setTextColor(0xFF888888);
                     else
                         rightTv.setTextColor(0xFF888888);
                 }
@@ -1385,10 +1385,7 @@ public class MainActivity extends Activity {
                 isShuffleMode = !isShuffleMode;
                 TextView tvStatus = (TextView) btnShuffle.getChildAt(1);
                 tvStatus.setText(isShuffleMode ? "ON" : "OFF");
-                if (isShuffleMode)
-                    tvPlayerShuffleStatus.setVisibility(View.VISIBLE);
-                else
-                    tvPlayerShuffleStatus.setVisibility(View.GONE);
+                updatePlayerStatusIndicators();
                 try {
                     prefs.edit().putBoolean("shuffle", isShuffleMode).apply();
                 } catch (Exception e) {
@@ -1397,16 +1394,17 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnShuffle);
 
-        final LinearLayout btnRepeat = createSettingRow("Repeat Song", isRepeatMode ? "ON" : "OFF");
+        final LinearLayout btnRepeat = createSettingRow("Repeat Mode", getRepeatModeText(repeatMode));
         btnRepeat.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                isRepeatMode = !isRepeatMode;
+                repeatMode = (repeatMode + 1) % 3;
                 TextView tvStatus = (TextView) btnRepeat.getChildAt(1);
-                tvStatus.setText(isRepeatMode ? "ON" : "OFF");
+                tvStatus.setText(getRepeatModeText(repeatMode));
+                updatePlayerStatusIndicators();
                 try {
-                    prefs.edit().putBoolean("repeat", isRepeatMode).apply();
+                    prefs.edit().putInt("repeat_mode", repeatMode).apply();
                 } catch (Exception e) {
                 }
             }
@@ -2152,11 +2150,23 @@ public class MainActivity extends Activity {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
                     try {
-                        if (isRepeatMode) {
+                        if (repeatMode == 1) { // Repeat One
                             mediaPlayer.seekTo(0);
                             mediaPlayer.start();
-                        } else {
+                        } else if (repeatMode == 2) { // Repeat All
                             nextTrack();
+                        } else { // Repeat Off
+                            if (isShuffleMode) {
+                                nextTrack();
+                            } else if (currentIndex < currentPlaylist.size() - 1) {
+                                nextTrack();
+                            } else {
+                                // Reached the end, stop playback
+                                currentIndex = 0;
+                                prepareMusicTrack(currentIndex);
+                                isPausedByHand = true;
+                                updatePlayerUI();
+                            }
                         }
                     } catch (Exception e) {
                     }
@@ -2164,6 +2174,37 @@ public class MainActivity extends Activity {
             });
         } catch (Throwable e) {
             tvPlayerTitle.setText("Load Failed: " + track.getName());
+        }
+    }
+
+    private String getRepeatModeText(int mode) {
+        switch (mode) {
+            case 1:
+                return "ONE";
+            case 2:
+                return "ALL";
+            default:
+                return "OFF";
+        }
+    }
+
+    private void updatePlayerStatusIndicators() {
+        try {
+            if (tvPlayerShuffleStatus != null) {
+                tvPlayerShuffleStatus.setVisibility(isShuffleMode ? View.VISIBLE : View.GONE);
+            }
+            if (tvPlayerRepeatStatus != null) {
+                if (repeatMode == 1) {
+                    tvPlayerRepeatStatus.setText("REPEAT ONE");
+                    tvPlayerRepeatStatus.setVisibility(View.VISIBLE);
+                } else if (repeatMode == 2) {
+                    tvPlayerRepeatStatus.setText("REPEAT ALL");
+                    tvPlayerRepeatStatus.setVisibility(View.VISIBLE);
+                } else {
+                    tvPlayerRepeatStatus.setVisibility(View.GONE);
+                }
+            }
+        } catch (Exception e) {
         }
     }
 
@@ -2178,6 +2219,7 @@ public class MainActivity extends Activity {
                 ivPauseOverlay.setVisibility(View.VISIBLE);
                 progressHandler.removeCallbacks(updateProgressTask);
             }
+            updatePlayerStatusIndicators();
         } catch (Exception e) {
         }
     }
