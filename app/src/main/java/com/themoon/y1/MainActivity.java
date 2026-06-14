@@ -190,7 +190,8 @@ public class MainActivity extends Activity {
 
     private boolean isScreenSleeping = false;
     private long lastScreenOnTime = 0;
-
+    // 💡 [추가] 커스텀 배터리 뷰 변수
+    private BatteryIconView batteryIconView;
     private int currentTimeoutIndex = 1;
     private final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
     private final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
@@ -254,13 +255,23 @@ public class MainActivity extends Activity {
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+
+                // 🚀 [추가] 배터리 충전 상태 확인
+                int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                boolean isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL);
+
                 int batteryPct = (int) ((level / (float) scale) * 100);
                 tvStatusBattery.setText(batteryPct + "%");
+
+                // 🚀 새로 만든 배터리 아이콘에 현재 용량과 충전 여부를 쏴줍니다!
+                if (batteryIconView != null) {
+                    batteryIconView.setBatteryLevel(batteryPct, isCharging);
+                }
             } else if (Intent.ACTION_HEADSET_PLUG.equals(action)) {
                 int state = intent.getIntExtra("state", -1);
                 if (state == 1) {
                     ivStatusHeadphone.setVisibility(View.VISIBLE);
-                    ivStatusHeadphone.setColorFilter(0xFF00FFFF);
+                    ivStatusHeadphone.setColorFilter(0xFFFFFFFF);
                 } else {
                     ivStatusHeadphone.setVisibility(View.GONE);
                 }
@@ -646,6 +657,21 @@ public class MainActivity extends Activity {
 
         tvStatusClock = findViewById(R.id.tv_status_clock);
         tvStatusBattery = findViewById(R.id.tv_status_battery);
+        tvStatusClock.setShadowLayer(0, 0, 0, 0);
+        // 🚀 [여기에 새로 추가!] 기존 배터리 숫자(텍스트)를 숨기고 그 자리에 플랫 아이콘을 끼워 넣습니다.
+        tvStatusBattery.setVisibility(View.GONE);
+        batteryIconView = new BatteryIconView(this);
+        android.view.ViewGroup statusParent = (android.view.ViewGroup) tvStatusBattery.getParent();
+        int bIdx = statusParent.indexOfChild(tvStatusBattery);
+
+        float density = getResources().getDisplayMetrics().density;
+        // 🚀 [크기 수정] 가로 40dp, 세로 20dp로 1.5배 이상 큼직하게 키웁니다!
+        android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(
+                (int)(40 * density), (int)(20 * density)
+        );
+        blp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        blp.setMargins((int)(12 * density), 0, (int)(12 * density), 0); // 좌우 간격도 살짝 넓혀줍니다.
+        statusParent.addView(batteryIconView, bIdx, blp);
         ivStatusBluetooth = findViewById(R.id.iv_status_bluetooth);
         ivStatusWifi = findViewById(R.id.iv_status_wifi);
         ivStatusHeadphone = findViewById(R.id.iv_status_headphone);
@@ -930,6 +956,7 @@ public class MainActivity extends Activity {
             if (tvMenuPreviewArtist != null) tvMenuPreviewArtist.setTextColor(secondary);
             if (tvStatusClock != null) tvStatusClock.setTextColor(primary);
             if (tvStatusBattery != null) tvStatusBattery.setTextColor(primary);
+            if (batteryIconView != null) batteryIconView.setColor(primary);
             // 🚀 [수정 완료] 앱 내의 모든 막대바를 '테마 버튼 포커스 색상(강조색)'으로 진하게 물들입니다!
             int themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
 
@@ -4033,6 +4060,80 @@ public class MainActivity extends Activity {
             if (getVisibility() == View.VISIBLE) {
                 postInvalidateDelayed(16);
             }
+        }
+    }
+
+    // 💡 [수정] 속이 꽉 찬 배터리 모양 안에 잔량(숫자)을 직관적으로 그려 넣는 뷰
+    public static class BatteryIconView extends View {
+        private android.graphics.Paint shellPaint, textPaint;
+        private int level = 100;
+        private boolean isCharging = false;
+        private int color = 0xFFFFFFFF; // 기본 바탕색 (보통 흰색)
+
+        public BatteryIconView(Context context) {
+            super(context);
+
+            // 배터리 바탕을 그리는 붓 (속을 꽉 채우기)
+            shellPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            shellPaint.setStyle(android.graphics.Paint.Style.FILL);
+
+            // 숫자를 그리는 붓 (검은색, 가운데 정렬, 굵게)
+            textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            textPaint.setColor(0xFF000000); // 🚀 검은색 글씨!
+            textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
+            textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        }
+
+        public void setBatteryLevel(int level, boolean isCharging) {
+            this.level = level;
+            this.isCharging = isCharging;
+            invalidate(); // 화면 새로고침
+        }
+
+        public void setColor(int color) {
+            this.color = color;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            super.onDraw(canvas);
+            int width = getWidth();
+            int height = getHeight();
+
+            float pad = 2f;
+            float terminalWidth = width * 0.08f;
+            float shellWidth = width - terminalWidth - pad * 2;
+            float shellHeight = height - pad * 2;
+
+            // 🚀 스마트 컬러: 충전 중이면 초록색 바탕, 15% 이하면 빨간색 바탕, 평소엔 테마색(보통 흰색)
+            if (isCharging) {
+                shellPaint.setColor(0xFF44FF44);
+            } else if (level <= 15) {
+                shellPaint.setColor(0xFFFF4444);
+            } else {
+                shellPaint.setColor(color);
+            }
+
+            // 1. 꽉 찬 배터리 몸통 그리기
+            android.graphics.RectF shell = new android.graphics.RectF(pad, pad, pad + shellWidth, pad + shellHeight);
+            canvas.drawRoundRect(shell, 4f, 4f, shellPaint);
+
+            // 2. 배터리 오른쪽 튀어나온 꼭지 그리기
+            float terminalHeight = shellHeight * 0.4f;
+            float terminalTop = pad + (shellHeight - terminalHeight) / 2;
+            android.graphics.RectF terminal = new android.graphics.RectF(shell.right, terminalTop, shell.right + terminalWidth, terminalTop + terminalHeight);
+            canvas.drawRoundRect(terminal, 2f, 2f, shellPaint);
+
+            // 3. 배터리 몸통 정중앙에 숫자(잔량) 새기기
+            textPaint.setTextSize(shellHeight * 0.95f); // 텍스트 크기를 배터리 높이에 꽉 차게 조절
+
+            // 텍스트를 위아래 정중앙에 오도록 계산하는 공식
+            float textY = shell.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
+            String levelText = String.valueOf(level);
+
+            // 검은색 숫자를 배터리 몸통 한가운데에 찍어냅니다.
+            canvas.drawText(levelText, shell.centerX(), textY, textPaint);
         }
     }
 }
