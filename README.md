@@ -60,5 +60,10 @@
 5. Reboot the device to complete the setup.
 
 ---
+
+## 🌟 ADB Tool Download:
+https://dl.google.com/android/repository/platform-tools-latest-windows.zip?hl=ko
+Platform Tools for Windows (Latest)
+---
 ## ⚠️ Caveats / Notes
 1. Regarding Bluetooth Headphones: Due to the lack of a Bluetooth test device in the developer's environment, this specific feature has not been fully tested yet. Please keep this in mind during use.
