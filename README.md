@@ -72,7 +72,7 @@ Platform Tools for Windows (Latest)
 
 
 ---
-# How to Create a Custom Theme for Y1 Launcher
+# How to Create a Custom Theme for JJ Launcher
 
 Creating a custom theme is the ultimate way to make this DAP (Digital Audio Player) truly yours! The launcher dynamically loads theme resources (colors, icons, and fonts) directly from the device's internal storage.
 
