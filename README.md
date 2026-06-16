@@ -14,6 +14,9 @@ for innioasis y1
   <img src="https://img.shields.io/badge/Status-Beta-Orange?style=flat-square" alt="Status">
 </p>
 
+> [!WARNING]
+> <span style="color:#d9381e; font-weight:bold;">⚠️ IMPORTANT: This has only been tested on System Software version 2.1.9. It is highly recommended to check your own firmware version before proceeding with the installation.</span>
+
 ---
 
 ## 🛠️ Note for Users / Bug Reports
