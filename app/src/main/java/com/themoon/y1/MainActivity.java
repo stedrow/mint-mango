@@ -243,14 +243,16 @@ public class MainActivity extends Activity {
     private final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
 
     private int currentSystemBrightness = 255;
-    private Random random = new Random();
 
     private List<String> foundBtDevices = new ArrayList<String>();
     private List<String> foundWifiNetworks = new ArrayList<String>();
 
     private Y1WebServer webServer;
     private boolean isServerRunning = false;
-
+    private int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
+    private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal", "Strong"};
+    // 💡 핵심: 10ms(아주 짧게 튕김), 25ms(일반적인 휠), 50ms(묵직하게 울림)
+    private final int[] VIBE_DURATIONS = {10, 25, 50};
     private Handler clockHandler = new Handler();
     private Runnable clockTask = new Runnable() {
         @Override
@@ -775,6 +777,7 @@ public class MainActivity extends Activity {
 
         try {
             isVibrationEnabled = prefs.getBoolean("vibrate", true);
+            vibrationStrengthLevel = prefs.getInt("vibrate_strength", 1);
         } catch (Exception e) {
         }
         try {
@@ -2088,12 +2091,10 @@ public class MainActivity extends Activity {
     // 💡 [추가] 과부하 방지용 타이머 변수
     private long lastClickTime = 0;
 
-    // 💡 앱 자체의 억지 소리 발생 코드를 완전히 삭제합니다! (기기 하드웨어 소리만 사용)
     private void clickFeedback() {
         long now = System.currentTimeMillis();
 
-        // 🚀 [UI 멈춤 완벽 차단] 0.03초 이내에 연속으로 들어온 휠 신호는 진동 모터를 울리지 않고 생략합니다!
-        // 이 방어막 하나가 빠른 휠 스크롤 시 화면 딜레이를 80% 이상 없애줍니다.
+        // 🚀 [UI 멈춤 완벽 차단] 0.03초 이내에 연속으로 들어온 휠 신호는 생략
         if (now - lastClickTime < 30)
             return;
         lastClickTime = now;
@@ -2101,13 +2102,14 @@ public class MainActivity extends Activity {
         try {
             if (isVibrationEnabled) {
                 Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                if (v != null)
-                    v.vibrate(20); // 🚀 진동 길이도 30 -> 20으로 줄여서 모터가 더 빨리 쉬게 만듭니다.
+                if (v != null) {
+                    // 🚀 젤리빈(Jelly Bean) 맞춤형 진동 알고리즘!
+                    // 설정된 세기(Weak/Normal/Strong)에 따라 10ms, 25ms, 50ms 중 하나를 꺼내서 울립니다.
+                    v.vibrate(VIBE_DURATIONS[vibrationStrengthLevel]);
+                }
             }
-        } catch (Exception e) {
-        }
+        } catch (Exception e) {}
     }
-
     private void openKeyboard() {
         typedPassword = "";
         keyboardIndex = 0;
@@ -2803,21 +2805,15 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnSound);
 
-        final LinearLayout btnVibrate = createSettingRow("Button Vibrate", isVibrationEnabled ? "ON" : "OFF");
-        btnVibrate.setOnClickListener(new View.OnClickListener() {
+        LinearLayout btnVibrateMenu = createSettingRow("Vibration Settings", "〉 ");
+        btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                isVibrationEnabled = !isVibrationEnabled;
                 clickFeedback();
-                TextView tvStatus = (TextView) btnVibrate.getChildAt(1);
-                tvStatus.setText(isVibrationEnabled ? "ON" : "OFF");
-                try {
-                    prefs.edit().putBoolean("vibrate", isVibrationEnabled).commit();
-                } catch (Exception e) {
-                }
+                buildVibrationSettingsUI(); // 🚀 새로 만든 진동 서브 메뉴 열기!
             }
         });
-        containerSettingsItems.addView(btnVibrate);
+        containerSettingsItems.addView(btnVibrateMenu);
 
         final LinearLayout btnScreenOffCtrl = createSettingRow("Screen-Off Control",
                 isScreenOffControlEnabled ? "ON" : "OFF");
@@ -3268,7 +3264,45 @@ public class MainActivity extends Activity {
             containerSettingsItems.getChildAt(1).requestFocus();
         }
     }
+    // 💡 [신규 추가] 진동 ON/OFF와 세기 조절을 담당하는 전용 서브 메뉴!
+    private void buildVibrationSettingsUI() {
+        currentSettingsDepth = 1; // 메인 설정 밖으로 나왔음을 시스템에 알림
+        containerSettingsItems.removeAllViews();
 
+        // 1. 진동 전원 스위치
+        final LinearLayout btnToggle = createSettingRow("Vibration Power", isVibrationEnabled ? "ON" : "OFF");
+        btnToggle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isVibrationEnabled = !isVibrationEnabled;
+                clickFeedback();
+                ((TextView) btnToggle.getChildAt(1)).setText(isVibrationEnabled ? "ON" : "OFF");
+                try { prefs.edit().putBoolean("vibrate", isVibrationEnabled).commit(); } catch (Exception e) {}
+            }
+        });
+        containerSettingsItems.addView(btnToggle);
+
+        // 2. 진동 세기 스위치 (Weak -> Normal -> Strong 순환)
+        final LinearLayout btnStrength = createSettingRow("Vibration Strength", VIBE_STRENGTH_NAMES[vibrationStrengthLevel]);
+        btnStrength.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                vibrationStrengthLevel = (vibrationStrengthLevel + 1) % 3; // 0, 1, 2 순환
+
+                // 💡 누르는 즉시 바뀐 세기의 진동이 울리므로 손맛을 바로 확인할 수 있습니다!
+                clickFeedback();
+
+                ((TextView) btnStrength.getChildAt(1)).setText(VIBE_STRENGTH_NAMES[vibrationStrengthLevel]);
+                try { prefs.edit().putInt("vibrate_strength", vibrationStrengthLevel).commit(); } catch (Exception e) {}
+            }
+        });
+        containerSettingsItems.addView(btnStrength);
+
+        // 메뉴 진입 시 첫 번째 버튼에 포커스!
+        if (containerSettingsItems.getChildCount() > 0) {
+            containerSettingsItems.getChildAt(0).requestFocus();
+        }
+    }
     // 💡 [추가] 위젯을 껐다 켜는 전용 서브 메뉴 화면
     private void buildWidgetSettingsUI() {
         currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
