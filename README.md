@@ -1,10 +1,9 @@
+
 <img width="480" height="360" alt="Screenshot_20260615_172845" src="https://github.com/user-attachments/assets/d804a2a5-a2c8-4a0e-ad16-d1da7551d5fd" />
 <img width="480" height="360" alt="Screenshot_20260615_172516" src="https://github.com/user-attachments/assets/5b76d3c5-2d62-4119-8c01-49b9b79c055d" />
 <img width="480" height="360" alt="Screenshot_20260615_172415" src="https://github.com/user-attachments/assets/b072b3c4-78b6-4c24-8e27-08193779ac96" />
 <img width="480" height="360" alt="Screenshot_20260615_172223" src="https://github.com/user-attachments/assets/e1ef1c7f-cec3-4613-b228-4f413136a42d" />
 <img width="480" height="360" alt="Screenshot_20260615_172109" src="https://github.com/user-attachments/assets/39b8fa44-c7a0-4c40-8a37-36e087874099" />
-
-
 
 
 # JJ Launcher (MO-ON Launcher)
@@ -25,15 +24,6 @@ for innioasis y1
 > Please note that this launcher is currently in its **Alpha stage**, and you may encounter unexpected bugs or stability issues. 
 
 If you find any bugs or have suggestions, please **open an Issue** in this repository. I will do my best to address them and release updates whenever my schedule allows. Thank you for your patience and support! 🙏
-
-## 🌟 v0.5 update (2026/06/15)
-1. Added color themes
-2. Added widget support
-3. Fixed visual rendering issues in File Explorer (Resolved slowdowns when loading a large number of songs)
-4. Removed radio buttons
-5. Replaced battery indicator with an icon
-6. Auto-Download Album Art via Wi-Fi
-7. Optimized performance and fixed bugs
 
 ---
 
@@ -60,31 +50,43 @@ If you find any bugs or have suggestions, please **open an Issue** in this repos
 
 ---
 
-## 💾 Installation Guide
+## 🚀 Installation & Update Guide
 
-> ⚠️ **Important:** You must install **Rockbox** beforehand to fully utilize all power-off functionalities.
+You can easily install the launcher using the **Innioasis Updater**.
+👉 [Download Innioasis Updater](https://www.innioasis.com/pages/download)
 
-### 🛠️ Step-by-Step Installation
-1. Install **Rockbox** on your device.
-2. Choose **Reboot to Stock Firmware** to boot into the stock system.
-3. Connect the device to your PC and install the new launcher using the **ADB Tool**:
-   ```bash
-   adb install app-release.apk
-4. ```bash
-   adb shell pm disable com.innioasis.y1
-5. Reboot the device to complete the setup.
+<img width="1214" height="612" alt="Installation Screenshot" src="https://github.com/user-attachments/assets/95e9e82a-7b2a-48ee-a75b-6f055a77db07" />
 
 ---
 
-## 🌟 ADB Tool Download:
-https://dl.google.com/android/repository/platform-tools-latest-windows.zip?hl=ko
-Platform Tools for Windows (Latest)
+## 🆕 What's New in v0.6
+
+### 1. Added Launcher OTA Update Feature
+* You can now download and apply updates directly within the launcher without having to manually reinstall the APK file.
+
+<img width="480" height="360" alt="Update Feature Screenshot" src="https://github.com/user-attachments/assets/b34f1026-da50-45f8-a99a-bf83e358bb1f" />
+
+### 2. Status Bar Enhancement
+* Added a playback status icon to the status bar.
+
+### 3. Bug Fixes
+* Fixed minor bugs and improved overall stability.
+
 ---
-## ⚠️ Caveats / Notes
-1. Regarding Bluetooth Headphones: Due to the lack of a Bluetooth test device in the developer's environment, this specific feature has not been fully tested yet. Please keep this in mind during use.
 
+## 🎧 Bluetooth Connection & Pairing
 
+Bluetooth headphone connection testing has been successfully completed, and it works perfectly!
 
+<img width="480" height="360" alt="Bluetooth Pairing Screenshot" src="https://github.com/user-attachments/assets/73d0cec4-ddeb-406d-916d-0cdcb788533a" />
+
+> [!CAUTION]
+> **⚠️ Important Security Permission Note**
+> If you encounter a security-related error message when trying to connect after pairing, you must grant the secure settings permission via ADB by running the following script:
+
+```bash
+adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
+```
 ---
 # How to Create a Custom Theme for JJ Launcher
 
