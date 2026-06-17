@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -55,6 +56,14 @@ import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 
 public class MainActivity extends Activity {
+    // 주의: 주소 맨 끝에 반드시 슬래시(/)를 붙여주세요!
+    private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
+    private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
+
+    // 🚀 [추가] 오디오 채널을 항시 대기시키는 전역 변수
+    private android.bluetooth.BluetoothProfile globalA2dp;
+    private BluetoothDevice targetDeviceForAudio = null; // 🚀 [추가] 좀비처럼 물고 늘어질 타겟 기기
+    private boolean isBtConnectingState = false;
     // 💡 [추가] 퀵 스크롤 (알파벳 인덱스) 관련 변수들
     private TextView tvFastScrollLetter;
     private Handler fastScrollHandler = new Handler();
@@ -77,7 +86,7 @@ public class MainActivity extends Activity {
     // 🚀 [수정] 가로형 바(Bar) 클래스로 이름 변경!
     private WidgetBatteryBarView widgetBatteryView;
     private ImageView ivWidgetAlbum;
-
+    private String lastBrowserFocusText = "";
     // 🚀 [추가] 앨범 위젯 전용 제목/가수 변수
     private TextView tvWidgetAlbumTitle;
     private TextView tvWidgetAlbumArtist;
@@ -156,6 +165,7 @@ public class MainActivity extends Activity {
     private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 텍스트뷰에서 이미지뷰로 변경!
     private ProgressBar playerProgress, volumeProgress, pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
+    // 💡 [수정] 수동 APP_VERSION 변수는 지우고 서버 폴더 주소만 적습니다.
 
     private TextView tvServerStatus, tvServerIp;
     private Button btnServerToggle;
@@ -210,7 +220,7 @@ public class MainActivity extends Activity {
     private int currentEqPresetIndex = 0;
 
     private int lastSettingsFocusIndex = 1;
-
+    private int currentSettingsDepth = 1;
     private boolean isScreenSleeping = false;
     private long lastScreenOnTime = 0;
     // 💡 [추가] 커스텀 배터리 뷰 변수
@@ -271,7 +281,30 @@ public class MainActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
 
-            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+            // 🚀 [여기 통째로 추가!!] 시스템의 페어링 팝업을 강제로 가로채서 자동 승인해 버리는 무적의 코드
+            if ("android.bluetooth.device.action.PAIRING_REQUEST".equals(action)) {
+                try {
+                    BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    // 어떤 종류의 비밀번호를 요구하는지 파악합니다.
+                    int pairingVariant = intent.getIntExtra("android.bluetooth.device.extra.PAIRING_VARIANT", 0);
+
+                    // 1. PIN 번호(0000)를 요구하는 경우
+                    if (pairingVariant == 0) {
+                        byte[] pin = (byte[]) BluetoothDevice.class.getMethod("convertPinToBytes", String.class).invoke(null, "0000");
+                        device.getClass().getMethod("setPin", byte[].class).invoke(device, pin);
+                    }
+                    // 2. 단순 연결 확인(OK)을 요구하는 경우
+                    else {
+                        device.getClass().getMethod("setPairingConfirmation", boolean.class).invoke(device, true);
+                    }
+
+                    // 🚀 핵심: 우리가 몰래 승인했으니, 시스템이 화면에 띄우려던 에러나 비밀번호 팝업을 찢어버립니다(취소)!
+                    abortBroadcast();
+                    Toast.makeText(context, "Auto-Pairing Bypass: " + device.getName(), Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {}
+            }
+            // (이 아래부터는 기존 코드 그대로 이어집니다)
+            else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                 isScreenSleeping = true;
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 isScreenSleeping = false;
@@ -306,10 +339,25 @@ public class MainActivity extends Activity {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                 if (state == BluetoothAdapter.STATE_ON) {
                     ivStatusBluetooth.setVisibility(View.VISIBLE);
-                    ivStatusBluetooth.setColorFilter(0xFF5555FF);
+                    ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
+
+                    // 🚀 [추가] 블루투스가 켜지는 순간, A2DP 엔진을 잊지 않고 미리 세팅합니다!
+                    BluetoothAdapter.getDefaultAdapter().getProfileProxy(context, new android.bluetooth.BluetoothProfile.ServiceListener() {
+                        @Override
+                        public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                            if (profile == BluetoothProfile.A2DP) globalA2dp = proxy;
+                        }
+                        @Override
+                        public void onServiceDisconnected(int profile) {
+                            if (profile == BluetoothProfile.A2DP) globalA2dp = null;
+                        }
+                    }, BluetoothProfile.A2DP);
+
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
+                    globalA2dp = null; // 🚀 블루투스가 꺼지면 엔진도 같이 초기화
                 }
+                // (이하 기존 코드 유지)
                 if (currentScreenState == STATE_SETTINGS)
                     buildSettingsUI();
                 else if (currentScreenState == STATE_BLUETOOTH)
@@ -339,12 +387,68 @@ public class MainActivity extends Activity {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 String deviceName = device.getName();
                 String deviceAddress = device.getAddress();
-                if (deviceName != null && !foundBtDevices.contains(deviceAddress)) {
+                // 🚀 ⭕ [수정] 이름이 아직 안 뜬 기기(null)라도 절대 버리지 말고 'Unknown Device (맥주소)'로 목록에 띄웁니다!
+                String displayName = (deviceName != null && !deviceName.trim().isEmpty()) ? deviceName : "Unknown (" + deviceAddress + ")";
+
+                if (!foundBtDevices.contains(deviceAddress)) {
                     foundBtDevices.add(deviceAddress);
-                    // 💡 새로 발견된 낯선 기기는 isPaired = false 로 보냅니다.
-                    addBluetoothItemToUI(deviceName, device, false);
+                    // 새로 발견된 기기는 무조건 목록에 추가!
+                    addBluetoothItemToUI(displayName, device, false);
                 }
-            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+            }
+            else if ("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED".equals(action)) {
+                int profileState = intent.getIntExtra("android.bluetooth.profile.extra.STATE", -1);
+
+                // 🚀 [수정] 연결이 완전히 성공(2)하거나 실패해서 끊겼을(0) 때만 잠금을 풀고 새로고침합니다.
+                if (profileState == BluetoothProfile.STATE_CONNECTED || profileState == BluetoothProfile.STATE_DISCONNECTED) {
+                    isBtConnectingState = false; // 잠금 해제!
+
+                    if (currentScreenState == STATE_BLUETOOTH) {
+                        new Handler().postDelayed(new Runnable() {
+                            @Override
+                            public void run() { startBluetoothScan(); }
+                        }, 300);
+                    }
+                }
+            }
+            else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                // 🚀 [수정] 연결 중(isBtConnectingState == true)일 때는 화면을 절대 새로 그리지 못하게 막아 포커스 떨림을 원천 차단합니다!
+                if (currentScreenState == STATE_BLUETOOTH && !isBtConnectingState) {
+                    new Handler().postDelayed(new Runnable() {
+                        public void run() { startBluetoothScan(); }
+                    }, 300);
+                }
+                int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                if (state == BluetoothDevice.BOND_BONDED) {
+                    BluetoothDevice bondedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    targetDeviceForAudio = bondedDevice; // 타겟 온!
+
+                    BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                    if (adapter != null && adapter.isDiscovering()) adapter.cancelDiscovery();
+
+                    Toast.makeText(context, "Auto-Connecting Audio...", Toast.LENGTH_SHORT).show();
+                    if (globalA2dp != null) {
+                        try {
+                            java.lang.reflect.Method connectMethod = globalA2dp.getClass().getMethod("connect", BluetoothDevice.class);
+                            connectMethod.invoke(globalA2dp, bondedDevice);
+                        } catch (Exception e) {}
+                    }
+                }
+            }
+            // 🚀 [여기에 통째로 추가!! 핵심 2: 좀비 재시도 로직]
+            else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
+                BluetoothDevice disconnectedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                // 방금 연결하려던 타겟이 끊어졌다면? 포기하지 않고 0.1초 만에 즉시 다시 들이박기!
+                if (targetDeviceForAudio != null && disconnectedDevice != null && targetDeviceForAudio.getAddress().equals(disconnectedDevice.getAddress())) {
+                    if (globalA2dp != null) {
+                        try {
+                            java.lang.reflect.Method connectMethod = globalA2dp.getClass().getMethod("connect", BluetoothDevice.class);
+                            connectMethod.invoke(globalA2dp, disconnectedDevice);
+                        } catch (Exception e) {}
+                    }
+                }
+            }
+             else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 btnScanBt.setText("Scan Complete (Retry)");
             } else if (WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(action)) {
                 WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -386,7 +490,19 @@ public class MainActivity extends Activity {
                 System.exit(1);
             }
         });
-
+// 🚀 [추가] A2DP 오디오 통제권을 미리 확보해 둡니다.
+        BluetoothAdapter.getDefaultAdapter().getProfileProxy(this, new android.bluetooth.BluetoothProfile.ServiceListener() {
+            @Override
+            public void onServiceConnected(int profile, android.bluetooth.BluetoothProfile proxy) {
+                if (profile == android.bluetooth.BluetoothProfile.A2DP) {
+                    globalA2dp = proxy; // 장전 완료!
+                }
+            }
+            @Override
+            public void onServiceDisconnected(int profile) {
+                if (profile == android.bluetooth.BluetoothProfile.A2DP) globalA2dp = null;
+            }
+        }, android.bluetooth.BluetoothProfile.A2DP);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_main);
@@ -405,7 +521,8 @@ public class MainActivity extends Activity {
         layoutLoadingOverlay.addView(spinner);
 
         TextView tvLoading = new TextView(this);
-        tvLoading.setText("Loading Library...\nPlease Wait.");
+        // 🚀 [수정 완료] 스캔 안내와 화면 꺼짐 경고 메시지 통합!
+        tvLoading.setText("Scanning Media Library...\nPlease wait and do not turn off the screen.");
         tvLoading.setTextColor(0xFFFFFFFF); // 확실하고 선명한 흰색 글씨!
         tvLoading.setTextSize(20);
         tvLoading.setGravity(android.view.Gravity.CENTER);
@@ -869,6 +986,9 @@ public class MainActivity extends Activity {
                 }
 
                 changeScreen(STATE_BROWSER);
+                if (isCustomScanning) {
+                    showLoadingPopup();
+                }
             }
         });
         btnSettings.setOnClickListener(new View.OnClickListener() {
@@ -913,6 +1033,11 @@ public class MainActivity extends Activity {
         clockHandler.post(clockTask);
 
         IntentFilter filter = new IntentFilter();
+        // 🚀 [여기 추가 1] 시스템보다 우리가 먼저 가로채기 위해 안테나 우선순위를 최대로 높입니다!
+        filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
+
+        // 🚀 [여기 추가 2] 시스템이 페어링 팝업을 띄우려는 신호를 감지합니다!
+        filter.addAction("android.bluetooth.device.action.PAIRING_REQUEST");
         filter.addAction(Intent.ACTION_MEDIA_SCANNER_STARTED);
         filter.addAction(Intent.ACTION_MEDIA_SCANNER_FINISHED);
         filter.addAction(Intent.ACTION_BATTERY_CHANGED);
@@ -922,6 +1047,9 @@ public class MainActivity extends Activity {
         filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
         filter.addAction(BluetoothDevice.ACTION_FOUND);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        filter.addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED");
         filter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
@@ -930,12 +1058,14 @@ public class MainActivity extends Activity {
         try {
             if (audioManager.isWiredHeadsetOn()) {
                 ivStatusHeadphone.setVisibility(View.VISIBLE);
-                ivStatusHeadphone.setColorFilter(0xFF00FFFF);
+                // 💡 (보너스) 유선 이어폰 꼈을 때 나오는 하늘색(0xFF00FFFF)도 통일감을 위해 흰색으로 바꾸시면 예쁩니다!
+                ivStatusHeadphone.setColorFilter(0xFFFFFFFF);
             }
             BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
             if (ba != null && ba.isEnabled()) {
                 ivStatusBluetooth.setVisibility(View.VISIBLE);
-                ivStatusBluetooth.setColorFilter(0xFF5555FF);
+                // 🚀 [수정] 여기도 파란색을 깔끔한 흰색으로 변경!
+                ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
             }
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null && wm.isWifiEnabled()) {
@@ -967,10 +1097,13 @@ public class MainActivity extends Activity {
             btnNowPlaying.requestFocus(); // 평소 앱을 켤 때는 원래대로 메인 메뉴 포커스
         }
     }
-    // 💡 [추가] 화면 전체를 덮는 확실한 로딩 팝업 띄우기 함수
+    // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
     private void showLoadingPopup() {
         if (layoutLoadingOverlay != null) {
             layoutLoadingOverlay.setVisibility(View.VISIBLE);
+
+            // 🚀 [핵심 기술] 스캔하는 동안 시스템이 화면을 절대 끄지 못하도록 강제 명령을 내립니다!
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
             // 🚀 스캔이 끝날 때까지 감시하다가, 끝나면 자동으로 팝업을 닫고 휠을 풀어줍니다!
             final Handler checker = new Handler();
@@ -979,6 +1112,8 @@ public class MainActivity extends Activity {
                 public void run() {
                     if (!isCustomScanning) {
                         layoutLoadingOverlay.setVisibility(View.GONE);
+                        // 🚀 스캔이 완료되면 화면 꺼짐 방지 명령을 해제하여 원래대로 돌아갑니다.
+                        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     } else {
                         checker.postDelayed(this, 200); // 0.2초마다 검사
                     }
@@ -1233,22 +1368,12 @@ public class MainActivity extends Activity {
     }
     // 💡 [추가] 테마 리스트를 쫙 보여주고 사용자가 고를 수 있게 하는 전용 화면
     private void buildThemeSelectorUI() {
+        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         File themeFolder = new File("/storage/sdcard0/Y1_Themes");
         ThemeManager.loadThemesFromStorage(themeFolder);
 
         containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ SELECT APP THEME ━");
 
-        Button btnBack = createListButton("〈 CANCEL & BACK");
-        btnBack.setTextColor(ThemeManager.getTextColorSecondary());
-        btnBack.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildSettingsUI(); // 다시 설정 메인으로 돌아갑니다.
-            }
-        });
-        containerSettingsItems.addView(btnBack);
 
         // SD카드 폴더에서 읽어온 테마들을 하나씩 버튼으로 만듭니다.
         for (int i = 0; i < ThemeManager.availableThemes.size(); i++) {
@@ -1702,81 +1827,57 @@ public class MainActivity extends Activity {
 
     @android.annotation.SuppressLint("MissingPermission")
     private void startBluetoothScan() {
+        // 🚀 [포커스 복구 엔진] 화면을 싹 지우기 전에 휠 위치 기억
+        int currentFocusIndex = 0;
+        if (containerBtItems != null) {
+            for (int i = 0; i < containerBtItems.getChildCount(); i++) {
+                if (containerBtItems.getChildAt(i).hasFocus()) {
+                    currentFocusIndex = i;
+                    break;
+                }
+            }
+        }
+        final int targetFocusIndex = currentFocusIndex;
+
         final BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
         boolean isOn = false;
         String statusText = "OFF";
 
         if (ba != null) {
             int state = ba.getState();
-            if (state == BluetoothAdapter.STATE_ON) {
-                isOn = true;
-                statusText = "ON";
-            } else if (state == BluetoothAdapter.STATE_TURNING_ON || state == BluetoothAdapter.STATE_TURNING_OFF) {
-                statusText = "Wait...";
-            }
+            if (state == BluetoothAdapter.STATE_ON) { isOn = true; statusText = "ON"; }
+            else if (state == BluetoothAdapter.STATE_TURNING_ON || state == BluetoothAdapter.STATE_TURNING_OFF) { statusText = "Wait..."; }
         }
 
-        View existingToggle = containerBtItems.findViewById(999991);
-        if (existingToggle == null) {
-            final LinearLayout btnToggle = createSettingRow("Bluetooth Power", statusText);
-            btnToggle.setId(999991);
-            btnToggle.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    if (ba != null) {
-                        boolean isCurrentlyOn = ba.isEnabled();
-                        if (isCurrentlyOn) {
-                            Toast.makeText(MainActivity.this, "Turning Bluetooth OFF...", Toast.LENGTH_SHORT).show();
-                            ba.disable();
-                        } else {
-                            Toast.makeText(MainActivity.this, "Turning Bluetooth ON...", Toast.LENGTH_SHORT).show();
-                            ba.enable();
-                        }
-                        TextView tvRight = (TextView) btnToggle.getChildAt(1);
-                        tvRight.setText("Wait...");
-                        if (!btnToggle.hasFocus())
-                            tvRight.setTextColor(0xFFFFFF00);
-                    }
-                }
-            });
-            containerBtItems.addView(btnToggle, 0);
+        containerBtItems.removeAllViews(); // 화면 싹 지우기
 
-            if (btnScanBt.getParent() != null) {
-                ((android.view.ViewGroup) btnScanBt.getParent()).removeView(btnScanBt);
-            }
-            containerBtItems.addView(btnScanBt);
-        } else {
-            LinearLayout btnToggle = (LinearLayout) existingToggle;
-            TextView tvRight = (TextView) btnToggle.getChildAt(1);
-            tvRight.setText(statusText);
-            if (!btnToggle.hasFocus()) {
-                if (statusText.equals("ON"))
-                    tvRight.setTextColor(0xFFFFFFFF);
-                else if (statusText.equals("OFF"))
-                    tvRight.setTextColor(0xFF888888);
-                else
-                    tvRight.setTextColor(0xFFFFFFFF);
-            }
-            for (int i = containerBtItems.getChildCount() - 1; i > 0; i--) {
-                View v = containerBtItems.getChildAt(i);
-                if (v != btnScanBt) {
-                    containerBtItems.removeViewAt(i);
+        // 1. 전원 토글 버튼
+        final LinearLayout btnToggle = createSettingRow("Bluetooth Power", statusText);
+        btnToggle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                if (ba != null) {
+                    if (ba.isEnabled()) ba.disable();
+                    else ba.enable();
+                    ((TextView) btnToggle.getChildAt(1)).setText("Wait...");
                 }
             }
-        }
+        });
+        containerBtItems.addView(btnToggle);
 
         if (!isOn) {
             btnScanBt.setText("Bluetooth is OFF");
-            if (getCurrentFocus() == null && containerBtItems.getChildCount() > 0)
-                containerBtItems.getChildAt(0).requestFocus();
+            if (btnScanBt.getParent() != null) ((android.view.ViewGroup) btnScanBt.getParent()).removeView(btnScanBt);
+            containerBtItems.addView(btnScanBt);
+            restoreBluetoothFocus(targetFocusIndex);
             return;
         }
 
         btnScanBt.setText("Scanning...");
         foundBtDevices.clear();
 
-        // 🚀 1순위: 기기에 이미 페어링(저장)된 블루투스 기기들을 최상단에 먼저 깔아줍니다!
+        // 🚀 [과거 롤백] 복잡한 헤더를 빼고, 가장 잘 작동하던 단일 리스트 구조로 복귀
         try {
             java.util.Set<BluetoothDevice> pairedDevices = ba.getBondedDevices();
             if (pairedDevices != null && pairedDevices.size() > 0) {
@@ -1785,43 +1886,128 @@ public class MainActivity extends Activity {
                     addBluetoothItemToUI(device.getName() != null ? device.getName() : "Unknown Device", device, true);
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception e) {}
+
+        if (btnScanBt.getParent() != null) ((android.view.ViewGroup) btnScanBt.getParent()).removeView(btnScanBt);
+        containerBtItems.addView(btnScanBt);
+
+        if (ba.isDiscovering()) {
+            ba.cancelDiscovery();
+            new Handler().postDelayed(new Runnable() { public void run() { ba.startDiscovery(); } }, 500);
+        } else {
+            ba.startDiscovery();
         }
 
-        if (getCurrentFocus() == null && containerBtItems.getChildCount() > 0)
-            containerBtItems.getChildAt(0).requestFocus();
-
-        if (ba.isDiscovering())
-            ba.cancelDiscovery();
-        ba.startDiscovery();
+        restoreBluetoothFocus(targetFocusIndex);
     }
 
-    // 💡 페어링 상태(isPaired)를 파라미터로 받아서 색상과 아이콘을 바꾸는 함수
+    // 🚀 [포커스 복구 전용 도구]
+    private void restoreBluetoothFocus(final int targetFocusIndex) {
+        containerBtItems.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (containerBtItems.getChildCount() > 0) {
+                    if (targetFocusIndex >= 0 && targetFocusIndex < containerBtItems.getChildCount()) {
+                        View target = containerBtItems.getChildAt(targetFocusIndex);
+                        if (target.isFocusable()) {
+                            target.requestFocus();
+                            return;
+                        }
+                    }
+                    containerBtItems.getChildAt(0).requestFocus();
+                }
+            }
+        }, 50);
+    }
+
+    // 🚀 [가장 강력했던 연결 엔진 복구] 서브 메뉴, 매크로 모두 삭제!
     private void addBluetoothItemToUI(String name, final BluetoothDevice device, boolean isPaired) {
         String prefix = isPaired ? "✔ [PAIRED] " : "🎧 ";
         final Button btnDevice = createListButton(prefix + name);
 
         if (isPaired) {
-            btnDevice.setTextColor(0xFF00FF00); // 💡 페어링된 기기도 초록색!
-            btnDevice.setTypeface(null, android.graphics.Typeface.BOLD); // 💡 굵은 글씨!
+            // 오디오 실제 연결 여부 체크
+            boolean isConnected = false;
+            if (globalA2dp != null) {
+                try {
+                    int state = (int) globalA2dp.getClass().getMethod("getConnectionState", BluetoothDevice.class).invoke(globalA2dp, device);
+                    isConnected = (state == BluetoothProfile.STATE_CONNECTED);
+                } catch (Exception e) {}
+            }
+
+            if (isConnected) {
+                btnDevice.setText("🎧 [CONNECTED] " + name);
+                btnDevice.setTextColor(0xFF00FFFF); // 형광 하늘색 (또는 테마색)
+                btnDevice.setTypeface(null, android.graphics.Typeface.BOLD);
+            } else {
+                btnDevice.setTextColor(0xFF00FF00); // 초록색
+            }
         }
 
+        // 💡 1. 휠 버튼을 '짧게' 눌렀을 때 ➔ 즉시 무자비한 오디오 연결 (좀비 엔진 발동)
         btnDevice.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                Toast.makeText(MainActivity.this, "Pairing/Connecting: " + device.getName(), Toast.LENGTH_SHORT).show();
+
+                BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                if (adapter != null && adapter.isDiscovering()) adapter.cancelDiscovery(); // 스캔 강제 중지
+
+                targetDeviceForAudio = device; // 타겟 지정 (좀비 모드 On)
+
                 try {
-                    Method method = device.getClass().getMethod("createBond", (Class[]) null);
-                    method.invoke(device, (Object[]) null);
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Pairing failed.", Toast.LENGTH_SHORT).show();
-                }
+                    if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+                        Toast.makeText(MainActivity.this, "Pairing with " + device.getName() + "...", Toast.LENGTH_SHORT).show();
+                        device.getClass().getMethod("createBond", (Class[]) null).invoke(device, (Object[]) null);
+                    } else {
+                        Toast.makeText(MainActivity.this, "Connecting Audio...", Toast.LENGTH_SHORT).show();
+
+                        // 🚀 [치명적 버그 수정] 엔진이 살아있으면 즉시 연결 빔 발사!
+                        if (globalA2dp != null) {
+                            globalA2dp.getClass().getMethod("connect", BluetoothDevice.class).invoke(globalA2dp, device);
+                        } else {
+                            // 🚀 [핵심] 엔진이 증발했다면?! 백그라운드에서 다시 멱살을 잡고 끌어온 뒤 연결을 강제로 꽂아버립니다.
+                            if (adapter != null) {
+                                adapter.getProfileProxy(MainActivity.this, new android.bluetooth.BluetoothProfile.ServiceListener() {
+                                    @Override
+                                    public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                                        if (profile == BluetoothProfile.A2DP) {
+                                            globalA2dp = proxy; // 엔진 재장전!
+                                            try {
+                                                globalA2dp.getClass().getMethod("connect", BluetoothDevice.class).invoke(globalA2dp, device);
+                                            } catch (Exception e) {}
+                                        }
+                                    }
+                                    @Override
+                                    public void onServiceDisconnected(int profile) {
+                                        if (profile == BluetoothProfile.A2DP) globalA2dp = null;
+                                    }
+                                }, BluetoothProfile.A2DP);
+                            }
+                        }
+                    }
+                } catch (Exception e) {}
             }
         });
-        containerBtItems.addView(btnDevice);
-    }
 
+        // 💡 2. 휠 버튼을 '길게(1초 이상)' 꾹 눌렀을 때 ➔ 기기 삭제 (Unpair)
+        btnDevice.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                clickFeedback();
+                if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+                    try {
+                        device.getClass().getMethod("removeBond").invoke(device);
+                        Toast.makeText(MainActivity.this, "Device Deleted: " + device.getName(), Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) {}
+                }
+                return true;
+            }
+        });
+
+        // 스캔 버튼 바로 위에 쌓이도록 조립
+        containerBtItems.addView(btnDevice, containerBtItems.getChildCount() - 1);
+    }
     private void startWifiScan() {
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         boolean isOn = wm != null && wm.isWifiEnabled();
@@ -2044,12 +2230,12 @@ public class MainActivity extends Activity {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
-                    // 🚀 포커스 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
                     layout.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     ((TextView) layout.getChildAt(0)).setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     ((TextView) layout.getChildAt(1)).setTextColor(ThemeManager.getListButtonFocusedTextColor());
 
-                    if (currentScreenState == STATE_SETTINGS) {
+                    // 🚀 [버그 완벽 차단] 깊이가 0(메인 셋팅)일 때만 기억하도록 제한을 겁니다!
+                    if (currentScreenState == STATE_SETTINGS && currentSettingsDepth == 0) {
                         int idx = containerSettingsItems.indexOfChild(layout);
                         if (idx != -1) lastSettingsFocusIndex = idx;
                     }
@@ -2114,6 +2300,7 @@ public class MainActivity extends Activity {
         return btn;
     }
     private void buildSettingsUI() {
+        currentSettingsDepth = 0; // 🚀 메인 설정은 깊이 0
         final int targetFocusIndex = lastSettingsFocusIndex;
         containerSettingsItems.removeAllViews();
 
@@ -2491,6 +2678,21 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnTime);
+// 🚀 [수정] 메인 설정 화면에서는 내 버전만 간단히 껍데기에 보여주고, 누르면 서브 페이지로 이동합니다!
+        String myVersionName = "1.0";
+        try {
+            myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {}
+
+        LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
+        btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildUpdateSettingsUI(); // 🚀 팝업 대신 새로 만든 서브 페이지를 엽니다!
+            }
+        });
+        containerSettingsItems.addView(btnUpdateCheck);
 
         // 🚀 [수정] 오염되지 않은 안전한 백업 인덱스(targetFocusIndex)를 사용하여 정확한 위치로 강제 이동!
         containerSettingsItems.postDelayed(new Runnable() {
@@ -2513,22 +2715,141 @@ public class MainActivity extends Activity {
             }
         }, 50);
     } // buildSettingsUI 함수 끝/ buildSettingsUI 함수 끝
+    // 💡 [추가] 애플/안드로이드 공식 스타일의 '업데이트 전용 서브 페이지'
+    private void buildUpdateSettingsUI() {
+        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        containerSettingsItems.removeAllViews();
+
+        // 1. 내 기기의 현재 버전 가져오기
+        String myVersionName = "1.0";
+        int tempCode = 1;
+        try {
+            android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            myVersionName = pInfo.versionName;
+            tempCode = pInfo.versionCode;
+        } catch (Exception e) {}
+
+        final int myVersionCode = tempCode;
+
+        // 2. 현재 버전 표시 줄
+        LinearLayout rowCurrent = createSettingRow("Current Version", "v" + myVersionName);
+        containerSettingsItems.addView(rowCurrent);
+
+        // 3. 서버 버전 표시 줄 (처음엔 Checking... 으로 표시)
+        final LinearLayout rowServer = createSettingRow("Latest Version", "Checking...");
+        containerSettingsItems.addView(rowServer);
+
+        createCategoryHeader("━━━━━━━━━━━━━━");
+
+        // 4. 하단 업데이트 실행 버튼 (서버 확인 전까지는 숨겨둡니다)
+        final Button btnExecuteUpdate = createListButton("🚀 DOWNLOAD & UPDATE");
+        btnExecuteUpdate.setVisibility(View.GONE);
+        containerSettingsItems.addView(btnExecuteUpdate);
+
+        // 🚀 5. 화면이 열리자마자 백그라운드에서 서버의 output-metadata.json을 읽어옵니다!
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    java.net.URL url = new java.net.URL(METADATA_URL);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+
+                    // 🚀 [필수 1] 깃허브 보안(TLS 1.2) 뚫기: 만들어둔 비밀 무기 장착!
+                    if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                        try { ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory()); } catch (Exception e) {}
+                    }
+
+                    conn.setInstanceFollowRedirects(false); // 수동 추적을 위해 기본 기능 끄기
+                    conn.setConnectTimeout(5000);
+
+                    // 🚀 [필수 2] 깃허브 리다이렉트(주소 우회) 끝까지 쫓아가기!
+                    int status = conn.getResponseCode();
+                    if (status == 301 || status == 302 || status == 303) {
+                        String newUrl = conn.getHeaderField("Location");
+                        conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
+                        if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                            try { ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory()); } catch (Exception e) {}
+                        }
+                    }
+
+                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) sb.append(line);
+                    in.close();
+
+                    org.json.JSONObject root = new org.json.JSONObject(sb.toString());
+                    org.json.JSONArray elements = root.getJSONArray("elements");
+                    org.json.JSONObject element = elements.getJSONObject(0);
+
+                    final int serverVersionCode = element.getInt("versionCode");
+                    final String serverVersionName = element.getString("versionName");
+                    final String apkFileName = element.getString("outputFile");
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            // 서버 버전 텍스트를 업데이트 (예: Checking... -> v1.2)
+                            TextView tvServer = (TextView) rowServer.getChildAt(1);
+                            tvServer.setText("v" + serverVersionName);
+
+                            // 🚀 [비교] 업데이트가 필요할 때
+                            if (serverVersionCode > myVersionCode) {
+                                tvServer.setTextColor(0xFF00FF00); // 서버 버전을 눈에 띄는 초록색으로!
+
+                                btnExecuteUpdate.setVisibility(View.VISIBLE);
+                                btnExecuteUpdate.setTextColor(0xFFFFFFFF);
+                                btnExecuteUpdate.setTypeface(null, android.graphics.Typeface.BOLD);
+                                btnExecuteUpdate.setOnClickListener(new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        clickFeedback();
+                                        String downloadUrl = SERVER_BASE_URL + apkFileName;
+                                        downloadAndInstallApk(downloadUrl); // 다운로드 엔진 호출
+                                    }
+                                });
+                            }
+                            // 🚀 [비교] 이미 최신 버전일 때
+                            else {
+                                tvServer.setTextColor(ThemeManager.getTextColorSecondary());
+
+                                btnExecuteUpdate.setText("✔ ALREADY UP TO DATE");
+                                btnExecuteUpdate.setVisibility(View.VISIBLE);
+                                btnExecuteUpdate.setTextColor(ThemeManager.getTextColorSecondary());
+                                btnExecuteUpdate.setOnClickListener(new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        clickFeedback();
+                                        Toast.makeText(MainActivity.this, "You are using the latest version.", Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                            }
+                        }
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            TextView tvServer = (TextView) rowServer.getChildAt(1);
+                            tvServer.setText("Network Error");
+                            tvServer.setTextColor(0xFFFF4444); // 빨간색 에러 표시
+                        }
+                    });
+                }
+            }
+        }).start();
+
+        // 진입 시 자동으로 두 번째 버튼(Current Version) 쪽에 포커스
+        if (containerSettingsItems.getChildCount() > 1) {
+            containerSettingsItems.getChildAt(1).requestFocus();
+        }
+    }
+
     // 💡 [추가] 위젯을 껐다 켜는 전용 서브 메뉴 화면
     private void buildWidgetSettingsUI() {
+        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ HOME SCREEN WIDGETS ━");
 
-        Button btnBack = createListButton("〈 CANCEL & BACK");
-        btnBack.setTextColor(0xFF888888);
-        btnBack.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                lastSettingsFocusIndex = 8; // 설정 메뉴의 위젯 버튼 위치로 복귀
-                buildSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnBack);
 
         // 1. 시계 위젯 스위치
         final LinearLayout btnClock = createSettingRow("Widget: Clock & Date", isWidgetClockOn ? "ON" : "OFF");
@@ -2578,21 +2899,9 @@ public class MainActivity extends Activity {
     }
     // 💡 [추가] 배경화면 지정 및 삭제를 하나로 묶은 서브 메뉴 화면
     private void buildBackgroundSettingsUI() {
+        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ BACKGROUND SETTINGS ━");
 
-        Button btnBack = createListButton("〈 CANCEL & BACK");
-        btnBack.setTextColor(0xFF888888);
-        btnBack.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                // 🚀 뒤로 가기를 누르면 원래 있던 설정 메뉴 위치(약 16번째 항목)로 부드럽게 복귀합니다.
-                lastSettingsFocusIndex = 16;
-                buildSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnBack);
 
         // 1. 새로운 배경 지정 버튼
         LinearLayout btnSelectBg = createSettingRow("Select New Background", "〉 ");
@@ -2629,6 +2938,149 @@ public class MainActivity extends Activity {
         if (containerSettingsItems.getChildCount() > 1) {
             containerSettingsItems.getChildAt(1).requestFocus();
         }
+    }
+
+    // 💡 [개조 완료] 다운로드 진행률(%)과 용량(MB)을 실시간 팝업으로 보여주는 엔진!
+    private void downloadAndInstallApk(final String apkUrl) {
+        // 🚀 1. 화면에 띄울 '다운로드 진행률 팝업창'의 디자인을 자바 코드로 직접 조립합니다.
+        final ProgressBar progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(100);
+
+        final TextView tvProgress = new TextView(this);
+        tvProgress.setGravity(android.view.Gravity.CENTER);
+        tvProgress.setPadding(0, 30, 0, 0);
+        tvProgress.setTextSize(16);
+        tvProgress.setText("Connecting to server...");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 50, 50, 50);
+        layout.addView(progressBar);
+        layout.addView(tvProgress);
+
+        final AlertDialog progressDialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Downloading Update 🚀")
+                .setView(layout)
+                .setCancelable(false) // 💡 다운로드 중에 다른 곳을 터치해도 창이 닫히지 않도록 잠급니다!
+                .create();
+
+        progressDialog.show();
+
+        // 🚀 2. 백그라운드 다운로드 쓰레드 시작
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    java.net.URL url = new java.net.URL(apkUrl);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+
+                    // 🚀 [필수 1] 깃허브 보안(TLS 1.2) 뚫기
+                    if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                        try { ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory()); } catch (Exception e) {}
+                    }
+
+                    conn.setInstanceFollowRedirects(false);
+
+                    // 🚀 [여기 추가!!] 안드로이드의 자동 압축(GZIP) 오지랖 끄기! (용량 뻥튀기 원천 차단)
+                    conn.setRequestProperty("Accept-Encoding", "identity");
+                    conn.setUseCaches(false);
+                    conn.setRequestProperty("Cache-Control", "no-cache");
+                    // 🚀 [필수 2] 깃허브 리다이렉트(주소 우회) 쫓아가서 파일 낚아채기!
+                    int status = conn.getResponseCode();
+                    if (status == 301 || status == 302 || status == 303) {
+                        String newUrl = conn.getHeaderField("Location");
+                        conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
+                        if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                            try { ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory()); } catch (Exception e) {}
+                        }
+
+                        // 🚀 [여기 추가!!] 리다이렉트 된 진짜 다운로드 주소에서도 압축 금지 명령 다시 내리기!
+                        conn.setRequestProperty("Accept-Encoding", "identity");
+                    }
+
+                    conn.connect();
+
+                    // 서버로부터 파일의 전체 총 용량을 알아냅니다.
+                    final int fileLength = conn.getContentLength();
+
+                    // ❌ [기존 다운로드 경로 지정 코드를 전부 지워주세요]
+                    // File sdcard = android.os.Environment.getExternalStorageDirectory();
+                    // ...
+
+                    // 🚀 ⭕ [새로운 코드로 덮어쓰기] SD카드의 간섭을 받지 않는 '앱 전용 내부 금고'를 생성합니다!
+                    File dir = getDir("update", Context.MODE_PRIVATE);
+                    final File updateFile = new File(dir, "Y1_Launcher_Update.apk");
+
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(updateFile);
+                    java.io.InputStream is = conn.getInputStream();
+
+                    byte[] buffer = new byte[4096]; // 💡 다운로드 속도를 위해 버퍼를 4배 늘렸습니다.
+                    int len;
+                    long total = 0;
+
+                    // 파일을 조각조각 다운로드 받으면서 동시에 화면에 퍼센트를 쏴줍니다.
+                    while ((len = is.read(buffer)) != -1) {
+                        total += len;
+                        fos.write(buffer, 0, len);
+
+                        if (fileLength > 0) {
+                            final int progress = (int) (total * 100 / fileLength);
+                            final long downloadedMB = total / (1024 * 1024);
+                            final long totalMB = fileLength / (1024 * 1024);
+
+                            // 화면(UI)을 조작하는 것은 반드시 메인 쓰레드에서 해야 합니다.
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    progressBar.setProgress(progress);
+                                    tvProgress.setText(progress + "%   (" + downloadedMB + "MB / " + totalMB + "MB)");
+                                }
+                            });
+                        }
+                    }
+                    fos.close();
+                    is.close();
+// (앞부분 생략) 루프가 끝난 직후 찌꺼기 검사 부분부터 덮어쓰기
+
+                    if (fileLength > 0 && total != fileLength) {
+                        if (updateFile.exists()) updateFile.delete();
+                        throw new Exception("Incomplete Download: Size Mismatch");
+                    }
+
+                    // 🚀 [여기서부터 덮어쓰기!!] 다운로드가 끝나면 창을 바로 닫지 않고, 서버가 준 용량과 내가 받은 용량을 화면에 박제합니다!
+                    final String debugMessage = "Server told: " + fileLength + " bytes\nActually got: " + total + " bytes";
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            // 1. 프로그레스 바를 꽉 채우고, 우리가 확인해야 할 핵심 숫자를 화면에 띄웁니다.
+                            progressBar.setProgress(100);
+                            tvProgress.setText("Download Finished! Waiting 3 sec...\n\n" + debugMessage);
+                            tvProgress.setTextColor(0xFF000000); // 눈에 확 띄게 노란색으로!
+
+                            // 2. 정확히 3초(3000ms) 동안 화면을 멈춰둔 뒤에 팝업을 닫고 설치를 시도합니다.
+                            new Handler().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    progressDialog.dismiss();
+                                    installApk(updateFile);
+                                }
+                            }, 3000);
+                        }
+                    });
+
+                    // 👆 [여기까지 덮어쓰기 끝] 👆
+                } catch (Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            progressDialog.dismiss();
+                            Toast.makeText(MainActivity.this, "Download failed. Check your internet connection.", Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
     }
     private boolean isAudioFile(File f) {
         if (f == null || !f.isFile())
@@ -2728,6 +3180,7 @@ public class MainActivity extends Activity {
             btnArtist.setOnClickListener(v -> {
                 clickFeedback();
                 currentBrowserMode = BROWSER_ARTISTS;
+                virtualQueryValue = ""; // 🚀 [추가] 메인에서 새로 들어올 때는 기억을 지워 맨 위부터 봅니다.
                 buildVirtualCategories("ARTIST");
             });
             containerBrowserItems.addView(btnArtist);
@@ -2736,6 +3189,7 @@ public class MainActivity extends Activity {
             btnAlbum.setOnClickListener(v -> {
                 clickFeedback();
                 currentBrowserMode = BROWSER_ALBUMS;
+                virtualQueryValue = ""; // 🚀 [추가] 메인에서 새로 들어올 때는 기억을 지워 맨 위부터 봅니다.
                 buildVirtualCategories("ALBUM");
             });
             containerBrowserItems.addView(btnAlbum);
@@ -2751,15 +3205,14 @@ public class MainActivity extends Activity {
 
             // 🚀 시스템을 거치지 않는 '앱 자체 스캔 엔진' 버튼!
             Button btnScan = createListButton(isCustomScanning ? "⏳ Scanning Media..." : "🔄 Scan Media Library");
-            btnScan.setTextColor(isCustomScanning ? 0xFF000000 : 0xFFFFFFFF);
+            btnScan.setTextColor(0xFFFFFFFF);
             btnScan.setOnClickListener(v -> {
                 clickFeedback();
                 if (isCustomScanning)
                     return;
 
                 isCustomScanning = true;
-                btnScan.setText("⏳ Scanning Media...");
-                btnScan.setTextColor(0xFF000000);
+                showLoadingPopup();
 
                 new Thread(new Runnable() {
                     @Override
@@ -2794,6 +3247,30 @@ public class MainActivity extends Activity {
             if (containerBrowserItems.getChildCount() > 0)
                 containerBrowserItems.getChildAt(0).requestFocus();
         }
+        // 🚀 [추가] 화면이 다 그려진 후(50ms 뒤), 방금 나온 폴더/메뉴를 찾아 자동으로 포커스를 꽂습니다!
+        containerBrowserItems.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                boolean found = false;
+                if (!lastBrowserFocusText.isEmpty()) {
+                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
+                        View v = containerBrowserItems.getChildAt(i);
+                        if (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText)) {
+                            v.requestFocus();
+                            if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
+                                ((android.widget.ScrollView) containerBrowserItems.getParent()).requestChildFocus(containerBrowserItems, v);
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found && containerBrowserItems.getChildCount() > 0) {
+                    containerBrowserItems.getChildAt(0).requestFocus(); // 못 찾으면 맨 위로
+                }
+                lastBrowserFocusText = ""; // 🚀 1회용이므로 사용 후 즉시 기억 포맷
+            }
+        }, 50);
     }
 
     // 💡 3. 자체 DB에서 아티스트/앨범 카테고리 추출 (초고속 엔진 적용!)
@@ -2826,15 +3303,33 @@ public class MainActivity extends Activity {
         CategoryListAdapter adapter = new CategoryListAdapter(categories, type);
         listVirtualSongs.setAdapter(adapter);
 
-        listVirtualSongs.post(new Runnable() {
+        // 🚀 [여기서부터 덮어쓰기!] 이전에 들어갔던 아티스트/앨범의 이름을 찾아 인덱스를 계산합니다.
+        // 🚀 [수정] 이전에 들어갔던 아티스트/앨범의 이름을 찾아 인덱스를 계산합니다.
+        final int targetIndex = categories.indexOf(virtualQueryValue);
+
+        listVirtualSongs.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (listVirtualSongs.getChildCount() > 0) {
+                if (targetIndex >= 0) {
+                    // 1. 단번에 해당 위치를 화면 최상단으로 쫙 끌어옵니다! (완벽 고정)
+                    listVirtualSongs.setSelectionFromTop(targetIndex, 0);
+
+                    // 2. 약간의 딜레이를 주어 화면 배치가 끝나면, 정확히 그 칸에 휠 포커스를 꽂습니다.
+                    listVirtualSongs.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            int visiblePos = targetIndex - listVirtualSongs.getFirstVisiblePosition();
+                            if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
+                                listVirtualSongs.getChildAt(visiblePos).requestFocus();
+                            }
+                        }
+                    }, 50);
+                } else if (listVirtualSongs.getChildCount() > 0) {
                     listVirtualSongs.getChildAt(0).requestFocus();
                 }
             }
-        });
-    }
+        }, 50);
+    } // buildVirtualCategories 함수 끝
     // 💡 [추가] 이름에서 앞의 특수문자를 무시하고 순수 '첫 글자(알파벳)'만 뽑아내는 함수
     private char getInitialChar(String text) {
         if (text == null || text.isEmpty()) return '#';
@@ -2957,7 +3452,8 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
                         isPickingBackground = false;
-                        changeScreen(STATE_MENU);
+                        changeScreen(STATE_SETTINGS);
+                        buildBackgroundSettingsUI();
                     } else {
                         currentFolder = currentFolder.getParentFile();
                         buildFileBrowserUI();
@@ -3024,7 +3520,8 @@ public class MainActivity extends Activity {
 
                         Toast.makeText(MainActivity.this, "Background Applied!", Toast.LENGTH_SHORT).show();
                         isPickingBackground = false;
-                        changeScreen(STATE_MENU);
+                        changeScreen(STATE_SETTINGS);
+                        buildBackgroundSettingsUI();
                     }
                 });
                 containerBrowserItems.addView(b);
@@ -3056,19 +3553,75 @@ public class MainActivity extends Activity {
         }
         if (containerBrowserItems.getChildCount() > 0)
             containerBrowserItems.getChildAt(0).requestFocus();
+
+        // 🚀 [추가] 화면이 다 그려진 후(50ms 뒤), 방금 나온 폴더/메뉴를 찾아 자동으로 포커스를 꽂습니다!
+        containerBrowserItems.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                boolean found = false;
+                if (!lastBrowserFocusText.isEmpty()) {
+                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
+                        View v = containerBrowserItems.getChildAt(i);
+                        if (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText)) {
+                            v.requestFocus();
+                            if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
+                                ((android.widget.ScrollView) containerBrowserItems.getParent()).requestChildFocus(containerBrowserItems, v);
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found && containerBrowserItems.getChildCount() > 0) {
+                    containerBrowserItems.getChildAt(0).requestFocus(); // 못 찾으면 맨 위로
+                }
+                lastBrowserFocusText = ""; // 🚀 1회용이므로 사용 후 즉시 기억 포맷
+            }
+        }, 50);
     }
 
     private void installApk(File apkFile) {
         try {
+            // 1. 기존 권한 개방 유지 (설치 관리자 접근용)
+            try {
+                Runtime.getRuntime().exec("chmod 777 " + apkFile.getParentFile().getAbsolutePath());
+                Runtime.getRuntime().exec("chmod 777 " + apkFile.getAbsolutePath());
+            } catch (Exception e) {}
+
+            // 🚀 2. [완벽한 해결책: 무음 백그라운드 설치(Silent Install)]
+            // 기기의 Root(su) 권한을 이용해 휠 조작이 안 되는 설치 화면을 무시해버립니다!
+            try {
+                Process process = Runtime.getRuntime().exec("su");
+                java.io.DataOutputStream os = new java.io.DataOutputStream(process.getOutputStream());
+
+                // 1단계: 강제 덮어쓰기(-r) 백그라운드 설치 명령
+                os.writeBytes("pm install -r " + apkFile.getAbsolutePath() + "\n");
+
+                // 2단계: 설치가 완료되면 런처(앱)를 곧바로 다시 실행시켜서 화면으로 복귀!
+                os.writeBytes("am start -n " + getPackageName() + "/.MainActivity\n");
+
+                os.writeBytes("exit\n");
+                os.flush();
+                os.close();
+                process.waitFor();
+
+                // 🚀 무음 설치가 성공했다면, 여기서 함수를 종료시켜 멈춰있는 플랜 B(수동 설치 화면)를 띄우지 않습니다!
+                return;
+            } catch (Exception e) {
+                // 루트 권한이 막혀있어서 에러가 났을 경우에만 아래의 플랜 B로 넘어갑니다.
+            }
+
+            // 3. [플랜 B] 루팅이 안 된 기기일 경우, 기존처럼 수동 설치 화면 띄우기
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive");
+            Uri apkUri = Uri.parse("file://" + apkFile.getAbsolutePath());
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
+
         } catch (Exception e) {
             Toast.makeText(this, "Install Failed.", Toast.LENGTH_SHORT).show();
         }
     }
-
     private void playTrackList(List<File> playlist, int startIndex) {
         originalPlaylist.clear();
         originalPlaylist.addAll(playlist);
@@ -3755,7 +4308,8 @@ public class MainActivity extends Activity {
         if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER
                 || currentScreenState == STATE_SETTINGS || currentScreenState == STATE_BLUETOOTH
                 || currentScreenState == STATE_WIFI) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 🚀 [수정 완료] 기존 BACK키와 더불어 상단 버튼(19)을 누르면 무조건 한 단계 뒤로 가도록 통합!
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
                 clickFeedback();
                 if (currentScreenState == STATE_BROWSER) {
                     if (isPickingBackground) {
@@ -3767,33 +4321,50 @@ public class MainActivity extends Activity {
                             buildFileBrowserUI();
                         }
                     } else {
-                        // 💡 라이브러리 뒤로가기 로직
+                        // 💡 [버그 완벽 수정] 내가 방금 어떤 방에서 나왔는지 텍스트를 정확히 기억(lastBrowserFocusText)해 둡니다!
                         if (currentBrowserMode == BROWSER_ROOT) {
                             changeScreen(STATE_MENU);
                         } else if (currentBrowserMode == BROWSER_FOLDER) {
                             if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
                                 currentBrowserMode = BROWSER_ROOT;
+                                lastBrowserFocusText = "📁 Folders";
                                 buildFileBrowserUI();
                             } else {
+                                String exitedName = currentFolder.getName(); // 나온 폴더 이름 기억!
                                 currentFolder = currentFolder.getParentFile();
+                                lastBrowserFocusText = "📁 " + exitedName;
                                 buildFileBrowserUI();
                             }
                         } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
                             currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
                                     : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
-                            if (currentBrowserMode == BROWSER_ROOT)
+                            if (currentBrowserMode == BROWSER_ROOT) {
+                                lastBrowserFocusText = "🎵 All Songs";
                                 buildFileBrowserUI();
-                            else
+                            } else {
                                 buildVirtualCategories(virtualQueryType);
-                        } else {
+                            }
+                        } else if (currentBrowserMode == BROWSER_ARTISTS) {
                             currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = "👤 Artists";
+                            buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = "💿 Albums";
                             buildFileBrowserUI();
                         }
                     }
                 } else if (currentScreenState == STATE_BLUETOOTH || currentScreenState == STATE_WIFI) {
                     changeScreen(STATE_SETTINGS);
                 } else if (currentScreenState == STATE_SETTINGS) {
-                    changeScreen(STATE_MENU);
+                    // 🚀 깊이를 파악해서 알맞은 상위 메뉴로 차근차근 돌아갑니다!
+                    if (currentSettingsDepth == 2) {
+                        buildDateTimeUI();
+                    } else if (currentSettingsDepth == 1) {
+                        buildSettingsUI();
+                    } else {
+                        changeScreen(STATE_MENU);
+                    }
                 }
                 return true;
             }
@@ -3848,33 +4419,69 @@ public class MainActivity extends Activity {
                 } else {
                     // 🐢🐢 [일반 주행 모드] 평소처럼 천천히 정확하게 1곡씩 이동!
                     if (keyCode == 21) {
-                        listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
-                        listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP));
+                        int currentPos = listVirtualSongs.getSelectedItemPosition();
+                        if (currentPos <= 0) {
+                            // 🚀 [무한 스크롤] 맨 위에서 위로 올리면 맨 아래(끝)로 점프!
+                            final int lastPos = listVirtualSongs.getCount() - 1;
+                            listVirtualSongs.setSelection(lastPos);
+                            listVirtualSongs.post(new Runnable() {
+                                @Override public void run() {
+                                    int visiblePos = lastPos - listVirtualSongs.getFirstVisiblePosition();
+                                    if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
+                                        listVirtualSongs.getChildAt(visiblePos).requestFocus();
+                                    }
+                                }
+                            });
+                        } else {
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP));
+                        }
                         clickFeedback();
                         return true;
                     }
                     if (keyCode == 22) {
-                        listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
-                        listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
+                        int currentPos = listVirtualSongs.getSelectedItemPosition();
+                        if (currentPos == listVirtualSongs.getCount() - 1) {
+                            // 🚀 [무한 스크롤] 맨 아래에서 아래로 내리면 맨 위(처음)로 점프!
+                            listVirtualSongs.setSelection(0);
+                            listVirtualSongs.post(new Runnable() {
+                                @Override public void run() {
+                                    if (listVirtualSongs.getChildCount() > 0) listVirtualSongs.getChildAt(0).requestFocus();
+                                }
+                            });
+                        } else {
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
+                        }
                         clickFeedback();
                         return true;
                     }
                 }
             }
-            // 🚀 [여기까지 덮어쓰기 완료!]
             View c = getCurrentFocus();
             if (c != null) {
                 if (keyCode == 21) { // 휠 위로 돌릴 때 (UP)
-                    // 🚀 [점프 완벽 차단] 좌표 검색(focusSearch)을 버리고 리스트 순서(Index)를 직접 조작합니다!
                     android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
                     if (parent instanceof LinearLayout) {
                         int index = parent.indexOfChild(c);
-                        // 무조건 바로 위(-1)의 곡으로만 이동
+                        boolean moved = false;
+                        // 1. 바로 위(-1)의 메뉴로 이동 시도
                         for (int i = index - 1; i >= 0; i--) {
                             View n = parent.getChildAt(i);
                             if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
                                 n.requestFocus();
+                                moved = true;
                                 break;
+                            }
+                        }
+                        // 🚀 2. [무한 스크롤] 더 이상 위로 갈 곳이 없으면 맨 아래쪽 끝 메뉴로 텔레포트!
+                        if (!moved) {
+                            for (int i = parent.getChildCount() - 1; i > index; i--) {
+                                View n = parent.getChildAt(i);
+                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                    n.requestFocus();
+                                    break;
+                                }
                             }
                         }
                     } else {
@@ -3888,12 +4495,24 @@ public class MainActivity extends Activity {
                     android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
                     if (parent instanceof LinearLayout) {
                         int index = parent.indexOfChild(c);
-                        // 무조건 바로 아래(+1)의 곡으로만 이동
+                        boolean moved = false;
+                        // 1. 바로 아래(+1)의 메뉴로 이동 시도
                         for (int i = index + 1; i < parent.getChildCount(); i++) {
                             View n = parent.getChildAt(i);
                             if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
                                 n.requestFocus();
+                                moved = true;
                                 break;
+                            }
+                        }
+                        // 🚀 2. [무한 스크롤] 더 이상 아래로 갈 곳이 없으면 맨 위쪽 첫 메뉴로 텔레포트!
+                        if (!moved) {
+                            for (int i = 0; i < index; i++) {
+                                View n = parent.getChildAt(i);
+                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                    n.requestFocus();
+                                    break;
+                                }
                             }
                         }
                     } else {
@@ -4026,6 +4645,7 @@ public class MainActivity extends Activity {
 
     // 💡 1. 날짜/시간 설정 메인 화면 (시간 오류 및 포커스 락 버그 완벽 수정 버전)
     private void buildDateTimeUI() {
+        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
         createCategoryHeader("━ SET DATE & TIME ━");
 
@@ -4153,28 +4773,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnApply);
 
-        final Button btnCancel = createListButton("❌ CANCEL");
-        btnCancel.setTextColor(0xFF888888);
-        btnCancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
 
-                // 취소하고 나갈 때도 인덱스를 안전하게 복구하고 포커스를 인위적으로 매핑합니다.
-                lastSettingsFocusIndex = 14;
-                buildSettingsUI();
-                containerSettingsItems.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (containerSettingsItems != null && containerSettingsItems.getChildCount() > 0) {
-                            containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1)
-                                    .requestFocus();
-                        }
-                    }
-                }, 50);
-            }
-        });
-        containerSettingsItems.addView(btnCancel);
 
         if (containerSettingsItems.getChildCount() > 1)
             containerSettingsItems.getChildAt(1).requestFocus();
@@ -4182,19 +4781,9 @@ public class MainActivity extends Activity {
 
     // 💡 2. 숫자(년/월/일/시/분) 선택용 세로 리스트 화면
     private void buildDateTimeSelectorUI(final String type, int min, int max, int currentValue) {
+        currentSettingsDepth = 2; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ SELECT " + type.toUpperCase() + " ━");
 
-        Button btnBack = createListButton("〈 CANCEL & BACK");
-        btnBack.setTextColor(0xFF888888);
-        btnBack.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeUI();
-            }
-        });
-        containerSettingsItems.addView(btnBack);
 
         Button focusBtn = null;
         for (int i = min; i <= max; i++) {
