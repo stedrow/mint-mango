@@ -147,6 +147,7 @@ public class MainActivity extends Activity {
             album = al;
         }
     }
+    private int consecutiveErrorCount = 0;
     // 🚀 [추가] 스캔 진행률 표시용 변수들
     private ProgressBar pbLoadingProgress;
     private TextView tvLoadingProgress;
@@ -3962,7 +3963,55 @@ public class MainActivity extends Activity {
         java.util.Collections.sort(audioFiles, fileSorter);
         java.util.Collections.sort(apkFiles, fileSorter);
         java.util.Collections.sort(imageFiles, fileSorter);
-        // 🚀 (추가 끝)
+        // 🚀🚀🚀 [여기에 새로 추가!] 현재 폴더에 음원 파일이 1개라도 있다면 최상단에 '전체 재생' 버튼 생성
+        if (!isPickingBackground && (audioFiles.size() > 0 || folders.size() > 0)) {
+            Button btnPlayAll = createListButton("▶ Play All");
+            btnPlayAll.setTextColor(0xFFFFFFFF); // 초록색!
+            btnPlayAll.setTypeface(null, android.graphics.Typeface.BOLD);
+
+            btnPlayAll.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+
+                    // 1. 하위 폴더까지 긁어올 거대한 빈 바구니 준비
+                    final List<File> allAudioInFolder = new ArrayList<>();
+
+                    // 2. 파일이 많을 경우를 대비해 휠을 잠그고 팝업을 띄웁니다!
+                    showLoadingPopup();
+
+                    // 3. 백그라운드 엔진 가동 (시스템 멈춤 방지)
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            // 우리가 방금 만든 진공청소기 함수 호출!
+                            collectAudioFilesAsFile(currentFolder, allAudioInFolder);
+
+                            // 긁어온 파일들을 이름순으로 예쁘게 정렬 (기존에 있던 fileSorter 사용)
+                            java.util.Collections.sort(allAudioInFolder, fileSorter);
+
+                            // 4. 수집이 끝나면 다시 화면 쪽으로 돌아와서 재생 명령을 내립니다.
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    // 로딩 팝업 닫기
+                                    if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(View.GONE);
+
+                                    if (allAudioInFolder.isEmpty()) {
+                                        Toast.makeText(MainActivity.this, "No audio files found in subfolders.", Toast.LENGTH_SHORT).show();
+                                    } else {
+                                        Toast.makeText(MainActivity.this, "Loaded " + allAudioInFolder.size() + " songs!", Toast.LENGTH_SHORT).show();
+                                        playTrackList(allAudioInFolder, 0); // 0번 곡부터 시원하게 재생!
+                                    }
+                                }
+                            });
+                        }
+                    }).start();
+                }
+            });
+            containerBrowserItems.addView(btnPlayAll);
+        }
+        // 🚀🚀🚀 [추가 끝]
         for (final File folder : folders) {
             Button b = createListButton("📁 " + folder.getName());
             b.setOnClickListener(new View.OnClickListener() {
@@ -4052,7 +4101,19 @@ public class MainActivity extends Activity {
             }
         }, 50);
     }
-
+    // 🚀 [신규 추가] 하위 폴더 끝까지 파고들어 음악 파일(File 객체)만 싹 긁어오는 진공청소기 함수!
+    private void collectAudioFilesAsFile(File dir, List<File> list) {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    collectAudioFilesAsFile(f, list); // 폴더를 발견하면 그 안으로 다시 파고듭니다!
+                } else if (isAudioFile(f)) {
+                    list.add(f); // 음악 파일이면 바구니에 쏙 담습니다.
+                }
+            }
+        }
+    }
     private void installApk(File apkFile) {
         try {
             // 1. 기존 권한 개방 유지 (설치 관리자 접근용)
@@ -4063,13 +4124,15 @@ public class MainActivity extends Activity {
             }
 
             // 🚀 2. [완벽한 해결책: 무음 백그라운드 설치(Silent Install)]
-            // 기기의 Root(su) 권한을 이용해 휠 조작이 안 되는 설치 화면을 무시해버립니다!
             try {
                 Process process = Runtime.getRuntime().exec("su");
                 java.io.DataOutputStream os = new java.io.DataOutputStream(process.getOutputStream());
 
-                // 1단계: 강제 덮어쓰기(-r) 백그라운드 설치 명령
-                os.writeBytes("pm install -r " + apkFile.getAbsolutePath() + "\n");
+                // 🚀 [핵심 수정] 설치 결과를 기기 내부의 텍스트 파일(y1_update_log.txt)에 저장하도록 꼬리표(> .. 2>&1)를 붙입니다!
+                os.writeBytes("pm install -r " + apkFile.getAbsolutePath() + " > /storage/sdcard0/y1_update_log.txt 2>&1 \n");
+
+                // 💡 패키지 매니저가 충분히 설치를 끝낼 수 있도록 3초의 쿨타임(휴식)을 줍니다.
+                os.writeBytes("sleep 3\n");
 
                 // 2단계: 설치가 완료되면 런처(앱)를 곧바로 다시 실행시켜서 화면으로 복귀!
                 os.writeBytes("am start -n " + getPackageName() + "/.MainActivity\n");
@@ -4079,10 +4142,9 @@ public class MainActivity extends Activity {
                 os.close();
                 process.waitFor();
 
-                // 🚀 무음 설치가 성공했다면, 여기서 함수를 종료시켜 멈춰있는 플랜 B(수동 설치 화면)를 띄우지 않습니다!
                 return;
             } catch (Exception e) {
-                // 루트 권한이 막혀있어서 에러가 났을 경우에만 아래의 플랜 B로 넘어갑니다.
+                // 루트 권한 에러 시 플랜 B로 넘어감
             }
 
             // 3. [플랜 B] 루팅이 안 된 기기일 경우, 기존처럼 수동 설치 화면 띄우기
@@ -4154,19 +4216,27 @@ public class MainActivity extends Activity {
         lastAlbumArtBytes = null;
         currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
         // 🚀 [추가된 부분] 손상된 파일 방어막: 파일이 없거나 용량이 1KB(1024 bytes) 미만인 껍데기 파일일 경우
+        // 🚀 [추가된 부분] 손상된 파일 방어막: 파일이 없거나 용량이 1KB(1024 bytes) 미만인 껍데기 파일일 경우
         if (!track.exists() || track.length() < 1024) {
             tvPlayerTitle.setText("Corrupted File");
             tvPlayerArtist.setText("Skipping...");
             ivAlbumArt.setImageResource(R.drawable.default_album);
 
-            // 시스템이 뻗기 전에 경고창을 띄우고 1.5초 뒤에 다음 곡으로 자동으로 부드럽게 넘겨버립니다!
-            Toast.makeText(this, "Corrupted file detected. Skipping...", Toast.LENGTH_SHORT).show();
-            new Handler().postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    nextTrack();
-                }
-            }, 1500);
+            consecutiveErrorCount++; // 🚀 에러 카운트 증가!
+
+            if (consecutiveErrorCount >= currentPlaylist.size()) {
+                // 🛑 모든 곡이 실패했으면 멈춥니다.
+                Toast.makeText(this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
+                isPausedByHand = true;
+                updatePlayerUI();
+                consecutiveErrorCount = 0; // 수동 재생을 위해 초기화
+            } else {
+                Toast.makeText(this, "Corrupted file detected. Skipping...", Toast.LENGTH_SHORT).show();
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() { nextTrack(); }
+                }, 1500);
+            }
             return;
         }
         tvPlayerTitle.setText(track.getName());
@@ -4322,22 +4392,46 @@ public class MainActivity extends Activity {
             }
             mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
 
+            // (✅ 이걸로 덮어쓰기!)
             mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override
                 public boolean onError(MediaPlayer mp, int what, int extra) {
-                    String err = "Audio Error: what=" + what + " extra=" + extra;
+                    consecutiveErrorCount++; // 🚀 에러 카운트 1 누적!
+
+                    String reason = "Unknown System Error";
+                    if (extra == -1004) reason = "File I/O Error";
+                    else if (extra == -1007) reason = "Malformed File";
+                    else if (extra == -1010) reason = "Unsupported Codec";
+                    else if (extra == -110) reason = "Timeout Error";
+
+                    final String finalMsg = "Playback Error: " + reason;
+
+                    // 🚀 밀림 방지를 위해 팝업 길이를 SHORT로 변경
+                    Toast.makeText(MainActivity.this, "🚨 " + finalMsg, Toast.LENGTH_SHORT).show();
+
                     try {
                         java.io.File log = new java.io.File("/storage/sdcard0/y1_audio_error.txt");
                         java.io.FileOutputStream fos = new java.io.FileOutputStream(log, true);
-                        fos.write((new java.util.Date().toString() + " - " + err + " File: " + track.getName() + "\n")
-                                .getBytes());
+                        fos.write((new java.util.Date().toString() + " - " + finalMsg + " File: " + track.getName() + "\n").getBytes());
                         fos.close();
-                    } catch (Exception e) {
+                    } catch (Exception e) {}
+
+                    // 🛑 에러가 멈추지 않고 곡 수만큼 쌓이면 스킵을 멈추고 재생 상태를 정지(Pause)로 바꿉니다!
+                    if (consecutiveErrorCount >= currentPlaylist.size()) {
+                        Toast.makeText(MainActivity.this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
+                        isPausedByHand = true;
+                        updatePlayerUI();
+                        consecutiveErrorCount = 0; // 초기화
+                    } else {
+                        new Handler().postDelayed(new Runnable() {
+                            @Override
+                            public void run() { nextTrack(); }
+                        }, 2000);
                     }
+
                     return true;
                 }
             });
-
             if (currentFileInputStream != null) {
                 try {
                     currentFileInputStream.close();
@@ -4348,6 +4442,7 @@ public class MainActivity extends Activity {
 
             mediaPlayer.setDataSource(currentFileInputStream.getFD());
             mediaPlayer.prepare();
+            consecutiveErrorCount = 0;
             setupVisualizer();
             // 🚀 [근본적 해결책 1] 이퀄라이저를 매번 부수지 않고 한 번 만든 것을 재사용합니다! (DAC 리셋 방지)
             try {
@@ -4390,8 +4485,40 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+            // (❌ 기존 코드)
+            // } catch (Throwable t) {
+            //     tvPlayerTitle.setText("Load Failed: " + track.getName());
+            // }
+
+            // (✅ 이걸로 덮어쓰기!)
         } catch (Throwable e) {
-            tvPlayerTitle.setText("Load Failed: " + track.getName());
+            consecutiveErrorCount++; // 🚀 에러 카운트 1 누적!
+
+            String failReason = "Unknown Error";
+            if (e instanceof OutOfMemoryError) failReason = "Album Art is too huge!";
+            else if (e instanceof java.io.FileNotFoundException) failReason = "File not found";
+            else if (e instanceof java.io.IOException) failReason = "Broken file or fake extension";
+            else if (e instanceof IllegalArgumentException) failReason = "Unsupported high-res format";
+            else failReason = e.getClass().getSimpleName();
+
+            tvPlayerTitle.setText("Load Failed ❌");
+            tvPlayerArtist.setText(failReason);
+
+            // 🚀 여기도 SHORT로 변경
+            Toast.makeText(MainActivity.this, "🚨 " + failReason, Toast.LENGTH_SHORT).show();
+
+            // 🛑 에러 방어막 가동!
+            if (consecutiveErrorCount >= currentPlaylist.size()) {
+                Toast.makeText(MainActivity.this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
+                isPausedByHand = true;
+                updatePlayerUI();
+                consecutiveErrorCount = 0; // 초기화
+            } else {
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() { nextTrack(); }
+                }, 2000);
+            }
         }
     }
 
