@@ -14,6 +14,9 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.media.AudioManager;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
@@ -59,7 +62,7 @@ public class MainActivity extends Activity {
     // 주의: 주소 맨 끝에 반드시 슬래시(/)를 붙여주세요!
     private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
     private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
-
+    private boolean isNavigatingToSubMenu = false; // 🚀 [여기에 한 줄 추가!] 다이렉트 접속 시 포커스 꼬임을 막는 방어막
     // 🚀 [추가] 오디오 채널을 항시 대기시키는 전역 변수
     private android.bluetooth.BluetoothProfile globalA2dp;
     private BluetoothDevice targetDeviceForAudio = null; // 🚀 [추가] 좀비처럼 물고 늘어질 타겟 기기
@@ -80,11 +83,15 @@ public class MainActivity extends Activity {
     private boolean isWidgetClockOn = false;
     private boolean isWidgetBatteryOn = false;
     private boolean isWidgetAlbumOn = false;
-
+    private boolean isWidgetAnalogClockOn = false;
+    private boolean isWidgetCircularBatteryOn = false;
     private LinearLayout layoutWidgets;
     private TextView tvWidgetClock;
     // 🚀 [수정] 가로형 바(Bar) 클래스로 이름 변경!
     private WidgetBatteryBarView widgetBatteryView;
+    // 다른 위젯 변수들이 선언된 곳 (예: WidgetBatteryBarView widgetBatteryView; 등) 근처에 아래 줄을 추가합니다.
+    CircularBatteryView customCircularBatteryView;
+    CustomAnalogClockView customAnalogClockView;
     private ImageView ivWidgetAlbum;
     private String lastBrowserFocusText = "";
     // 🚀 [추가] 앨범 위젯 전용 제목/가수 변수
@@ -321,6 +328,9 @@ public class MainActivity extends Activity {
                 }
                 if (widgetBatteryView != null) {
                     widgetBatteryView.setBatteryLevel(batteryPct, isCharging);
+                }
+                if (customCircularBatteryView != null) {
+                    customCircularBatteryView.setBatteryLevel(batteryPct, isCharging);
                 }
             } else if (Intent.ACTION_HEADSET_PLUG.equals(action)) {
                 int state = intent.getIntExtra("state", -1);
@@ -1403,153 +1413,97 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [반응형 업그레이드] 위젯 개수에 따라 크기와 여백이 스스로 변하는 스마트 위젯 엔진!
+    // 💡 [개조 완료] 다운로드 진행률(%)과 용량(MB)을 실시간 팝업으로 보여주는 엔진!
+    // 위쪽에 있는 이 주석 바로 위에 있는 refreshWidgets() 함수를 통째로 덮어쓰세요!
+
     private void refreshWidgets() {
-        // 1. 현재 켜져 있는 위젯의 개수를 계산합니다.
-        int activeCount = 0;
-        if (isWidgetClockOn)
-            activeCount++;
-        if (isWidgetBatteryOn)
-            activeCount++;
-        if (isWidgetAlbumOn)
-            activeCount++;
-
-        boolean anyWidgetActive = activeCount > 0;
-
-        if (anyWidgetActive) {
-            ivMenuPreview.setVisibility(View.GONE);
-            if (tvMenuPreviewTitle != null)
-                tvMenuPreviewTitle.setVisibility(View.GONE);
-            if (tvMenuPreviewArtist != null)
-                tvMenuPreviewArtist.setVisibility(View.GONE);
-
-            layoutWidgets.setVisibility(View.VISIBLE);
-
-            float d = getResources().getDisplayMetrics().density;
-
-            // 🚀 동적 레이아웃 변수들
-            int clockPadding = 0, batteryWidth = 0, batteryHeight = 0, batteryMargin = 0;
-            int albumSize = 0, titleSize = 0, artistSize = 0;
-            float dateScale = 1.0f, timeScale = 1.0f;
-
-            // 💡 프로필 1: 위젯이 1개일 때 (단독 표시 모드)
-            if (activeCount == 1) {
-                // 🚀 시계 크기를 이전보다 살짝 줄여서(2.6 -> 2.1) 부담스럽지 않게 다듬습니다.
-                clockPadding = 0;
-                dateScale = 1.0f;
-                timeScale = 2.1f;
-
-                batteryWidth = 180;
-                batteryHeight = 40;
-                batteryMargin = 0;
-
-                // 🚀 앨범 아트와 글자 크기를 기본 화면(XML 기본 규격)과 완전히 동일하게 맞춥니다!
-                albumSize = 140;
-                titleSize = 18;
-                artistSize = 14;
-            }
-            // 💡 프로필 2: 위젯이 2개일 때 (여유로운 중간 크기)
-            else if (activeCount == 2) {
-                clockPadding = (int) (20 * d);
-                dateScale = 0.8f;
-                timeScale = 1.6f;
-                batteryWidth = 140;
-                batteryHeight = 25;
-                batteryMargin = (int) (20 * d);
-                albumSize = 130;
-                titleSize = 18;
-                artistSize = 14;
-            }
-            // 💡 프로필 3: 위젯이 3개일 때 (서로 양보하는 아담한 크기)
-            else {
-                clockPadding = (int) (10 * d);
-                dateScale = 0.6f;
-                timeScale = 1.2f;
-                batteryWidth = 100;
-                batteryHeight = 16;
-                batteryMargin = (int) (10 * d);
-                albumSize = 85;
-                titleSize = 14;
-                artistSize = 12;
-            }
-
-            // --- [1. 시계 위젯 세팅] ---
+        // 1. 디지털 시계 위젯 업데이트
+        if (tvWidgetClock != null) {
             tvWidgetClock.setVisibility(isWidgetClockOn ? View.VISIBLE : View.GONE);
             if (isWidgetClockOn) {
-                tvWidgetClock.setPadding(0, 0, 0, clockPadding);
-                String dateStr = new java.text.SimpleDateFormat("EEE, MMM dd", Locale.US).format(new Date());
-                String timeStr = new java.text.SimpleDateFormat("HH:mm", Locale.US).format(new Date());
+                String dateStr = new java.text.SimpleDateFormat("EEE, MMM dd", Locale.US).format(new java.util.Date());
+                String timeStr = new java.text.SimpleDateFormat("HH:mm", Locale.US).format(new java.util.Date());
                 String fullStr = timeStr + "\n" + dateStr;
 
                 android.text.SpannableString spannable = new android.text.SpannableString(fullStr);
-                spannable.setSpan(new android.text.style.RelativeSizeSpan(timeScale), 0, timeStr.length(),
-                        android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                spannable.setSpan(new android.text.style.RelativeSizeSpan(dateScale), timeStr.length() + 1,
-                        fullStr.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-
+                spannable.setSpan(new android.text.style.RelativeSizeSpan(2.1f), 0, timeStr.length(), android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                 tvWidgetClock.setText(spannable);
-                tvWidgetClock.setTextColor(ThemeManager.getTextColorPrimary());
-                tvWidgetClock.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
             }
+        }
 
-            // --- [2. 배터리 위젯 세팅] ---
+        // 2. 막대형 배터리 위젯 업데이트
+        if (widgetBatteryView != null) {
             widgetBatteryView.setVisibility(isWidgetBatteryOn ? View.VISIBLE : View.GONE);
             if (isWidgetBatteryOn) {
-                LinearLayout.LayoutParams blp = (LinearLayout.LayoutParams) widgetBatteryView.getLayoutParams();
-                blp.width = (int) (batteryWidth * d);
-                blp.height = (int) (batteryHeight * d);
-                blp.bottomMargin = batteryMargin;
-                widgetBatteryView.setLayoutParams(blp);
                 widgetBatteryView.setColor(ThemeManager.getTextColorPrimary());
+                Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                if (batteryIntent != null) {
+                    int level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                    int status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    boolean isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL);
+                    if(level != -1 && scale != -1) widgetBatteryView.setBatteryLevel((int) ((level / (float) scale) * 100), isCharging);
+                }
             }
+        }
 
-            // --- [3. 앨범 위젯 세팅] ---
-            ivWidgetAlbum.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
-            tvWidgetAlbumTitle.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
-            tvWidgetAlbumArtist.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
+        // 3. 앨범 프리뷰 위젯 업데이트
+        if (ivWidgetAlbum != null && tvWidgetAlbumTitle != null && tvWidgetAlbumArtist != null) {
+            View parent = (View) ivWidgetAlbum.getParent();
+            if (parent != null) parent.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
 
             if (isWidgetAlbumOn) {
-                LinearLayout.LayoutParams alp = (LinearLayout.LayoutParams) ivWidgetAlbum.getLayoutParams();
-                alp.width = (int) (albumSize * d);
-                alp.height = (int) (albumSize * d);
-                ivWidgetAlbum.setLayoutParams(alp);
+                tvWidgetAlbumTitle.setText(tvPlayerTitle != null ? tvPlayerTitle.getText() : "");
+                tvWidgetAlbumTitle.setSelected(true);
 
-                tvWidgetAlbumTitle.setTextSize(titleSize);
-                tvWidgetAlbumTitle.setTextColor(ThemeManager.getTextColorPrimary());
-                tvWidgetAlbumTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-                if (tvPlayerTitle != null)
-                    tvWidgetAlbumTitle.setText(tvPlayerTitle.getText());
-
-                tvWidgetAlbumArtist.setTextSize(artistSize);
-                tvWidgetAlbumArtist.setTextColor(ThemeManager.getTextColorSecondary());
-                tvWidgetAlbumArtist.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-                if (tvPlayerArtist != null)
-                    tvWidgetAlbumArtist.setText(tvPlayerArtist.getText());
+                tvWidgetAlbumArtist.setText(tvPlayerArtist != null ? tvPlayerArtist.getText() : "");
+                tvWidgetAlbumArtist.setSelected(true);
 
                 if (lastAlbumArtBytes != null) {
                     try {
-                        BitmapFactory.Options opts = new BitmapFactory.Options();
+                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
                         opts.inSampleSize = 2;
-                        Bitmap bmp = BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length,
-                                opts);
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, opts);
                         ivWidgetAlbum.setImageBitmap(bmp);
-                    } catch (Exception e) {
-                    }
+                    } catch (Exception e) {}
                 } else {
-                    ivWidgetAlbum.setImageBitmap(
-                            ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album));
+                    ivWidgetAlbum.setImageBitmap(ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album));
                 }
             }
-        } else {
-            layoutWidgets.setVisibility(View.GONE);
-            ivMenuPreview.setVisibility(View.VISIBLE);
-            View focused = getCurrentFocus();
-            if (focused != null && currentScreenState == STATE_MENU) {
-                refreshNowPlayingPreview();
+        }
+
+        // 🚀 4. 아날로그 시계 위젯 업데이트 (여기서 스위치 값에 따라 끄고 켭니다!)
+        if (customAnalogClockView != null) {
+            View parent = (View) customAnalogClockView.getParent();
+            if (parent != null && "analog_wrapper".equals(parent.getTag())) {
+                parent.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
+            } else {
+                customAnalogClockView.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
+            }
+        }
+
+        // 🚀 5. 원형 배터리 위젯 업데이트 (여기서 스위치 값에 따라 끄고 켭니다!)
+        if (customCircularBatteryView != null) {
+            View parent = (View) customCircularBatteryView.getParent();
+            if (parent != null && "circular_wrapper".equals(parent.getTag())) {
+                parent.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
+            } else {
+                customCircularBatteryView.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
+            }
+
+            // 켜져 있을 때만 배터리 잔량을 업데이트합니다.
+            if (isWidgetCircularBatteryOn) {
+                Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                if (batteryIntent != null) {
+                    int level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                    int status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    boolean isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL);
+                    if(level != -1 && scale != -1) customCircularBatteryView.setBatteryLevel((int) ((level / (float) scale) * 100), isCharging);
+                }
             }
         }
     }
-
     // 💡 [추가] 문자열에서 첫 글자를 뽑아내어 화면에 띄워주는 함수
     private void showFastScrollLetter(String rawText) {
         // 브라우저 모드(리스트 화면)가 아니면 띄우지 않습니다.
@@ -1593,113 +1547,61 @@ public class MainActivity extends Activity {
         fastScrollHandler.postDelayed(hideFastScrollTask, 800);
     }
 
-    // 💡 [추가] XML의 고정값을 무시하고, 메인 화면 전체를 테마에 맞게 강제로 칠해주는 함수
+    // 💡 [수정 완료] 메인 화면 테마 적용기. 동적 렌더링 엔진 호출 추가!
     private void applyThemeToMainMenu() {
         try {
-            // 🚀 1. 가장 핵심! 전체 배경 이미지(ivMainBg) 위에 테마 색상을 셀로판지처럼 덮어씌웁니다.
             if (ivMainBg != null) {
                 int themeColor = ThemeManager.getOverlayBackgroundColor();
-                // 색상 정보(RGB)만 뽑아낸 뒤, 앞에 0x66(투명도 40%)을 강제로 결합합니다.
                 int softTint = (themeColor & 0x00FFFFFF) | 0x66000000;
                 ivMainBg.setColorFilter(softTint, android.graphics.PorterDuff.Mode.SRC_ATOP);
             }
 
-            // 2. 좌측 반투명 메뉴 배경판 색칠하기
-            LinearLayout leftPane = (LinearLayout) ((LinearLayout) layoutMainMenu).getChildAt(0);
-            leftPane.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
             View statusBar = findViewById(R.id.layout_status_bar);
             if (statusBar != null) {
-                // 🚀 [수정] 방금 만든 상태바 전용 색상 Getter를 불러옵니다!
                 statusBar.setBackgroundColor(ThemeManager.getStatusBarBackgroundColor());
             }
+
             int primary = ThemeManager.getTextColorPrimary();
             int secondary = ThemeManager.getTextColorSecondary();
 
-            // 3. 메인 메뉴 버튼들의 기본 글자색 변경
-            btnNowPlaying.setTextColor(primary);
-            btnPlay.setTextColor(primary);
-            btnBluetooth.setTextColor(primary);
-            btnSettings.setTextColor(primary);
-            btnRadio.setTextColor(primary);
-            Button btnWebServer = findViewById(R.id.btn_webserver);
-            if (btnWebServer != null)
-                btnWebServer.setTextColor(primary);
+            // 우측 빈 공간의 곡 제목/가수 및 상단 상태바(시계, 배터리) 글자색 덮어쓰기
+            if (tvMenuPreviewTitle != null) tvMenuPreviewTitle.setTextColor(primary);
+            if (tvMenuPreviewArtist != null) tvMenuPreviewArtist.setTextColor(secondary);
+            if (tvStatusClock != null) tvStatusClock.setTextColor(primary);
+            if (tvStatusBattery != null) tvStatusBattery.setTextColor(primary);
+            if (batteryIconView != null) batteryIconView.setColor(primary);
 
-            // 4. 버튼 옆에 있는 〉(화살표) 들의 색상 변경
-            for (int i = 0; i < leftPane.getChildCount(); i++) {
-                View child = leftPane.getChildAt(i);
-                if (child instanceof android.widget.FrameLayout) {
-                    android.widget.FrameLayout fl = (android.widget.FrameLayout) child;
-                    for (int j = 0; j < fl.getChildCount(); j++) {
-                        View flChild = fl.getChildAt(j);
-                        if (flChild instanceof TextView && !(flChild instanceof Button)) {
-                            ((TextView) flChild).setTextColor(secondary);
-                        }
-                    }
-                }
-            }
-
-            // 5. 우측 빈 공간의 곡 제목/가수 및 상단 상태바(시계, 배터리) 글자색 덮어쓰기!
-            if (tvMenuPreviewTitle != null)
-                tvMenuPreviewTitle.setTextColor(primary);
-            if (tvMenuPreviewArtist != null)
-                tvMenuPreviewArtist.setTextColor(secondary);
-            if (tvStatusClock != null)
-                tvStatusClock.setTextColor(primary);
-            if (tvStatusBattery != null)
-                tvStatusBattery.setTextColor(primary);
-            if (batteryIconView != null)
-                batteryIconView.setColor(primary);
-            // 🚀 [수정 완료] 앱 내의 모든 막대바를 '테마 버튼 포커스 색상(강조색)'으로 진하게 물들입니다!
-            int themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-
-            // 1. 플레이어 화면의 음악 재생 바
+            int themeFocusColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
             if (playerProgress != null) {
                 try {
-                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) playerProgress
-                            .getProgressDrawable();
+                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) playerProgress.getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null)
-                        progress.setColorFilter(themeColor, android.graphics.PorterDuff.Mode.SRC_IN);
-                } catch (Exception e) {
-                    playerProgress.getProgressDrawable().setColorFilter(themeColor,
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                }
+                    if (progress != null) progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                } catch (Exception e) { playerProgress.getProgressDrawable().setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN); }
             }
-
-            // 2. 휠 돌릴 때 나오는 볼륨 조절 바
             if (volumeProgress != null) {
                 try {
-                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) volumeProgress
-                            .getProgressDrawable();
+                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) volumeProgress.getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null)
-                        progress.setColorFilter(themeColor, android.graphics.PorterDuff.Mode.SRC_IN);
-                } catch (Exception e) {
-                    volumeProgress.getProgressDrawable().setColorFilter(themeColor,
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                }
+                    if (progress != null) progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                } catch (Exception e) { volumeProgress.getProgressDrawable().setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN); }
             }
-
-            // 3. 설정 화면의 화면 밝기 조절 바
             if (pbBrightness != null) {
                 try {
-                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) pbBrightness
-                            .getProgressDrawable();
+                    android.graphics.drawable.LayerDrawable layer = (android.graphics.drawable.LayerDrawable) pbBrightness.getProgressDrawable();
                     android.graphics.drawable.Drawable progress = layer.findDrawableByLayerId(android.R.id.progress);
-                    if (progress != null)
-                        progress.setColorFilter(themeColor, android.graphics.PorterDuff.Mode.SRC_IN);
-                } catch (Exception e) {
-                    pbBrightness.getProgressDrawable().setColorFilter(themeColor,
-                            android.graphics.PorterDuff.Mode.SRC_IN);
-                }
+                    if (progress != null) progress.setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                } catch (Exception e) { pbBrightness.getProgressDrawable().setColorFilter(themeFocusColor, android.graphics.PorterDuff.Mode.SRC_IN); }
             }
+
             android.view.ViewGroup root = findViewById(android.R.id.content);
             applyFontToAllViews(root, ThemeManager.getCustomFont());
-        } catch (Exception e) {
-        }
-    }
 
+            // 🚀🚀🚀 [여기가 핵심!] 기존 낡은 메뉴를 싹 날려버리고 JSON 부품을 조립합니다!
+            buildDynamicMainMenuUI();
+
+        } catch (Exception e) {}
+    }
     // 💡 [추가] 테마 리스트를 쫙 보여주고 사용자가 고를 수 있게 하는 전용 화면
     private void buildThemeSelectorUI() {
         currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
@@ -1979,7 +1881,10 @@ public class MainActivity extends Activity {
         } else if (state == STATE_SETTINGS) {
             // 🚀 시스템에 의해 오염된 인덱스를 버리고, 금고에 백업해둔 진짜 위치로 복구한 뒤 화면을 그립니다!
             lastSettingsFocusIndex = safeFocusIndex;
-            buildSettingsUI();
+            // 🚀 [수정] 다이렉트 점프 중이 아닐 때만 메인 설정 화면을 그립니다!
+            if (!isNavigatingToSubMenu) {
+                buildSettingsUI();
+            }
 
         } else if (state == STATE_BLUETOOTH) {
             startBluetoothScan();
@@ -2911,44 +2816,57 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnPowerOff);
-        // 🚀 [추가] 락박스(Rockbox) OS로 재부팅하는 버튼
-        /*
-         * LinearLayout btnRockbox = createSettingRow("Reboot to Rockbox", "〉 ");
-         * btnRockbox.setOnClickListener(new View.OnClickListener() {
-         * 
-         * @Override
-         * public void onClick(View v) {
-         * clickFeedback();
-         * new AlertDialog.Builder(MainActivity.this,
-         * android.R.style.Theme_DeviceDefault_Dialog_Alert)
-         * .setTitle("Reboot to Rockbox")
-         * .setMessage("Do you want to reboot into Rockbox OS?")
-         * .setPositiveButton("Reboot", new DialogInterface.OnClickListener() {
-         * public void onClick(DialogInterface dialog, int which) {
-         * try {
-         * Toast.makeText(MainActivity.this, "Rebooting to Rockbox...",
-         * Toast.LENGTH_SHORT)
-         * .show();
-         * 
-         * // 💡 락박스 진입 명령어 실행 (기기 파티션 구조에 따라 다를 수 있습니다)
-         * // 기본적으로 대부분의 듀얼 부팅 기기는 아래 명령어 중 하나를 사용합니다.
-         * Runtime.getRuntime().exec(new String[] { "su", "-c", "reboot alternate" });
-         * 
-         * // 만약 위 명령어로 일반 안드로이드 재부팅이 된다면, 아래 명령어의 주석(//)을 해제하고 시도해 보세요.
-         * // Runtime.getRuntime().exec(new String[]{"su", "-c", "reboot recovery"});
-         * 
-         * } catch (Exception e) {
-         * Toast.makeText(MainActivity.this, "Failed: Root access required.",
-         * Toast.LENGTH_SHORT).show();
-         * }
-         * }
-         * })
-         * .setNegativeButton("Cancel", null)
-         * .show();
-         * }
-         * });
-         * containerSettingsItems.addView(btnRockbox);
-         */
+        // 🚀 [추가] 재부팅 없이 즉시 락박스(Rockbox)로 전환하는 혁신적인 스위치 버튼!
+        LinearLayout btnSwitchRockbox = createSettingRow("Switch to Rockbox", "〉 ");
+        btnSwitchRockbox.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+
+                // 🚀 1. 락박스 앱이 기기에 설치되어 있는지 먼저 안전하게 검사합니다!
+                boolean isRockboxInstalled = false;
+                try {
+                    // 락박스의 패키지명(org.rockbox)이 존재하는지 조회합니다.
+                    getPackageManager().getPackageInfo("org.rockbox", 0);
+                    isRockboxInstalled = true;
+                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                    isRockboxInstalled = false;
+                }
+
+                // 🚀 2. 설치되어 있지 않다면 경고 팝업을 띄우고 즉시 중단합니다.
+                if (!isRockboxInstalled) {
+                    new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle("Not Installed ⚠️")
+                            .setMessage("Rockbox is not installed on this device.\nPlease install the Rockbox app (.apk) first.")
+                            .setPositiveButton("OK", null)
+                            .show();
+                    return; // 여기서 멈춤! 아래의 전환 코드를 실행하지 않습니다.
+                }
+
+                // 🚀 3. 정상적으로 설치되어 있다면 기존처럼 전환을 시도합니다.
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Switch to Rockbox")
+                        .setMessage("Do you want to switch to Rockbox instantly without rebooting?")
+                        .setPositiveButton("Switch", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    Toast.makeText(MainActivity.this, "Switching to Rockbox...", Toast.LENGTH_SHORT).show();
+
+                                    // 💡 [핵심 기술] 락박스 활성화 -> 실행 -> 현재 런처(JJ) 비활성화
+                                    String cmd = "pm enable org.rockbox && am start -n org.rockbox/.RockboxActivity && pm disable com.themoon.y1";
+
+                                    Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
+
+                                } catch (Exception e) {
+                                    Toast.makeText(MainActivity.this, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnSwitchRockbox);
         LinearLayout btnServerMenu = createSettingRow("Web Server (PC Upload)", "〉 ");
         btnServerMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3305,45 +3223,68 @@ public class MainActivity extends Activity {
         }
     }
     // 💡 [추가] 위젯을 껐다 켜는 전용 서브 메뉴 화면
+    // 💡 [수정 완료] 총 5개의 위젯을 껐다 켤 수 있는 통합 위젯 설정 메뉴
     private void buildWidgetSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
+        currentSettingsDepth = 1; // 메인 설정 밖으로 나왔음을 시스템에 알림
         containerSettingsItems.removeAllViews();
 
-        // 1. 시계 위젯 스위치
-        final LinearLayout btnClock = createSettingRow("Widget: Clock & Date", isWidgetClockOn ? "ON" : "OFF");
+        // 1. 기존: 디지털 시계 & 날짜 위젯 스위치
+        final LinearLayout btnClock = createSettingRow("Widget: Digital Clock", isWidgetClockOn ? "ON" : "OFF");
         btnClock.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
                 isWidgetClockOn = !isWidgetClockOn;
                 ((TextView) btnClock.getChildAt(1)).setText(isWidgetClockOn ? "ON" : "OFF");
-                try {
-                    prefs.edit().putBoolean("widget_clock", isWidgetClockOn).commit();
-                } catch (Exception e) {
-                }
+                try { prefs.edit().putBoolean("widget_clock", isWidgetClockOn).commit(); } catch (Exception e) {}
                 refreshWidgets(); // 스위치를 켜면 즉시 위젯 화면 업데이트!
             }
         });
         containerSettingsItems.addView(btnClock);
 
-        // 2. 배터리 위젯 스위치
-        final LinearLayout btnBattery = createSettingRow("Widget: Battery Status", isWidgetBatteryOn ? "ON" : "OFF");
+        // 2. 신규: 아날로그 시계 위젯 스위치
+        final LinearLayout btnAnalogClock = createSettingRow("Widget: Analog Clock", isWidgetAnalogClockOn ? "ON" : "OFF");
+        btnAnalogClock.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isWidgetAnalogClockOn = !isWidgetAnalogClockOn;
+                ((TextView) btnAnalogClock.getChildAt(1)).setText(isWidgetAnalogClockOn ? "ON" : "OFF");
+                try { prefs.edit().putBoolean("widget_analog_clock", isWidgetAnalogClockOn).commit(); } catch (Exception e) {}
+                refreshWidgets();
+            }
+        });
+        containerSettingsItems.addView(btnAnalogClock);
+
+        // 3. 기존: 막대형 배터리 위젯 스위치
+        final LinearLayout btnBattery = createSettingRow("Widget: Battery Bar", isWidgetBatteryOn ? "ON" : "OFF");
         btnBattery.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
                 isWidgetBatteryOn = !isWidgetBatteryOn;
                 ((TextView) btnBattery.getChildAt(1)).setText(isWidgetBatteryOn ? "ON" : "OFF");
-                try {
-                    prefs.edit().putBoolean("widget_battery", isWidgetBatteryOn).commit();
-                } catch (Exception e) {
-                }
+                try { prefs.edit().putBoolean("widget_battery", isWidgetBatteryOn).commit(); } catch (Exception e) {}
                 refreshWidgets();
             }
         });
         containerSettingsItems.addView(btnBattery);
 
-        // 3. 앨범 아트 위젯 스위치
+        // 4. 신규: 원형 배터리 위젯 스위치
+        final LinearLayout btnCircularBattery = createSettingRow("Widget: Circular Battery", isWidgetCircularBatteryOn ? "ON" : "OFF");
+        btnCircularBattery.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isWidgetCircularBatteryOn = !isWidgetCircularBatteryOn;
+                ((TextView) btnCircularBattery.getChildAt(1)).setText(isWidgetCircularBatteryOn ? "ON" : "OFF");
+                try { prefs.edit().putBoolean("widget_circular_battery", isWidgetCircularBatteryOn).commit(); } catch (Exception e) {}
+                refreshWidgets();
+            }
+        });
+        containerSettingsItems.addView(btnCircularBattery);
+
+        // 5. 기존: 앨범 아트 위젯 스위치
         final LinearLayout btnAlbum = createSettingRow("Widget: Now Playing Album", isWidgetAlbumOn ? "ON" : "OFF");
         btnAlbum.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3351,20 +3292,19 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetAlbumOn = !isWidgetAlbumOn;
                 ((TextView) btnAlbum.getChildAt(1)).setText(isWidgetAlbumOn ? "ON" : "OFF");
-                try {
-                    prefs.edit().putBoolean("widget_album", isWidgetAlbumOn).commit();
-                } catch (Exception e) {
-                }
+                try { prefs.edit().putBoolean("widget_album", isWidgetAlbumOn).commit(); } catch (Exception e) {}
                 refreshWidgets();
             }
         });
         containerSettingsItems.addView(btnAlbum);
 
+        // 진입 시 자동으로 두 번째 항목에 포커스를 줍니다.
         if (containerSettingsItems.getChildCount() > 1) {
             containerSettingsItems.getChildAt(1).requestFocus();
+        } else if (containerSettingsItems.getChildCount() > 0) {
+            containerSettingsItems.getChildAt(0).requestFocus();
         }
     }
-
     // 💡 [추가] 배경화면 지정 및 삭제를 하나로 묶은 서브 메뉴 화면
     private void buildBackgroundSettingsUI() {
         currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
@@ -3377,7 +3317,7 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 clickFeedback();
                 isPickingBackground = true;
-                currentBrowserMode = BROWSER_FOLDER;
+                currentFolder = new File("/storage/sdcard0");
                 changeScreen(STATE_BROWSER);
                 Toast.makeText(MainActivity.this, "Select a JPG/PNG image", Toast.LENGTH_SHORT).show();
             }
@@ -3923,10 +3863,16 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     clickFeedback();
-                    if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
-                        isPickingBackground = false;
-                        changeScreen(STATE_SETTINGS);
-                        buildBackgroundSettingsUI();
+                    // 🚀 [수정] 여기서도 전체 폴더 대응
+                    if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath()) || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
+                        if (isPickingBackground) {
+                            isPickingBackground = false;
+                            changeScreen(STATE_SETTINGS);
+                            buildBackgroundSettingsUI();
+                        } else {
+                            currentBrowserMode = BROWSER_ROOT;
+                            buildFileBrowserUI();
+                        }
                     } else {
                         currentFolder = currentFolder.getParentFile();
                         buildFileBrowserUI();
@@ -4101,7 +4047,538 @@ public class MainActivity extends Activity {
             }
         }, 50);
     }
-    // 🚀 [신규 추가] 하위 폴더 끝까지 파고들어 음악 파일(File 객체)만 싹 긁어오는 진공청소기 함수!
+    // 🚀 [추가 도구 1] 영어로 된 정렬(Gravity) 텍스트를 안드로이드가 알아듣게 번역해 주는 함수
+    private int parseGravity(String gravityStr) {
+        int g = android.view.Gravity.TOP | android.view.Gravity.LEFT; // 기본값
+        if (gravityStr == null || gravityStr.isEmpty()) return g;
+        gravityStr = gravityStr.toLowerCase();
+        g = 0;
+        if (gravityStr.contains("top")) g |= android.view.Gravity.TOP;
+        if (gravityStr.contains("bottom")) g |= android.view.Gravity.BOTTOM;
+        if (gravityStr.contains("center_vertical")) g |= android.view.Gravity.CENTER_VERTICAL;
+        if (gravityStr.contains("left")) g |= android.view.Gravity.LEFT;
+        if (gravityStr.contains("right")) g |= android.view.Gravity.RIGHT;
+        if (gravityStr.contains("center_horizontal")) g |= android.view.Gravity.CENTER_HORIZONTAL;
+        if (gravityStr.equals("center")) g = android.view.Gravity.CENTER; // 완벽한 정중앙
+
+        if (g == 0) g = android.view.Gravity.TOP | android.view.Gravity.LEFT;
+        return g;
+    }
+    // 🚀 [추가 도구 3] JSON의 X, Y, 너비, 높이, 정렬을 받아서 절대 좌표 세팅값으로 바꿔주는 공장!
+    private android.widget.FrameLayout.LayoutParams createDynamicLayoutParams(ThemeManager.MenuElement el, float density) {
+        int w = el.width > 0 ? (int)(el.width * density) : android.widget.FrameLayout.LayoutParams.WRAP_CONTENT;
+        int h = el.height > 0 ? (int)(el.height * density) : android.widget.FrameLayout.LayoutParams.WRAP_CONTENT;
+
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(w, h);
+        lp.gravity = parseGravity(el.gravity);
+
+        // 정렬(Gravity)에 맞추어 X, Y 마진을 지능적으로 부여합니다.
+        if ((lp.gravity & android.view.Gravity.RIGHT) == android.view.Gravity.RIGHT) lp.rightMargin = (int)(el.x * density);
+        else lp.leftMargin = (int)(el.x * density);
+
+        if ((lp.gravity & android.view.Gravity.BOTTOM) == android.view.Gravity.BOTTOM) lp.bottomMargin = (int)(el.y * density);
+        else lp.topMargin = (int)(el.y * density);
+
+        return lp;
+    }
+    // 🚀 [추가 도구 2] 테마 기본 둥글기와 개별 버튼 둥글기를 똑똑하게 섞어주는 함수
+    private android.graphics.drawable.GradientDrawable createDynamicButtonBackground(int color, int elementRadius) {
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(color);
+        // JSON에 개별 반경(-1이 아님)이 적혀있으면 그걸 쓰고, 없으면 테마 기본값을 씁니다!
+        float r = (elementRadius == -1 ? ThemeManager.getButtonRadius() : elementRadius) * getResources().getDisplayMetrics().density;
+        shape.setCornerRadius(r);
+        return shape;
+    }
+    // 🚀 [추가 도구 4] 위젯 전용: 지정된 배경색과 둥글기로 예쁜 박스를 만들어냅니다.
+    private android.graphics.drawable.GradientDrawable createWidgetBackground(String bgColorStr, int elementRadius) {
+        if (bgColorStr == null || bgColorStr.trim().isEmpty()) return null;
+        int color;
+        try { color = android.graphics.Color.parseColor(bgColorStr.trim()); }
+        catch (Exception e) { return null; }
+
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(color);
+        // JSON에 둥글기를 안 적었으면 테마 기본 둥글기를 따라갑니다.
+        float r = (elementRadius == -1 ? ThemeManager.getButtonRadius() : elementRadius) * getResources().getDisplayMetrics().density;
+        shape.setCornerRadius(r);
+        return shape;
+    }
+    // 🚀 [포커스 제어 완전 정복] 휠을 돌리면 공간을 무시하고 JSON 인덱스 순서대로 빙글빙글 돕니다!
+    private void buildDynamicMainMenuUI() {
+        android.view.ViewGroup mainMenu = (android.view.ViewGroup) layoutMainMenu;
+        // 🚀 [상태바 보호막 가동!!]
+        // 기존 XML 뼈대에 있던 '상단 여백(상태바 높이)'을 알아냅니다.
+        int safeTopPadding = mainMenu.getPaddingTop();
+
+        // 만약 기존 여백을 못 불러왔다면, 안드로이드 기본 상태바 높이인 24dp로 강제 방어막을 칩니다!
+        if (safeTopPadding == 0) {
+            safeTopPadding = (int)(24 * getResources().getDisplayMetrics().density);
+        }
+
+        // 좌(0), 상단(보호막), 우(0), 하단(0) 으로 패딩을 다시 설정합니다.
+        mainMenu.setPadding(0, safeTopPadding, 0, 0);
+
+        for (int i = 0; i < mainMenu.getChildCount(); i++) {
+            mainMenu.getChildAt(i).setVisibility(View.GONE);
+        }
+
+        android.widget.FrameLayout canvas = (android.widget.FrameLayout) mainMenu.findViewWithTag("dynamic_canvas");
+        if (canvas != null) mainMenu.removeView(canvas);
+
+        canvas = new android.widget.FrameLayout(this);
+        canvas.setTag("dynamic_canvas");
+        canvas.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
+
+        mainMenu.addView(canvas, new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+
+        tvWidgetClock = null; widgetBatteryView = null; ivWidgetAlbum = null;
+        tvWidgetAlbumTitle = null; tvWidgetAlbumArtist = null;
+
+        final float density = getResources().getDisplayMetrics().density;
+        List<ThemeManager.MenuElement> elements = ThemeManager.getCurrentTheme().menuElements;
+
+        List<ThemeManager.MenuElement> buttonElements = new ArrayList<>();
+        List<ThemeManager.MenuElement> widgetElements = new ArrayList<>();
+
+        for (ThemeManager.MenuElement el : elements) {
+            if (el.type.equals("button")) buttonElements.add(el);
+            else widgetElements.add(el);
+        }
+
+        java.util.Collections.sort(buttonElements, new java.util.Comparator<ThemeManager.MenuElement>() {
+            @Override
+            public int compare(ThemeManager.MenuElement e1, ThemeManager.MenuElement e2) {
+                return e1.focusIndex - e2.focusIndex;
+            }
+        });
+
+        // 💡 위젯 그리기
+        // 💡 위젯 그리기
+        for (ThemeManager.MenuElement el : widgetElements) {
+
+            android.graphics.drawable.GradientDrawable widgetBg = createWidgetBackground(el.bgColor, el.radius);
+            int p = (int)(el.padding * density); // 🚀 JSON에 적힌 여백(Padding)을 꺼내옵니다.
+            if (el.type.equals("box")) {
+                ImageView boxView = new ImageView(this);
+                boxView.setLayoutParams(createDynamicLayoutParams(el, density));
+
+                if (widgetBg == null) {
+                    widgetBg = createWidgetBackground("#00000000", el.radius);
+                }
+                boxView.setBackground(widgetBg);
+
+                // 🚀 1. 파서(Parser)가 iconNormal을 누락시킬 경우를 대비해 textNormal도 검사!
+                String imgName = (el.iconNormal != null && !el.iconNormal.isEmpty()) ? el.iconNormal : el.textNormal;
+
+                // "New Item"은 껍데기 텍스트이므로 렌더링 제외
+                if (imgName != null && !imgName.isEmpty() && !imgName.equals("New Item")) {
+                    android.graphics.Bitmap bmp = ThemeManager.getCustomIcon(imgName, MainActivity.this, 0);
+                    if (bmp != null) {
+                        // 🚀 2. 고해상도 사진의 안드로이드 OpenGL 렌더링 한계(Max Texture Size)를 돌파하기 위한 강제 스케일링
+                        int maxTexSize = 2048;
+                        if (bmp.getWidth() > maxTexSize || bmp.getHeight() > maxTexSize) {
+                            float ratio = Math.min((float)maxTexSize / bmp.getWidth(), (float)maxTexSize / bmp.getHeight());
+                            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, (int)(bmp.getWidth() * ratio), (int)(bmp.getHeight() * ratio), true);
+                            boxView.setImageBitmap(scaled);
+                        } else {
+                            boxView.setImageBitmap(bmp);
+                        }
+
+                        boxView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+                        if (android.os.Build.VERSION.SDK_INT >= 21) {
+                            boxView.setClipToOutline(true);
+                        }
+                    }
+                }
+
+                // 버튼(Button)들보다 먼저 그려지므로, 자연스럽게 버튼 뒤(배경 앞)에 깔리게 됩니다!
+                canvas.addView(boxView);
+            }
+            else if (el.type.equals("widget_clock")) {
+                tvWidgetClock = new TextView(this);
+                tvWidgetClock.setGravity(android.view.Gravity.CENTER);
+                tvWidgetClock.setLayoutParams(createDynamicLayoutParams(el, density));
+                tvWidgetClock.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+                tvWidgetClock.setTextColor(ThemeManager.getTextColorPrimary());
+                tvWidgetClock.setTextSize(el.textSize > 0 ? el.textSize : 20);
+
+                if (widgetBg != null) tvWidgetClock.setBackground(widgetBg);
+                tvWidgetClock.setPadding(p, p, p, p); // 🚀 여백 적용!
+                canvas.addView(tvWidgetClock);
+
+            } else if (el.type.equals("widget_battery")) {
+                widgetBatteryView = new WidgetBatteryBarView(this);
+                if (el.textSize > 0) widgetBatteryView.setCustomTextSize(el.textSize * density);
+
+                if (widgetBg != null) {
+                    LinearLayout batteryWrapper = new LinearLayout(this);
+                    batteryWrapper.setLayoutParams(createDynamicLayoutParams(el, density));
+                    batteryWrapper.setGravity(android.view.Gravity.CENTER);
+                    batteryWrapper.setBackground(widgetBg);
+                    batteryWrapper.setPadding(p, p, p, p); // 🚀 여백 적용!
+
+                    widgetBatteryView.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+                    batteryWrapper.addView(widgetBatteryView);
+                    canvas.addView(batteryWrapper);
+                } else {
+                    widgetBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
+                    widgetBatteryView.setPadding(p, p, p, p); // 🚀 여백 적용!
+                    canvas.addView(widgetBatteryView);
+                }
+
+            } else if (el.type.equals("widget_album")) {
+                LinearLayout albumContainer = new LinearLayout(this);
+                boolean isHorizontal = el.textPosition.equalsIgnoreCase("left") || el.textPosition.equalsIgnoreCase("right");
+                albumContainer.setOrientation(isHorizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                albumContainer.setGravity(android.view.Gravity.CENTER);
+                albumContainer.setLayoutParams(createDynamicLayoutParams(el, density));
+
+                if (widgetBg != null) {
+                    albumContainer.setBackground(widgetBg);
+                }
+                albumContainer.setPadding(p, p, p, p);
+
+                // 1. 앨범 이미지 세팅
+                ivWidgetAlbum = new ImageView(this);
+                ivWidgetAlbum.setScaleType(ImageView.ScaleType.CENTER_CROP); // 🚀 찌그러짐 완벽 방지: 정사각형 틀에 맞춰 꽉 채움!
+
+                int pSubtract = el.padding * 2;
+                int imgSize;
+
+                // 🚀 [핵심 수정] 이미지 크기가 위젯 전체를 집어삼키지 않도록 방어막을 칩니다!
+                if (isHorizontal) {
+                    imgSize = (int)((el.height - pSubtract) * density);
+                } else {
+                    // 세로 배치일 때는 전체 높이(el.height)의 65%만 이미지에게 할당합니다.
+                    // 이렇게 해야 위젯 높이를 키웠을 때 글씨 공간도 같이 넓어집니다!
+                    int maxImgHeightByRate = (int)((el.height - pSubtract) * 0.65f);
+                    int w = el.width > 0 ? el.width - pSubtract : el.height;
+
+                    imgSize = (w < maxImgHeightByRate) ? (int)(w * density) : (int)(maxImgHeightByRate * density);
+                }
+                if(imgSize <= 0) imgSize = (int)(110 * density);
+
+                // 🚀 [가중치 부여] 세로 모드일 때는 이미지가 위쪽 공간만 이쁘게 차지하도록 세팅
+                LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(imgSize, imgSize);
+                if (!isHorizontal) {
+                    imgLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+                }
+
+                // 2. 텍스트 박스 세팅
+                LinearLayout textContainer = new LinearLayout(this);
+                textContainer.setOrientation(LinearLayout.VERTICAL);
+
+                int textGravity = android.view.Gravity.CENTER;
+                if (el.textAlign.equalsIgnoreCase("left")) textGravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
+                else if (el.textAlign.equalsIgnoreCase("right")) textGravity = android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL;
+                textContainer.setGravity(textGravity);
+
+                LinearLayout.LayoutParams textContainerLp;
+                if (isHorizontal) {
+                    textContainerLp = new LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+                } else {
+                    // 🚀 [핵심 수정] 세로 모드일 때 남은 여백 공간(height: 0, weight: 1.0f)을
+                    // 텍스트 상자가 전부 흡수하여 글씨가 절대로 잘리지 않게 고무줄 레이아웃을 만듭니다!
+                    textContainerLp = new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
+                }
+
+                LinearLayout.LayoutParams textViewLp = new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+
+                // 3. 곡 제목 세팅
+                tvWidgetAlbumTitle = new TextView(this);
+                tvWidgetAlbumTitle.setLayoutParams(textViewLp);
+                tvWidgetAlbumTitle.setGravity(textGravity);
+                tvWidgetAlbumTitle.setSingleLine(true);
+                tvWidgetAlbumTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                tvWidgetAlbumTitle.setTextColor(ThemeManager.getTextColorPrimary());
+                tvWidgetAlbumTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+                tvWidgetAlbumTitle.setTextSize(el.textSize > 0 ? el.textSize : 16);
+                textContainer.addView(tvWidgetAlbumTitle);
+
+                // 4. 가수 이름 세팅
+                tvWidgetAlbumArtist = new TextView(this);
+                tvWidgetAlbumArtist.setLayoutParams(textViewLp);
+                tvWidgetAlbumArtist.setGravity(textGravity);
+                tvWidgetAlbumArtist.setSingleLine(true);
+                tvWidgetAlbumArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                tvWidgetAlbumArtist.setTextColor(ThemeManager.getTextColorSecondary());
+                tvWidgetAlbumArtist.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+                tvWidgetAlbumArtist.setTextSize(el.textSecondarySize > 0 ? el.textSecondarySize : 12);
+                textContainer.addView(tvWidgetAlbumArtist);
+
+                // 최종 조립 (마진 및 패딩 공간 최적화)
+                if (el.textPosition.equalsIgnoreCase("left")) {
+                    imgLp.leftMargin = (int)(15 * density);
+                    albumContainer.addView(textContainer, textContainerLp);
+                    albumContainer.addView(ivWidgetAlbum, imgLp);
+                }
+                else if (el.textPosition.equalsIgnoreCase("right")) {
+                    textContainerLp.leftMargin = (int)(15 * density);
+                    albumContainer.addView(ivWidgetAlbum, imgLp);
+                    albumContainer.addView(textContainer, textContainerLp);
+                }
+                else if (el.textPosition.equalsIgnoreCase("top")) {
+                    textContainerLp.bottomMargin = (int)(5 * density); // 글씨와 이미지 사이 숨통
+                    albumContainer.addView(textContainer, textContainerLp);
+                    albumContainer.addView(ivWidgetAlbum, imgLp);
+                }
+                else { // bottom (하단에 글씨 배치)
+                    textContainerLp.topMargin = (int)(5 * density); // 이미지와 글씨 사이 숨통
+                    albumContainer.addView(ivWidgetAlbum, imgLp);
+                    albumContainer.addView(textContainer, textContainerLp);
+                }
+
+                canvas.addView(albumContainer);
+
+
+            } else if (el.type.equals("widget_analog_clock")) {
+                // 🚀 1. 지역 변수(analogClock)를 지우고, 통제실 변수(customAnalogClockView)에 정식으로 등록합니다!
+                customAnalogClockView = new CustomAnalogClockView(this);
+                customAnalogClockView.setLayoutParams(createDynamicLayoutParams(el, density));
+                customAnalogClockView.setPadding(p, p, p, p);
+
+                // 🚀 2. 네모난 배경(widgetBg)을 칠하는 코드를 싹 지우고, 시계 내부 원형 색상으로 주입합니다!
+                if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
+                    try {
+                        int color = android.graphics.Color.parseColor(el.bgColor.trim());
+                        customAnalogClockView.setClockBackgroundColor(color);
+                    } catch (Exception e) {}
+                }
+
+                canvas.addView(customAnalogClockView);
+
+            } else if (el.type.equals("widget_circular_battery")) {
+            // 🚀 원형 배터리 조립
+            customCircularBatteryView = new CircularBatteryView(this);
+            if (el.textSize > 0) customCircularBatteryView.setCustomTextSize(el.textSize * density);
+            else customCircularBatteryView.setCustomTextSize(18 * density); // 기본 글자 크기
+
+            if (widgetBg != null) {
+                LinearLayout batteryWrapper = new LinearLayout(this);
+                batteryWrapper.setLayoutParams(createDynamicLayoutParams(el, density));
+                batteryWrapper.setGravity(android.view.Gravity.CENTER);
+                batteryWrapper.setBackground(widgetBg);
+                batteryWrapper.setPadding(p, p, p, p);
+
+                customCircularBatteryView.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+                batteryWrapper.addView(customCircularBatteryView);
+                canvas.addView(batteryWrapper);
+            } else {
+                customCircularBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
+                customCircularBatteryView.setPadding(p, p, p, p);
+                canvas.addView(customCircularBatteryView);
+            }
+        }
+        }
+        // 💡 버튼 그리기
+        List<LinearLayout> createdButtons = new ArrayList<>(); // 🚀 Button에서 LinearLayout으로 업그레이드
+
+        for (int i = 0; i < buttonElements.size(); i++) {
+            final ThemeManager.MenuElement el = buttonElements.get(i);
+
+            // 🚀 1. 버튼을 감싸는 전체 컨테이너 (LinearLayout)
+            final LinearLayout btn = new LinearLayout(this);
+            btn.setId(10000 + i);
+            btn.setTag(el.action);
+            btn.setSoundEffectsEnabled(false);
+            btn.setFocusable(true);
+            btn.setOrientation(LinearLayout.HORIZONTAL);
+
+            // 🚀 2. 좌측 메인 텍스트 및 아이콘 뷰
+            final TextView tvMain = new TextView(this);
+            tvMain.setSingleLine(true);
+            tvMain.setEllipsize(android.text.TextUtils.TruncateAt.END);
+
+            // 🚀 3. 우측 화살표 및 포인트 텍스트 뷰
+            final TextView tvRight = new TextView(this);
+            tvRight.setSingleLine(true);
+
+            final boolean isIconOnly = (el.textNormal == null || el.textNormal.trim().isEmpty());
+
+            int textGravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
+            if (el.textAlign != null && !el.textAlign.isEmpty()) {
+                String ta = el.textAlign.toLowerCase();
+                if (ta.equals("center")) textGravity = android.view.Gravity.CENTER;
+                else if (ta.equals("right")) textGravity = android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL;
+                else if (ta.equals("top")) textGravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+                else if (ta.equals("bottom")) textGravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+            } else {
+                if (el.gravity.toLowerCase().contains("center")) textGravity = android.view.Gravity.CENTER;
+            }
+
+            if (isIconOnly) {
+                btn.setGravity(android.view.Gravity.CENTER);
+                btn.setPadding(0, 0, 0, 0);
+                tvMain.setGravity(android.view.Gravity.CENTER);
+            } else {
+                btn.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                tvMain.setGravity(textGravity);
+                tvRight.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL); // 우측 고정
+
+                if (el.textAlign != null && (el.textAlign.equalsIgnoreCase("top") || el.textAlign.equalsIgnoreCase("bottom"))) {
+                    btn.setPadding(0, (int)(15 * density), 0, (int)(15 * density));
+                } else {
+                    btn.setPadding((int)(15 * density), 0, (int)(15 * density), 0);
+                }
+            }
+
+            btn.setLayoutParams(createDynamicLayoutParams(el, density));
+            tvMain.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+            tvRight.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+
+            if (!isIconOnly) {
+                float size = el.textSize > 0 ? el.textSize : 18;
+                tvMain.setTextSize(size);
+                tvRight.setTextSize(size);
+            }
+
+            // 🚀 가중치(Weight) 분배: 메인 텍스트가 남은 공간을 모두 차지해 화살표를 우측 끝으로 밀어냅니다.
+            LinearLayout.LayoutParams lpMain = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+            LinearLayout.LayoutParams lpRight = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lpRight.leftMargin = (int)(10 * density);
+
+            btn.addView(tvMain, lpMain);
+            btn.addView(tvRight, lpRight);
+
+            final Runnable setNormalState = new Runnable() {
+                public void run() {
+                    if (isIconOnly) {
+                        tvMain.setText("");
+                        btn.setBackgroundColor(0x00000000);
+                    } else {
+                        tvMain.setText(el.textNormal);
+                        tvMain.setTextColor(ThemeManager.getTextColorPrimary());
+                        // 🚀 우측 텍스트 내용 및 색상 부여
+                        tvRight.setText(el.textRight != null ? el.textRight : "");
+                        tvRight.setTextColor(ThemeManager.getTextColorPrimary());
+
+                        btn.setBackground(createDynamicButtonBackground(ThemeManager.getListButtonNormalBg(), el.radius));
+                    }
+
+                    if (el.iconNormal != null && !el.iconNormal.isEmpty()) {
+                        android.graphics.Bitmap bmp = ThemeManager.getCustomIcon(el.iconNormal, MainActivity.this, 0);
+                        if (bmp != null) {
+                            android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), bmp);
+                            int iconSize;
+                            if (isIconOnly) {
+                                int w = el.width > 0 ? el.width : 50;
+                                int h = el.height > 0 ? el.height : 50;
+                                iconSize = (int)(Math.min(w, h) * density);
+                            } else {
+                                int h = el.height > 0 ? el.height : 50;
+                                iconSize = (int)(h * density * 0.5f);
+                            }
+                            d.setBounds(0, 0, iconSize, iconSize);
+                            tvMain.setCompoundDrawables(d, null, null, null);
+                            tvMain.setCompoundDrawablePadding(isIconOnly ? 0 : (int)(10 * density));
+                        } else { tvMain.setCompoundDrawables(null, null, null, null); }
+                    } else { tvMain.setCompoundDrawables(null, null, null, null); }
+                }
+            };
+            setNormalState.run();
+
+            btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (hasFocus) {
+                        btn.setBackground(createDynamicButtonBackground(ThemeManager.getListButtonFocusedBg(), el.radius));
+
+                        if (isIconOnly) {
+                            tvMain.setText("");
+                        } else {
+                            // 🚀 포커스 시 메인 글자와 우측 화살표 색상 동시 변경!
+                            tvMain.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                            tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+
+                            if (el.textFocused != null && !el.textFocused.isEmpty()) tvMain.setText(el.textFocused);
+                            else tvMain.setText(el.textNormal);
+                        }
+
+                        String targetIcon = (el.iconFocused != null && !el.iconFocused.isEmpty()) ? el.iconFocused : el.iconNormal;
+                        if (targetIcon != null && !targetIcon.isEmpty()) {
+                            android.graphics.Bitmap bmpF = ThemeManager.getCustomIcon(targetIcon, MainActivity.this, 0);
+                            if (bmpF != null) {
+                                android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), bmpF);
+                                int iconSize;
+                                if (isIconOnly) {
+                                    int w = el.width > 0 ? el.width : 50;
+                                    int h = el.height > 0 ? el.height : 50;
+                                    iconSize = (int)(Math.min(w, h) * density);
+                                } else {
+                                    int h = el.height > 0 ? el.height : 50;
+                                    iconSize = (int)(h * density * 0.5f);
+                                }
+                                d.setBounds(0, 0, iconSize, iconSize);
+                                tvMain.setCompoundDrawables(d, null, null, null);
+                            }
+                        }
+                    } else { setNormalState.run(); }
+                }
+            });
+
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    switch (el.action) {
+                        case "OPEN_PLAYER": if (currentPlaylist.isEmpty()) Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show(); else changeScreen(STATE_PLAYER); break;
+                        case "OPEN_BROWSER": currentBrowserMode = BROWSER_ROOT; if (customLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan(); changeScreen(STATE_BROWSER); if (isCustomScanning) showLoadingPopup(); break;
+                        case "OPEN_BLUETOOTH": changeScreen(STATE_BLUETOOTH); break;
+                        case "OPEN_SETTINGS": changeScreen(STATE_SETTINGS); break;
+                        case "OPEN_WEBSERVER": changeScreen(STATE_WEBSERVER); break;
+
+                        // 🚀🚀🚀 [여기서부터 새로 추가된 다이렉트 숏컷 액션들!] 🚀🚀🚀
+                        case "OPEN_ROOT_FOLDER":
+                            currentBrowserMode = BROWSER_FOLDER;
+                            currentFolder = new File("/storage/sdcard0"); // 최상위 루트 폴더로 강제 이동!
+                            changeScreen(STATE_BROWSER);
+                            break;
+                        case "OPEN_WIFI": changeScreen(STATE_WIFI); break;
+                        case "OPEN_BRIGHTNESS": changeScreen(STATE_BRIGHTNESS); break;
+                        case "OPEN_STORAGE_INFO": changeScreen(STATE_STORAGE); break;
+                        case "OPEN_WIDGET_SETTINGS":
+                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildWidgetSettingsUI(); isNavigatingToSubMenu = false; break;
+                        case "OPEN_BACKGROUND_SETTINGS":
+                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildBackgroundSettingsUI(); isNavigatingToSubMenu = false; break;
+                        case "OPEN_THEME_SETTINGS":
+                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildThemeSelectorUI(); isNavigatingToSubMenu = false; break;
+                        case "OPEN_TIME_SETTINGS":
+                            java.util.Calendar c = java.util.Calendar.getInstance();
+                            dtYear = c.get(java.util.Calendar.YEAR); dtMonth = c.get(java.util.Calendar.MONTH) + 1; dtDay = c.get(java.util.Calendar.DAY_OF_MONTH);
+                            dtHour = c.get(java.util.Calendar.HOUR_OF_DAY); dtMinute = c.get(java.util.Calendar.MINUTE);
+                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildDateTimeUI(); isNavigatingToSubMenu = false; break;
+                        // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
+
+                        default: break;
+                    }
+                }
+            });
+
+            canvas.addView(btn);
+            createdButtons.add(btn);
+
+            if (i == 0) btn.post(new Runnable() { public void run() { btn.requestFocus(); } });
+        }
+
+        int totalBtns = createdButtons.size();
+        for (int i = 0; i < totalBtns; i++) {
+            // 🚀 [수정 완료] Button이 아니라 LinearLayout으로 꺼내야 합니다!
+            LinearLayout currentBtn = createdButtons.get(i);
+            int prevId = 10000 + ((i - 1 + totalBtns) % totalBtns);
+            int nextId = 10000 + ((i + 1) % totalBtns);
+
+            currentBtn.setNextFocusUpId(prevId);
+            currentBtn.setNextFocusLeftId(prevId);
+            currentBtn.setNextFocusDownId(nextId);
+            currentBtn.setNextFocusRightId(nextId);
+        }
+
+        refreshWidgets();
+    }
     private void collectAudioFilesAsFile(File dir, List<File> list) {
         File[] files = dir.listFiles();
         if (files != null) {
@@ -4996,15 +5473,20 @@ public class MainActivity extends Activity {
                         if (currentBrowserMode == BROWSER_ROOT) {
                             changeScreen(STATE_MENU);
                         } else if (currentBrowserMode == BROWSER_FOLDER) {
-                            if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
+                            // 🚀 [수정] 루트 폴더이거나 전체 저장소 폴더일 때 뒤로 가기를 누르면 초기화
+                            if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath()) || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
                                 currentBrowserMode = BROWSER_ROOT;
                                 lastBrowserFocusText = "📁 Folders";
                                 buildFileBrowserUI();
                             } else {
                                 String exitedName = currentFolder.getName(); // 나온 폴더 이름 기억!
                                 currentFolder = currentFolder.getParentFile();
-                                lastBrowserFocusText = "📁 " + exitedName;
-                                buildFileBrowserUI();
+                                if (currentFolder == null) {
+                                    changeScreen(STATE_MENU);
+                                } else {
+                                    lastBrowserFocusText = "📁 " + exitedName;
+                                    buildFileBrowserUI();
+                                }
                             }
                         } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
                             currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
@@ -5164,7 +5646,7 @@ public class MainActivity extends Activity {
                                 break;
                             }
                         }
-                        // 🚀 2. [무한 스크롤] 더 이상 위로 갈 곳이 없으면 맨 아래쪽 끝 메뉴로 텔레포트!
+                        // 2. [무한 스크롤] 더 이상 위로 갈 곳이 없으면 맨 아래쪽 끝 메뉴로 텔레포트!
                         if (!moved) {
                             for (int i = parent.getChildCount() - 1; i > index; i--) {
                                 View n = parent.getChildAt(i);
@@ -5175,9 +5657,19 @@ public class MainActivity extends Activity {
                             }
                         }
                     } else {
+                        // 🚀 [핵심 추가] 메인 화면(캔버스)에서는 안드로이드의 제멋대로 공간 탐색을 끄고,
+                        // 테마에 묶어둔 '이전 고유 번호(UpId)'를 찾아 무조건 강제로 점프시킵니다!
+                        int targetId = c.getNextFocusUpId();
+                        if (targetId != View.NO_ID) {
+                            View target = findViewById(targetId);
+                            if (target != null) {
+                                target.requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                        }
                         View n = c.focusSearch(View.FOCUS_UP);
-                        if (n != null)
-                            n.requestFocus();
+                        if (n != null) n.requestFocus();
                     }
                     clickFeedback();
                     return true;
@@ -5196,7 +5688,7 @@ public class MainActivity extends Activity {
                                 break;
                             }
                         }
-                        // 🚀 2. [무한 스크롤] 더 이상 아래로 갈 곳이 없으면 맨 위쪽 첫 메뉴로 텔레포트!
+                        // 2. [무한 스크롤] 더 이상 아래로 갈 곳이 없으면 맨 위쪽 첫 메뉴로 텔레포트!
                         if (!moved) {
                             for (int i = 0; i < index; i++) {
                                 View n = parent.getChildAt(i);
@@ -5207,9 +5699,18 @@ public class MainActivity extends Activity {
                             }
                         }
                     } else {
+                        // 🚀 [핵심 추가] 테마에 묶어둔 '다음 고유 번호(DownId)'를 찾아 무조건 강제 점프!
+                        int targetId = c.getNextFocusDownId();
+                        if (targetId != View.NO_ID) {
+                            View target = findViewById(targetId);
+                            if (target != null) {
+                                target.requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                        }
                         View n = c.focusSearch(View.FOCUS_DOWN);
-                        if (n != null)
-                            n.requestFocus();
+                        if (n != null) n.requestFocus();
                     }
                     clickFeedback();
                     return true;
@@ -5563,49 +6064,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [수정] 메인 화면 미리보기도 재생 상태에 따라 아이콘을 똑똑하게 바꿉니다.
+    // 💡 [수정] 동적 버튼의 꼬리표(Tag)를 읽어 앨범 아트를 똑똑하게 띄워줍니다!
     private void refreshNowPlayingPreview() {
-        boolean anyWidgetActive = isWidgetClockOn || isWidgetBatteryOn || isWidgetAlbumOn;
-        if (anyWidgetActive) {
-            if (tvMenuPreviewTitle != null)
-                tvMenuPreviewTitle.setVisibility(View.GONE);
-            if (tvMenuPreviewArtist != null)
-                tvMenuPreviewArtist.setVisibility(View.GONE);
-            refreshWidgets(); // 위젯 화면 즉시 새로고침!
-            return; // 🚀 여기서 함수를 강제 종료하여 아래쪽의 기존 텍스트 부활 코드를 완전히 씹어버립니다.
-        }
-        if (btnNowPlaying != null && btnNowPlaying.hasFocus()) {
-            if (currentPlaylist.isEmpty()) {
-                ivMenuPreview.setImageResource(R.drawable.music_circle);
-                if (tvMenuPreviewTitle != null && tvMenuPreviewArtist != null) {
-                    tvMenuPreviewTitle.setVisibility(View.GONE);
-                    tvMenuPreviewArtist.setVisibility(View.GONE);
-                }
-            } else {
-                if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
-                    try {
-                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                        opts.inSampleSize = 2;
-                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes,
-                                0, lastAlbumArtBytes.length, opts);
-                        ivMenuPreview.setImageBitmap(bmp);
-                    } catch (Exception e) {
-                        ivMenuPreview.setImageResource(R.drawable.default_album);
-                    }
-                } else {
-                    ivMenuPreview.setImageResource(R.drawable.default_album);
-                }
-
-                if (tvMenuPreviewTitle != null && tvMenuPreviewArtist != null) {
-                    tvMenuPreviewTitle.setVisibility(View.VISIBLE);
-                    tvMenuPreviewArtist.setVisibility(View.VISIBLE);
-                    tvMenuPreviewTitle.setText(tvPlayerTitle.getText());
-                    tvMenuPreviewArtist.setText(tvPlayerArtist.getText());
-                }
-            }
-        }
+        refreshWidgets();
     }
-
     // 💡 [추가] 1. 인터넷에서 받아온 커버 이미지를 캐시 폴더에서 불러와 화면에 띄우는 함수
     private void applyCachedCoverArt(String imagePath) {
         try {
@@ -5961,32 +6423,30 @@ public class MainActivity extends Activity {
         private int level = 100;
         private boolean isCharging = false;
         private int baseColor = 0xFFFFFFFF;
+        private float customTextSize = -1; // 🚀 [신규] 사용자 지정 텍스트 크기 변수
 
         public WidgetBatteryBarView(Context context) {
             super(context);
-            // 흐린 뒷배경 바
             bgPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             bgPaint.setStyle(android.graphics.Paint.Style.FILL);
-
-            // 테마 색상으로 채워지는 프로그레스 바
             progressPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             progressPaint.setStyle(android.graphics.Paint.Style.FILL);
-
-            // 가운데 들어갈 숫자
             textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
             textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         }
 
         public void setBatteryLevel(int level, boolean isCharging) {
-            this.level = level;
-            this.isCharging = isCharging;
-            invalidate();
+            this.level = level; this.isCharging = isCharging; invalidate();
         }
 
         public void setColor(int color) {
-            this.baseColor = color;
-            invalidate();
+            this.baseColor = color; invalidate();
+        }
+
+        // 🚀 [신규 추가] 외부에서 글자 크기를 강제 지정할 수 있는 함수
+        public void setCustomTextSize(float size) {
+            this.customTextSize = size; invalidate();
         }
 
         @Override
@@ -5995,46 +6455,36 @@ public class MainActivity extends Activity {
             int width = getWidth();
             int height = getHeight();
 
-            // 🚀 스마트 컬러: 바가 채워지는 색상을 '테마의 포커스(하이라이트) 색상'으로 뽑아옵니다!
             int highlightColor;
-            try {
-                highlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-            } catch (Exception e) {
-                highlightColor = baseColor;
-            }
+            try { highlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; }
+            catch (Exception e) { highlightColor = baseColor; }
 
-            if (isCharging) {
-                progressPaint.setColor(0xFF44FF44);
-            } else if (level <= 15) {
-                progressPaint.setColor(0xFFFF4444);
-            } else {
-                progressPaint.setColor(highlightColor);
-            }
+            if (isCharging) progressPaint.setColor(0xFF44FF44);
+            else if (level <= 15) progressPaint.setColor(0xFFFF4444);
+            else progressPaint.setColor(highlightColor);
 
-            bgPaint.setColor(baseColor & 0x22FFFFFF); // 뒷배경 바는 아주 투명하게
+            bgPaint.setColor(baseColor & 0x22FFFFFF);
 
-            float radius = height / 2f; // 양끝을 완전히 둥글게(반원) 만듭니다.
+            float radius = height / 2f;
 
-            // 1. 흐린 배경 바 전체 그리기
             android.graphics.RectF bgRect = new android.graphics.RectF(0, 0, width, height);
             canvas.drawRoundRect(bgRect, radius, radius, bgPaint);
 
-            // 2. 테마 하이라이트 색상 게이지 그리기 (왼쪽에서 오른쪽으로 채워짐)
             float progressWidth = width * (level / 100f);
             android.graphics.RectF progressRect = new android.graphics.RectF(0, 0, progressWidth, height);
             canvas.drawRoundRect(progressRect, radius, radius, progressPaint);
 
-            // 3. 한가운데에 배터리 숫자 딱 맞게 새기기
-            textPaint.setColor(0xFFFFFFFF); // 글자는 묻히지 않게 항상 흰색으로 선명하게!
-            textPaint.setTextSize(height * 0.6f);
+            textPaint.setColor(0xFFFFFFFF);
+            // 🚀 [핵심 로직] 사용자 지정 크기가 있으면 적용, 없으면 기존처럼 위젯 높이에 비례해서 자동 조절!
+            if (customTextSize > 0) textPaint.setTextSize(customTextSize);
+            else textPaint.setTextSize(height * 0.6f);
+
             float textY = bgRect.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
 
-            // 보너스: 충전 중일 때는 예쁜 번개 아이콘을 추가합니다!
             String text = isCharging ? "⚡ " + level + "%" : level + "%";
             canvas.drawText(text, bgRect.centerX(), textY, textPaint);
         }
     }
-
     // 💡 [수정] 속이 꽉 찬 배터리 모양 안에 잔량(숫자)을 직관적으로 그려 넣는 뷰
     public static class BatteryIconView extends View {
         private android.graphics.Paint shellPaint, textPaint;
@@ -6178,4 +6628,141 @@ public class MainActivity extends Activity {
             return btn;
         }
     }
+
+    // =========================================================================
+    // 🚀 [신규 추가] 테마 색상을 자동으로 따라가는 아날로그 시계 위젯
+    // =========================================================================
+    public class CustomAnalogClockView extends View {
+        private Paint paint;
+        private boolean isAttached;
+        private int clockBgColor = 0; // 🚀 배경색을 저장할 변수 추가
+
+        private final Runnable ticker = new Runnable() {
+            public void run() {
+                invalidate();
+                if (isAttached) postDelayed(this, 1000);
+            }
+        };
+
+        public CustomAnalogClockView(Context context) {
+            super(context);
+            paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+
+            paint.setStrokeCap(Paint.Cap.ROUND);
+        }
+
+        // 🚀 배경색을 시계 내부로 전달받는 함수
+        public void setClockBackgroundColor(int color) {
+            this.clockBgColor = color;
+            invalidate();
+        }
+
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); isAttached = true; ticker.run(); }
+        @Override protected void onDetachedFromWindow() { super.onDetachedFromWindow(); isAttached = false; removeCallbacks(ticker); }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int w = getWidth(), h = getHeight();
+            int cx = w / 2, cy = h / 2;
+            int radius = Math.min(cx, cy) - (int)(10 * getResources().getDisplayMetrics().density); // 패딩
+
+            // 🚀 0. 시계 배경 채우기 (가장 먼저 그려서 테두리 안쪽에 딱 맞게!)
+            if (clockBgColor != 0) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(clockBgColor);
+                canvas.drawCircle(cx, cy, radius, paint);
+            }
+
+            // 1. 시계 테두리
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(5);
+            paint.setColor(ThemeManager.getTextColorPrimary());
+            canvas.drawCircle(cx, cy, radius, paint);
+
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            float sec = cal.get(java.util.Calendar.SECOND);
+            float min = cal.get(java.util.Calendar.MINUTE) + sec / 60f;
+            float hr = (cal.get(java.util.Calendar.HOUR) % 12) + min / 60f;
+
+            // 2. 시침
+            paint.setStrokeWidth(8);
+            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(hr * 30)) * radius * 0.5f, cy - (float)Math.cos(Math.toRadians(hr * 30)) * radius * 0.5f, paint);
+            // 3. 분침
+            paint.setStrokeWidth(5);
+            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(min * 6)) * radius * 0.7f, cy - (float)Math.cos(Math.toRadians(min * 6)) * radius * 0.7f, paint);
+            // 4. 초침 (빨간색)
+            paint.setStrokeWidth(2);
+            paint.setColor(android.graphics.Color.RED);
+            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(sec * 6)) * radius * 0.8f, cy - (float)Math.cos(Math.toRadians(sec * 6)) * radius * 0.8f, paint);
+        }
+    }
+    // =========================================================================
+    // 🚀 [신규 추가] 중앙에 잔량이 텍스트로 표시되는 원형 배터리 위젯
+    // =========================================================================
+    public class CircularBatteryView extends View {
+        private Paint trackPaint, progressPaint, textPaint;
+        private int level = 100;
+        private boolean isCharging = false;
+        private RectF rectF = new RectF();
+
+        public CircularBatteryView(Context context) {
+            super(context);
+            float density = getResources().getDisplayMetrics().density;
+
+            // 배경 회색 트랙
+            trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            trackPaint.setStyle(Paint.Style.STROKE);
+            trackPaint.setStrokeWidth(8 * density);
+            trackPaint.setColor(ThemeManager.getTextColorSecondary()); // 테마 보조 색상 적용
+            trackPaint.setAlpha(60);
+
+            // 게이지 바
+            progressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            progressPaint.setStyle(Paint.Style.STROKE);
+            progressPaint.setStrokeWidth(8 * density);
+            progressPaint.setStrokeCap(Paint.Cap.ROUND);
+            progressPaint.setColor(ThemeManager.getTextColorPrimary()); // 테마 메인 색상 적용
+
+            // 중앙 숫자 텍스트
+            textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            textPaint.setColor(ThemeManager.getTextColorPrimary());
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            textPaint.setTypeface(android.graphics.Typeface.create(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD));
+        }
+
+        public void setBatteryLevel(int level, boolean isCharging) {
+            this.level = level;
+            this.isCharging = isCharging;
+            invalidate();
+        }
+        public void setCustomTextSize(float size) { textPaint.setTextSize(size); }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            int w = getWidth(), h = getHeight();
+            float stroke = progressPaint.getStrokeWidth() / 2f;
+            rectF.set(stroke, stroke, w - stroke, h - stroke);
+
+            // 🚀 스마트 컬러 로직: 충전 중이면 초록색, 15% 이하면 빨간색!
+            if (isCharging) {
+                progressPaint.setColor(0xFF44FF44);
+            } else if (level <= 15) {
+                progressPaint.setColor(0xFFFF4444);
+            } else {
+                progressPaint.setColor(ThemeManager.getTextColorPrimary());
+            }
+
+            // 배경 원 그리기
+            canvas.drawArc(rectF, 0, 360, false, trackPaint);
+            // 잔량만큼 호(Arc) 그리기 (12시 방향인 -90도부터 시작)
+            canvas.drawArc(rectF, -90, 360f * level / 100f, false, progressPaint);
+
+            // 중앙에 % 텍스트 배치
+            float textY = (h / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f);
+            // 🚀 "%" 기호를 깔끔하게 지우고 순수 숫자만 출력합니다!
+            canvas.drawText(String.valueOf(level), w / 2f, textY, textPaint);
+        }
+    }
 }
+

@@ -1,6 +1,7 @@
 package com.themoon.y1;
 
 import android.graphics.Color;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,52 +11,75 @@ import java.util.List;
 
 public class ThemeManager {
 
-    // 💡 개별 테마의 정보를 담는 그릇 (버튼 둥글기 추가!)
-    public static class ThemeData {
-        public String folderPath;
-        public String name;
-        public android.graphics.Typeface customFont;
-        public int textPrimary;
-        public int textSecondary;
-        public int bgOverlay;
-        public int statusBarBg;
-        public int btnNormal;
-        public int btnFocused;
-        public int btnFocusedText;
-        public int buttonRadius; // 🚀 [추가] 버튼의 둥글기(모서리) 값
+    public static class MenuElement {
+        public String id, type;
+        public int x, y, width, height;
+        public String textNormal, textFocused, textRight; // 🚀 textRight 추가
+        public String iconNormal, iconFocused;
+        public String action, gravity;
+        public int radius, focusIndex, textSize, textSecondarySize;
+        public String textPosition, textAlign, bgColor;
+        // 🚀 [신규 추가] 상자 안쪽 여백(Padding) 속성!
+        public int padding;
 
-        public ThemeData(String folderPath, String name, android.graphics.Typeface customFont, int textPrimary, int textSecondary, int bgOverlay, int statusBarBg, int btnNormal, int btnFocused, int btnFocusedText, int buttonRadius) {
-            this.folderPath = folderPath;
-            this.name = name;
-            this.customFont = customFont;
-            this.textPrimary = textPrimary;
-            this.textSecondary = textSecondary;
-            this.bgOverlay = bgOverlay;
-            this.statusBarBg = statusBarBg;
-            this.btnNormal = btnNormal;
-            this.btnFocused = btnFocused;
-            this.btnFocusedText = btnFocusedText;
-            this.buttonRadius = buttonRadius; // 🚀 장착 완료
+        public MenuElement(String id, String type, int x, int y, int width, int height,
+                           String textNormal, String textFocused, String textRight, // 🚀 파라미터 추가
+                           String iconNormal, String iconFocused, String action,
+                           String gravity, int radius, int focusIndex, int textSize, int textSecondarySize,
+                           String textPosition, String textAlign, String bgColor, int padding) {
+            this.id = id; this.type = type; this.x = x; this.y = y;
+            this.width = width; this.height = height;
+            this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight; // 🚀 세팅
+            this.iconNormal = iconNormal; this.iconFocused = iconFocused;
+            this.action = action; this.gravity = gravity; this.radius = radius;
+            this.focusIndex = focusIndex; this.textSize = textSize; this.textSecondarySize = textSecondarySize;
+            this.textPosition = textPosition; this.textAlign = textAlign; this.bgColor = bgColor;
+            this.padding = padding; // 🚀 세팅 완료
+        }
+    }
+
+    public static class ThemeData {
+        public String folderPath, name;
+        public android.graphics.Typeface customFont;
+        public int textPrimary, textSecondary;
+        public int bgOverlay, statusBarBg;
+        public int btnNormal, btnFocused, btnFocusedText, buttonRadius;
+        public List<MenuElement> menuElements;
+
+        public ThemeData(String folderPath, String name, android.graphics.Typeface customFont,
+                         int textPrimary, int textSecondary, int bgOverlay, int statusBarBg,
+                         int btnNormal, int btnFocused, int btnFocusedText, int buttonRadius) {
+            this.folderPath = folderPath; this.name = name; this.customFont = customFont;
+            this.textPrimary = textPrimary; this.textSecondary = textSecondary;
+            this.bgOverlay = bgOverlay; this.statusBarBg = statusBarBg;
+            this.btnNormal = btnNormal; this.btnFocused = btnFocused;
+            this.btnFocusedText = btnFocusedText; this.buttonRadius = buttonRadius;
+            this.menuElements = new ArrayList<>();
         }
     }
 
     public static List<ThemeData> availableThemes = new ArrayList<>();
     private static int currentThemeIndex = 0;
 
-    // 🚀 [추가] 폴더 안에 커스텀 아이콘(png)이 있으면 가져오고, 없으면 안드로이드 기본 아이콘을 쓰는 마법의 함수!
+    private static int safeParseColor(String colorStr, int defaultColor) {
+        try {
+            if (colorStr != null && !colorStr.trim().isEmpty()) {
+                return Color.parseColor(colorStr.trim());
+            }
+        } catch (Exception e) {}
+        return defaultColor;
+    }
+
     public static android.graphics.Bitmap getCustomIcon(String iconFileName, android.content.Context context, int defaultResId) {
-        if (!availableThemes.isEmpty()) {
+        if (!availableThemes.isEmpty() && iconFileName != null && !iconFileName.isEmpty()) {
             String folder = getCurrentTheme().folderPath;
             if (!folder.equals("default")) {
                 File iconFile = new File(folder, iconFileName);
                 if (iconFile.exists()) {
-                    try {
-                        return android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath());
-                    } catch (Exception e) {}
+                    try { return android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath()); } catch (Exception e) {}
                 }
             }
         }
-        // 폴더에 이미지가 없거나 에러가 나면, 기존에 쓰던 기본 아이콘을 안전하게 반환합니다.
         return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId);
     }
 
@@ -67,13 +91,18 @@ public class ThemeManager {
     public static void loadThemesFromStorage(File themeFolder) {
         availableThemes.clear();
 
-        // 🚀 [수정] 둥글기 기본값을 0(직각)으로 넣습니다.
-        availableThemes.add(new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
-                0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 0));
+        ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
+                0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
+
+        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "icon_now_playing.png", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "icon_music.png", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "icon_bluetooth.png", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "icon_setting.png", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "icon_server.png", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0));
+        availableThemes.add(defaultTheme);
 
         if (!themeFolder.exists()) {
             themeFolder.mkdirs();
-            createSampleThemeFolder(themeFolder);
         }
 
         File[] folders = themeFolder.listFiles();
@@ -88,11 +117,17 @@ public class ThemeManager {
                             fis.read(data);
                             fis.close();
 
-                            String jsonStr = new String(data, "UTF-8");
+                            String jsonStr = new String(data, "UTF-8").replace("\uFEFF", "");
                             JSONObject json = new JSONObject(jsonStr);
 
-                            int parsedOverlayBg = Color.parseColor(json.getString("bgOverlay"));
-                            int parsedStatusBarBg = json.has("statusBarBg") ? Color.parseColor(json.getString("statusBarBg")) : parsedOverlayBg;
+                            int parsedOverlayBg = safeParseColor(json.optString("bgOverlay"), 0x88000000);
+                            int parsedStatusBarBg = safeParseColor(json.optString("statusBarBg"), parsedOverlayBg);
+                            int parsedTextPrimary = safeParseColor(json.optString("textPrimary"), 0xFFFFFFFF);
+                            int parsedTextSecondary = safeParseColor(json.optString("textSecondary"), 0xFF888888);
+                            int parsedBtnNormal = safeParseColor(json.optString("btnNormal"), 0x15FFFFFF);
+                            int parsedBtnFocused = safeParseColor(json.optString("btnFocused"), 0xDDFFFFFF);
+                            int parsedBtnFocusedText = safeParseColor(json.optString("btnFocusedText"), 0xFF000000);
+                            int parsedRadius = json.optInt("button_radius", 15);
 
                             android.graphics.Typeface parsedFont = android.graphics.Typeface.DEFAULT;
                             if (json.has("font")) {
@@ -102,72 +137,57 @@ public class ThemeManager {
                                 }
                             }
 
-                            // 🚀 [추가] JSON에서 "button_radius"를 읽어옵니다. (없으면 기본값 10)
-                            int parsedRadius = json.has("button_radius") ? json.getInt("button_radius") : 10;
-
                             ThemeData theme = new ThemeData(
                                     subFolder.getAbsolutePath(),
-                                    json.getString("name"),
+                                    json.optString("name", subFolder.getName()),
                                     parsedFont,
-                                    Color.parseColor(json.getString("textPrimary")),
-                                    Color.parseColor(json.getString("textSecondary")),
-                                    parsedOverlayBg,
-                                    parsedStatusBarBg,
-                                    Color.parseColor(json.getString("btnNormal")),
-                                    Color.parseColor(json.getString("btnFocused")),
-                                    Color.parseColor(json.getString("btnFocusedText")),
-                                    parsedRadius // 🚀 파싱한 둥글기 값 탑재
+                                    parsedTextPrimary, parsedTextSecondary,
+                                    parsedOverlayBg, parsedStatusBarBg,
+                                    parsedBtnNormal, parsedBtnFocused, parsedBtnFocusedText,
+                                    parsedRadius
                             );
 
+                            if (json.has("main_menu")) {
+                                JSONArray menuArray = json.getJSONArray("main_menu");
+                                for (int i = 0; i < menuArray.length(); i++) {
+                                    JSONObject el = menuArray.getJSONObject(i);
+                                    theme.menuElements.add(new MenuElement(
+                                            el.optString("id", "item_" + i), el.optString("type", "button"),
+                                            el.optInt("x", 0), el.optInt("y", i * 60),
+                                            el.optInt("width", 200), el.optInt("height", 50),
+                                            el.optString("text_normal", ""), el.optString("text_focused", ""),
+                                            el.optString("icon_normal", ""), el.optString("icon_focused", ""),
+                                            el.optString("action", "NONE"),
+                                            el.optString("gravity", "top|left"),
+                                            el.optString("text_right", ""),
+                                            el.optInt("radius", -1),
+                                            el.optInt("focus_index", i + 1),
+                                            el.optInt("text_size", -1),
+                                            el.optInt("text_secondary_size", -1),
+                                            el.optString("text_position", "bottom"),
+                                            el.optString("text_align", "center"),
+                                            el.optString("bg_color", ""),
+                                            el.optInt("padding", 0) // 🚀 패딩 속성 파싱 추가 (기본값 0)
+                                    ));
+                                }
+                            }
                             availableThemes.add(theme);
-                        } catch (Exception e) {}
+                        } catch (Exception e) { e.printStackTrace(); }
                     }
                 }
             }
         }
     }
 
-    private static void createSampleThemeFolder(File rootFolder) {
-        try {
-            File sampleFolder = new File(rootFolder, "Ocean_Blue");
-            if (!sampleFolder.exists()) sampleFolder.mkdirs();
-
-            File configFile = new File(sampleFolder, "config.json");
-            String json = "{\n" +
-                    "  \"name\": \"Ocean Blue\",\n" +
-                    "  \"font\": \"myfont.ttf\",\n" +
-                    "  \"textPrimary\": \"#FFFFFF\",\n" +
-                    "  \"textSecondary\": \"#88AADD\",\n" +
-                    "  \"bgOverlay\": \"#DD0F172A\",\n" +
-                    "  \"statusBarBg\": \"#99002255\",\n" +
-                    "  \"btnNormal\": \"#221E40AF\",\n" +
-                    "  \"btnFocused\": \"#DD3B82F6\",\n" +
-                    "  \"btnFocusedText\": \"#000000\",\n" +
-                    "  \"button_radius\": 30\n" + // 🚀 샘플에 둥글기 값 힌트 추가 (30 = 상당히 둥근 형태)
-                    "}";
-            FileOutputStream fos = new FileOutputStream(configFile);
-            fos.write(json.getBytes("UTF-8"));
-            fos.close();
-        } catch (Exception e) {}
-    }
-
-    public static void setThemeIndex(int index) {
-        if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index;
-        else currentThemeIndex = 0;
-    }
-
+    public static void setThemeIndex(int index) { if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index; else currentThemeIndex = 0; }
     public static int getCurrentThemeIndex() { return currentThemeIndex; }
     public static ThemeData getCurrentTheme() { return availableThemes.get(currentThemeIndex); }
-    public static android.graphics.Typeface getCustomFont() {
-        if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT;
-        return availableThemes.get(currentThemeIndex).customFont;
-    }
-
+    public static android.graphics.Typeface getCustomFont() { if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT; return availableThemes.get(currentThemeIndex).customFont; }
     public static int getTextColorPrimary() { return getCurrentTheme().textPrimary; }
     public static int getTextColorSecondary() { return getCurrentTheme().textSecondary; }
     public static int getOverlayBackgroundColor() { return getCurrentTheme().bgOverlay; }
     public static int getListButtonNormalBg() { return getCurrentTheme().btnNormal; }
     public static int getListButtonFocusedBg() { return getCurrentTheme().btnFocused; }
     public static int getListButtonFocusedTextColor() { return getCurrentTheme().btnFocusedText; }
-    public static int getButtonRadius() { return getCurrentTheme().buttonRadius; } // 🚀 [추가] 둥글기 Getter
+    public static int getButtonRadius() { return getCurrentTheme().buttonRadius; }
 }
