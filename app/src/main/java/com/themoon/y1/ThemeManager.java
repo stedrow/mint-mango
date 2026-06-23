@@ -5,7 +5,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,27 +13,30 @@ public class ThemeManager {
     public static class MenuElement {
         public String id, type;
         public int x, y, width, height;
-        public String textNormal, textFocused, textRight; // 🚀 textRight 추가
+        public String textNormal, textFocused, textRight;
+        public String textRightColor, textRightFocusedColor; // 🚀 색상 변수 깔끔하게 배치
         public String iconNormal, iconFocused;
         public String action, gravity;
         public int radius, focusIndex, textSize, textSecondarySize;
         public String textPosition, textAlign, bgColor;
-        // 🚀 [신규 추가] 상자 안쪽 여백(Padding) 속성!
         public int padding;
 
+        // 🚀 생성자 순서를 논리적으로 완벽하게 맞춤
         public MenuElement(String id, String type, int x, int y, int width, int height,
-                           String textNormal, String textFocused, String textRight, // 🚀 파라미터 추가
+                           String textNormal, String textFocused, String textRight,
+                           String textRightColor, String textRightFocusedColor,
                            String iconNormal, String iconFocused, String action,
                            String gravity, int radius, int focusIndex, int textSize, int textSecondarySize,
                            String textPosition, String textAlign, String bgColor, int padding) {
             this.id = id; this.type = type; this.x = x; this.y = y;
             this.width = width; this.height = height;
-            this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight; // 🚀 세팅
+            this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight;
+            this.textRightColor = textRightColor; this.textRightFocusedColor = textRightFocusedColor;
             this.iconNormal = iconNormal; this.iconFocused = iconFocused;
             this.action = action; this.gravity = gravity; this.radius = radius;
             this.focusIndex = focusIndex; this.textSize = textSize; this.textSecondarySize = textSecondarySize;
             this.textPosition = textPosition; this.textAlign = textAlign; this.bgColor = bgColor;
-            this.padding = padding; // 🚀 세팅 완료
+            this.padding = padding;
         }
     }
 
@@ -94,11 +96,12 @@ public class ThemeManager {
         ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
                 0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
 
-        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "icon_now_playing.png", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "icon_music.png", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "icon_bluetooth.png", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "icon_setting.png", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "icon_server.png", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0));
+        // 🚀 기본 테마 인자값 순서 완벽 정렬
+        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "", "", "icon_bluetooth.png", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0));
         availableThemes.add(defaultTheme);
 
         if (!themeFolder.exists()) {
@@ -151,15 +154,24 @@ public class ThemeManager {
                                 JSONArray menuArray = json.getJSONArray("main_menu");
                                 for (int i = 0; i < menuArray.length(); i++) {
                                     JSONObject el = menuArray.getJSONObject(i);
+
+                                    // 🚀 생성자 파라미터 순서와 100% 일치하도록 JSON 추출 순서 완벽 교정
                                     theme.menuElements.add(new MenuElement(
-                                            el.optString("id", "item_" + i), el.optString("type", "button"),
-                                            el.optInt("x", 0), el.optInt("y", i * 60),
-                                            el.optInt("width", 200), el.optInt("height", 50),
-                                            el.optString("text_normal", ""), el.optString("text_focused", ""),
-                                            el.optString("icon_normal", ""), el.optString("icon_focused", ""),
+                                            el.optString("id", "item_" + i),
+                                            el.optString("type", "button"),
+                                            el.optInt("x", 0),
+                                            el.optInt("y", i * 60),
+                                            el.optInt("width", 200),
+                                            el.optInt("height", 50),
+                                            el.optString("text_normal", ""),
+                                            el.optString("text_focused", ""),
+                                            el.optString("text_right", ""),
+                                            el.optString("text_right_color", ""),
+                                            el.optString("text_right_focused_color", ""),
+                                            el.optString("icon_normal", ""),
+                                            el.optString("icon_focused", ""),
                                             el.optString("action", "NONE"),
                                             el.optString("gravity", "top|left"),
-                                            el.optString("text_right", ""),
                                             el.optInt("radius", -1),
                                             el.optInt("focus_index", i + 1),
                                             el.optInt("text_size", -1),
@@ -167,7 +179,7 @@ public class ThemeManager {
                                             el.optString("text_position", "bottom"),
                                             el.optString("text_align", "center"),
                                             el.optString("bg_color", ""),
-                                            el.optInt("padding", 0) // 🚀 패딩 속성 파싱 추가 (기본값 0)
+                                            el.optInt("padding", 0)
                                     ));
                                 }
                             }

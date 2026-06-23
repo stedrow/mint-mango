@@ -973,11 +973,28 @@ public class MainActivity extends Activity {
         tvStorageDetails = findViewById(R.id.tv_storage_details);
 
         layoutWebServerMode = findViewById(R.id.layout_webserver_mode);
-        // (기존 코드)
         tvServerStatus = findViewById(R.id.tv_server_status);
         tvServerIp = findViewById(R.id.tv_server_ip);
         btnServerToggle = findViewById(R.id.btn_server_toggle);
 
+        // 🚀 [여기서부터 추가] PC Upload 화면 텍스트 높이 및 간격 조절
+        float dt = getResources().getDisplayMetrics().density;
+
+        try {
+            android.view.ViewGroup webLayout = (android.view.ViewGroup) layoutWebServerMode;
+            // 레이아웃의 맨 첫 번째(인덱스 0) 요소가 보통 제목 텍스트입니다.
+            android.widget.TextView tvHeader = (android.widget.TextView) webLayout.getChildAt(0);
+
+            // 💡 원하시는 제목으로 마음껏 바꿔주세요!
+          //  tvHeader.setText("Wireless PC Upload");
+
+            // 💡 원하신다면 여기서 최상단 제목의 글씨 크기나 색상도 바꿀 수 있습니다.
+            // tvHeader.setTextSize(26);
+            // tvHeader.setTextColor(0xFF00FFFF);
+            tvHeader.setTranslationY(20 * dt);
+        } catch (Exception e) {
+            // 레이아웃 구조가 다를 경우 앱이 튕기지 않도록 방어
+        }
         // 🚀 2. 테마 매니저를 통해 각 화면의 반투명 덮개 색상을 한 번에 갈아입힙니다!
         int overlayColor = ThemeManager.getOverlayBackgroundColor();
         layoutBrowserMode.setBackgroundColor(overlayColor);
@@ -4454,8 +4471,13 @@ public class MainActivity extends Activity {
                         tvMain.setTextColor(ThemeManager.getTextColorPrimary());
                         // 🚀 우측 텍스트 내용 및 색상 부여
                         tvRight.setText(el.textRight != null ? el.textRight : "");
-                        tvRight.setTextColor(ThemeManager.getTextColorPrimary());
-
+// 🚀 우측 텍스트 전용 일반 색상 적용
+                        if (el.textRightColor != null && !el.textRightColor.isEmpty()) {
+                            try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightColor)); }
+                            catch (Exception e) { tvRight.setTextColor(ThemeManager.getTextColorPrimary()); }
+                        } else {
+                            tvRight.setTextColor(ThemeManager.getTextColorPrimary());
+                        }
                         btn.setBackground(createDynamicButtonBackground(ThemeManager.getListButtonNormalBg(), el.radius));
                     }
 
@@ -4492,8 +4514,13 @@ public class MainActivity extends Activity {
                         } else {
                             // 🚀 포커스 시 메인 글자와 우측 화살표 색상 동시 변경!
                             tvMain.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                            tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-
+// 🚀 우측 텍스트 전용 포커스 색상 적용
+                            if (el.textRightFocusedColor != null && !el.textRightFocusedColor.isEmpty()) {
+                                try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightFocusedColor)); }
+                                catch (Exception e) { tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor()); }
+                            } else {
+                                tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                            }
                             if (el.textFocused != null && !el.textFocused.isEmpty()) tvMain.setText(el.textFocused);
                             else tvMain.setText(el.textNormal);
                         }
