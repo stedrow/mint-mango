@@ -15,7 +15,7 @@ public class ThemeManager {
         public int x, y, width, height;
         public String textNormal, textFocused, textRight;
         public String textRightColor, textRightFocusedColor; // 🚀 색상 변수 깔끔하게 배치
-        public String iconNormal, iconFocused;
+        public String iconNormal, iconFocused, previewImage; // 🚀 [추가] 포커스 전용 이미지 변수
         public String action, gravity;
         public int radius, focusIndex, textSize, textSecondarySize;
         public String textPosition, textAlign, bgColor;
@@ -25,14 +25,14 @@ public class ThemeManager {
         public MenuElement(String id, String type, int x, int y, int width, int height,
                            String textNormal, String textFocused, String textRight,
                            String textRightColor, String textRightFocusedColor,
-                           String iconNormal, String iconFocused, String action,
+                           String iconNormal, String iconFocused, String previewImage, String action,
                            String gravity, int radius, int focusIndex, int textSize, int textSecondarySize,
                            String textPosition, String textAlign, String bgColor, int padding) {
             this.id = id; this.type = type; this.x = x; this.y = y;
             this.width = width; this.height = height;
             this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight;
             this.textRightColor = textRightColor; this.textRightFocusedColor = textRightFocusedColor;
-            this.iconNormal = iconNormal; this.iconFocused = iconFocused;
+            this.iconNormal = iconNormal; this.iconFocused = iconFocused; this.previewImage = previewImage;
             this.action = action; this.gravity = gravity; this.radius = radius;
             this.focusIndex = focusIndex; this.textSize = textSize; this.textSecondarySize = textSecondarySize;
             this.textPosition = textPosition; this.textAlign = textAlign; this.bgColor = bgColor;
@@ -96,12 +96,13 @@ public class ThemeManager {
         ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
                 0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
 
-        // 🚀 기본 테마 인자값 순서 완벽 정렬
-        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "", "", "icon_bluetooth.png", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0));
-        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0));
+        // 🚀 [수정] icon_focused("") 와 action("OPEN_PLAYER") 사이에 previewImage용 빈칸("")을 하나씩 추가했습니다!
+        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "", "", "icon_bluetooth.png", "", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0));
+        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0));
+
         availableThemes.add(defaultTheme);
 
         if (!themeFolder.exists()) {
@@ -170,6 +171,7 @@ public class ThemeManager {
                                             el.optString("text_right_focused_color", ""),
                                             el.optString("icon_normal", ""),
                                             el.optString("icon_focused", ""),
+                                            el.optString("preview_image", ""),
                                             el.optString("action", "NONE"),
                                             el.optString("gravity", "top|left"),
                                             el.optInt("radius", -1),
