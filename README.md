@@ -1,9 +1,9 @@
 
 <img width="480" height="360" alt="Screenshot_20260615_172845" src="https://github.com/user-attachments/assets/d804a2a5-a2c8-4a0e-ad16-d1da7551d5fd" />
 <img width="480" height="360" alt="Screenshot_20260615_172516" src="https://github.com/user-attachments/assets/5b76d3c5-2d62-4119-8c01-49b9b79c055d" />
-<img width="480" height="360" alt="Screenshot_20260615_172415" src="https://github.com/user-attachments/assets/b072b3c4-78b6-4c24-8e27-08193779ac96" />
-<img width="480" height="360" alt="Screenshot_20260615_172223" src="https://github.com/user-attachments/assets/e1ef1c7f-cec3-4613-b228-4f413136a42d" />
-<img width="480" height="360" alt="Screenshot_20260615_172109" src="https://github.com/user-attachments/assets/39b8fa44-c7a0-4c40-8a37-36e087874099" />
+<img width="480" height="360" alt="Screenshot_20260615_172223" src="https://github.com/user-attachments/assets/14c658dd-1836-4c1a-a8bf-696e51b59cb3" />
+<img width="480" height="360" alt="Screenshot_20260624_181608" src="https://github.com/user-attachments/assets/28a48351-68c6-43c4-87d7-86d692abb661" />
+<img width="480" height="360" alt="Screenshot_20260624_181513" src="https://github.com/user-attachments/assets/4ceb794c-fea9-4bea-a716-f1993ea29c67" />
 
 
 # JJ Launcher (MO-ON Launcher)
@@ -59,21 +59,6 @@ You can easily install the launcher using the **Innioasis Updater**.
 
 ---
 
-## 🆕 What's New in v0.6
-
-### 1. Added Launcher OTA Update Feature
-* You can now download and apply updates directly within the launcher without having to manually reinstall the APK file.
-
-<img width="480" height="360" alt="Update Feature Screenshot" src="https://github.com/user-attachments/assets/b34f1026-da50-45f8-a99a-bf83e358bb1f" />
-
-### 2. Status Bar Enhancement
-* Added a playback status icon to the status bar.
-
-### 3. Bug Fixes
-* Fixed minor bugs and improved overall stability.
-
----
-
 ## 🎧 Bluetooth Connection & Pairing
 
 Bluetooth headphone connection testing has been successfully completed, and it works perfectly!
@@ -88,65 +73,13 @@ Bluetooth headphone connection testing has been successfully completed, and it w
 adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
 ```
 ---
-# How to Create a Custom Theme for JJ Launcher
-
-Creating a custom theme is the ultimate way to make this DAP (Digital Audio Player) truly yours! The launcher dynamically loads theme resources (colors, icons, and fonts) directly from the device's internal storage.
-
-## 🛠️ Step 1: Create the Theme Folder
-1. Connect your device to a PC or open your file manager app.
-2. Navigate to the root theme directory: `/storage/sdcard0/Y1_Themes/`
-3. Create a new folder inside it and give it a name without spaces (e.g., `/storage/sdcard0/Y1_Themes/Cyberpunk_Dark/`).
-
-## 🛠️ Step 2: Prepare Custom Icons & Fonts (Optional)
-Drop your custom assets directly into your new theme folder.
-
-* **Custom Icons:** Must be `.png` files with a transparent background. Name them exactly as follows:
-  * `icon_now_playing.png` (Now Playing menu)
-  * `icon_music.png` (All Songs / Library menu)
-  * `icon_bluetooth.png` (Bluetooth setup)
-  * `icon_setting.png` (Settings menu)
-  * `icon_radio.png` (FM Radio)
-  * `icon_server.png` (Web Server menu)
-  * `icon_default_album.png` (Fallback image for missing album art)
-* **Custom Font:** Drop a `.ttf` or `.otf` font file into the folder (e.g., `myfont.ttf`).
-
-## 🛠️ Step 3: Create the `config.json` File
-This is the core of your theme. Create a text file named exactly `config.json` inside your theme folder and paste the following template:
-
-
-```json
-{
-  "name": "My Awesome Theme",
-  "font": "myfont.ttf",
-  "textPrimary": "#FFFFFF",
-  "textSecondary": "#88AADD",
-  "bgOverlay": "#DD0F172A",
-  "statusBarBg": "#99002255",
-  "btnNormal": "#221E40AF",
-  "btnFocused": "#DD3B82F6",
-  "btnFocusedText": "#000000",
-  "button_radius": 30
-}
-```
-
-## 🛠️ Step 4: Understanding the Configuration Values
-* `name`: The display name of your theme in the Settings menu.
-* `font`: The exact filename of the custom font (delete this line to use the system default font).
-* `textPrimary`: Color for main titles, active text, and the clock.
-* `textSecondary`: Color for artist names and inactive text.
-* `bgOverlay`: Background color for menus. The first two characters dictate transparency (e.g., `DD`).
-* `statusBarBg`: Background color for the top status bar. (Delete this line to default to `bgOverlay`).
-* `btnNormal`: Default background color of list buttons.
-* `btnFocused`: Highlight color when a button is selected (also applies to battery ring and volume bars).
-* `btnFocusedText`: Text color inside a highlighted button.
-* `button_radius`: Controls button roundness (`0` = sharp square, `10` = slightly rounded, `30+` = fully rounded pill).
-
-> **💡 Quick Tip:** Always use **8-character Hex Codes** (e.g., `#DD0F172A`) for background colors if you want transparency. The first two characters (`DD`) control the opacity (`00` for invisible, `FF` for solid).
-
 
 # 🎨 Y1 Theme Editor User Manual
 
-https://theme-editor-gules.vercel.app/
+* You can easily design and customize your own themes using the web editor below:
+  👉 [Go to Theme Editor](https://theme-editor-gules.vercel.app/)
+<img width="1262" height="746" alt="스크린샷 2026-06-24 220127" src="https://github.com/user-attachments/assets/5a13893e-bb7a-412e-bbe9-41b358cde8e4" />
+
 
 ⚠️ **Note:** This manual and the themes created are only compatible with **Launcher version 0.8 or higher**.
 
@@ -232,3 +165,62 @@ The direct shortcut command executed on the device when a button is clicked.
 3. **Unzip (extract)** the downloaded `.zip` file, and move the extracted folder into the `/Y1_Themes/` directory on your Android device. Then, open the app's theme settings and select your new theme to apply it instantly!
 
 💡 **Tip (Import Config):** If you want to modify a theme later, simply extract your downloaded `.zip` file and load the `config.json` file inside it using the **[Import Config]** button. Your workspace and layout will be perfectly restored!
+
+
+
+# How to Create a Custom Theme for JJ Launcher for v0.6
+
+Creating a custom theme is the ultimate way to make this DAP (Digital Audio Player) truly yours! The launcher dynamically loads theme resources (colors, icons, and fonts) directly from the device's internal storage.
+
+## 🛠️ Step 1: Create the Theme Folder
+1. Connect your device to a PC or open your file manager app.
+2. Navigate to the root theme directory: `/storage/sdcard0/Y1_Themes/`
+3. Create a new folder inside it and give it a name without spaces (e.g., `/storage/sdcard0/Y1_Themes/Cyberpunk_Dark/`).
+
+## 🛠️ Step 2: Prepare Custom Icons & Fonts (Optional)
+Drop your custom assets directly into your new theme folder.
+
+* **Custom Icons:** Must be `.png` files with a transparent background. Name them exactly as follows:
+  * `icon_now_playing.png` (Now Playing menu)
+  * `icon_music.png` (All Songs / Library menu)
+  * `icon_bluetooth.png` (Bluetooth setup)
+  * `icon_setting.png` (Settings menu)
+  * `icon_radio.png` (FM Radio)
+  * `icon_server.png` (Web Server menu)
+  * `icon_default_album.png` (Fallback image for missing album art)
+* **Custom Font:** Drop a `.ttf` or `.otf` font file into the folder (e.g., `myfont.ttf`).
+
+## 🛠️ Step 3: Create the `config.json` File
+This is the core of your theme. Create a text file named exactly `config.json` inside your theme folder and paste the following template:
+
+
+```json
+{
+  "name": "My Awesome Theme",
+  "font": "myfont.ttf",
+  "textPrimary": "#FFFFFF",
+  "textSecondary": "#88AADD",
+  "bgOverlay": "#DD0F172A",
+  "statusBarBg": "#99002255",
+  "btnNormal": "#221E40AF",
+  "btnFocused": "#DD3B82F6",
+  "btnFocusedText": "#000000",
+  "button_radius": 30
+}
+```
+
+## 🛠️ Step 4: Understanding the Configuration Values
+* `name`: The display name of your theme in the Settings menu.
+* `font`: The exact filename of the custom font (delete this line to use the system default font).
+* `textPrimary`: Color for main titles, active text, and the clock.
+* `textSecondary`: Color for artist names and inactive text.
+* `bgOverlay`: Background color for menus. The first two characters dictate transparency (e.g., `DD`).
+* `statusBarBg`: Background color for the top status bar. (Delete this line to default to `bgOverlay`).
+* `btnNormal`: Default background color of list buttons.
+* `btnFocused`: Highlight color when a button is selected (also applies to battery ring and volume bars).
+* `btnFocusedText`: Text color inside a highlighted button.
+* `button_radius`: Controls button roundness (`0` = sharp square, `10` = slightly rounded, `30+` = fully rounded pill).
+
+> **💡 Quick Tip:** Always use **8-character Hex Codes** (e.g., `#DD0F172A`) for background colors if you want transparency. The first two characters (`DD`) control the opacity (`00` for invisible, `FF` for solid).
+
+
