@@ -58,6 +58,17 @@ import android.renderscript.ScriptIntrinsicBlur;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 
+import com.themoon.y1.adapters.CategoryListAdapter;
+import com.themoon.y1.adapters.SongListAdapter;
+import com.themoon.y1.models.SongItem;
+import com.themoon.y1.views.AudioVisualizerView;
+import com.themoon.y1.views.BatteryIconView;
+import com.themoon.y1.views.CircularBatteryView;
+import com.themoon.y1.views.CustomAnalogClockView;
+import com.themoon.y1.views.EqSliderView;
+import com.themoon.y1.views.PieChartView;
+import com.themoon.y1.views.WidgetBatteryBarView;
+
 public class MainActivity extends Activity {
     // 주의: 주소 맨 끝에 반드시 슬래시(/)를 붙여주세요!
     private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
@@ -79,14 +90,14 @@ public class MainActivity extends Activity {
         }
     };
     // 🚀 [신규 추가] 오디오 이펙트 전역 변수 및 프로필 상태 관리
-    private android.media.audiofx.BassBoost bassBoost;
-    private android.media.audiofx.Virtualizer virtualizer;
-    private int currentBassBoostStep = 0;    // 0: OFF, 1: Weak, 2: Normal, 3: Strong
-    private int currentVirtualizerStep = 0;  // 0: OFF, 1: Weak, 2: Normal, 3: Strong
-    private String currentEqProfile = "preset_0"; // preset_0~X 혹은 custom_이름
-    private int[] customBandLevels = new int[32]; // 커스텀 튜닝값 캐시 뱅크
+    public android.media.audiofx.BassBoost bassBoost;
+    public android.media.audiofx.Virtualizer virtualizer;
+    public int currentBassBoostStep = 0;    // 0: OFF, 1: Weak, 2: Normal, 3: Strong
+    public int currentVirtualizerStep = 0;  // 0: OFF, 1: Weak, 2: Normal, 3: Strong
+    public String currentEqProfile = "preset_0"; // preset_0~X 혹은 custom_이름
+    public int[] customBandLevels = new int[32]; // 커스텀 튜닝값 캐시 뱅크
     private int settingsSubMode = 0;         // 0: 일반, 1: 날짜시간, 2: 이퀄라이저 라우팅
-    private int currentAudioSessionId = -1;  // 🚀 [추가] 현재 사용 중인 오디오 회선 번호를 기억할 변수
+    public int currentAudioSessionId = -1;  // 🚀 [추가] 현재 사용 중인 오디오 회선 번호를 기억할 변수
     private int currentAdjustingBand = -1;   // 🚀 [추가] 그래픽 EQ에서 현재 볼륨 조절 중인 주파수를 기억합니다.
     private boolean isWidgetFocusImageOn = false; // 🚀 [추가] 포커스 위젯 전원 변수
     // 💡 [추가] 홈 스크린 위젯 관련 변수들
@@ -133,13 +144,13 @@ public class MainActivity extends Activity {
     private static final int BROWSER_FOLDER = 1;
     private static final int BROWSER_ARTISTS = 2;
     private static final int BROWSER_ALBUMS = 3;
-    private static final int BROWSER_VIRTUAL_SONGS = 4;
+    public static final int BROWSER_VIRTUAL_SONGS = 4;
     // 💡 [추가] 손상되어 앱을 터뜨린 '독약 파일'들을 기억하는 블랙리스트
     private java.util.Set<String> blacklist = new java.util.HashSet<>();
-    private int currentBrowserMode = BROWSER_ROOT;
-    private String virtualQueryType = "";
-    private String virtualQueryValue = "";
-    private List<File> virtualSongList = new ArrayList<>();
+    public int currentBrowserMode = BROWSER_ROOT;
+    public String virtualQueryType = "";
+    public String virtualQueryValue = "";
+    public List<File> virtualSongList = new ArrayList<>();
     // 💡 백그라운드 미디어 제어권(스크린 오프) 변수
     private MediaSession mediaSession;
     private ImageView ivStatusPlay;
@@ -150,20 +161,7 @@ public class MainActivity extends Activity {
     // 🚀 [추가] 즐겨찾기 전용 변수들
     private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
     private TextView tvPlayerFavoriteStatus;
-    // 💡 [추가] OS 스캐너를 대체할 '자체 미디어 라이브러리 엔진' 변수들
-    private static class SongItem {
-        File file;
-        String title;
-        String artist;
-        String album;
 
-        public SongItem(File f, String t, String a, String al) {
-            file = f;
-            title = t;
-            artist = a;
-            album = al;
-        }
-    }
     private int consecutiveErrorCount = 0;
     // 🚀 [추가] 스캔 진행률 표시용 변수들
     private ProgressBar pbLoadingProgress;
@@ -225,7 +223,7 @@ public class MainActivity extends Activity {
     private boolean isTargetWifiOpen = false;
     // 💡 미디어 스캐너가 현재 작업 중인지 추적하는 변수
     private boolean isMediaScanning = false;
-    private MediaPlayer mediaPlayer;
+    public MediaPlayer mediaPlayer;
     private AudioManager audioManager;
     private File rootFolder = new File("/storage/sdcard0/Music");
     private File currentFolder = rootFolder;
@@ -236,7 +234,7 @@ public class MainActivity extends Activity {
     private float currentClockSize = 48f;
     private java.io.FileInputStream currentFileInputStream = null;
     private TextView tvMenuPreviewTitle, tvMenuPreviewArtist;
-    private SharedPreferences prefs;
+    public SharedPreferences prefs;
     private boolean isShuffleMode = false;
     private int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
     private boolean isSoundEffectEnabled = true;
@@ -246,9 +244,9 @@ public class MainActivity extends Activity {
     // 💡 마지막으로 재생된 앨범 아트를 기억하는 변수
     private byte[] lastAlbumArtBytes = null;
     // 💡 이퀄라이저 관련 변수 추가
-    private Equalizer equalizer;
+    public Equalizer equalizer;
     private List<String> eqPresetNames = new ArrayList<String>();
-    private int currentEqPresetIndex = 0;
+    public int currentEqPresetIndex = 0;
 
     private int lastSettingsFocusIndex = 0;
     private int currentSettingsDepth = 1;
@@ -1525,7 +1523,7 @@ public class MainActivity extends Activity {
         }
     }
     // 💡 [추가] 문자열에서 첫 글자를 뽑아내어 화면에 띄워주는 함수
-    private void showFastScrollLetter(String rawText) {
+    public void showFastScrollLetter(String rawText) {
         // 브라우저 모드(리스트 화면)가 아니면 띄우지 않습니다.
         if (tvFastScrollLetter == null || currentScreenState != STATE_BROWSER)
             return;
@@ -1535,9 +1533,7 @@ public class MainActivity extends Activity {
                 .replace("💿 ", "").replace("🎵 ", "")
                 .replace("📦 [INSTALL] ", "").trim();
 
-        if (clean.isEmpty())
-            return;
-
+        if (clean.isEmpty()) return;
         // 첫 글자 1개만 추출 (무조건 대문자로 변환)
         String firstChar = clean.substring(0, 1).toUpperCase();
 
@@ -1809,7 +1805,7 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [추가] 테마 색상과 '둥글기(Radius)'를 혼합해서 버튼의 배경 디자인을 찍어내는 도구
-    private android.graphics.drawable.GradientDrawable createButtonBackground(int color) {
+    public android.graphics.drawable.GradientDrawable createButtonBackground(int color) {
         android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
         shape.setColor(color); // 테마 색상 주입
         // 테마에 설정된 둥글기(Radius) 값 주입 (dp 단위를 픽셀로 변환하여 적용)
@@ -2051,7 +2047,7 @@ public class MainActivity extends Activity {
     // 💡 [추가] 과부하 방지용 타이머 변수
     private long lastClickTime = 0;
 
-    private void clickFeedback() {
+    public void clickFeedback() {
         long now = System.currentTimeMillis();
 
         // 🚀 [UI 멈춤 완벽 차단] 0.03초 이내에 연속으로 들어온 휠 신호는 생략
@@ -2624,7 +2620,7 @@ public class MainActivity extends Activity {
         return layout;
     }
 
-    private Button createListButton(String text) {
+    public Button createListButton(String text) {
         final Button btn = new Button(this);
 
         // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
@@ -3810,77 +3806,9 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [추가] 아티스트/앨범 리스트 전용 10개 돌려막기 어댑터!
-    private class CategoryListAdapter extends android.widget.BaseAdapter {
-        private List<String> items;
-        private String type;
-
-        public CategoryListAdapter(List<String> items, String type) {
-            this.items = items;
-            this.type = type;
-        }
-
-        @Override
-        public int getCount() {
-            return items.size();
-        }
-
-        @Override
-        public Object getItem(int position) {
-            return items.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public View getView(final int position, View convertView, android.view.ViewGroup parent) {
-            final Button btn;
-
-            if (convertView == null) {
-                btn = createListButton("");
-                btn.setLayoutParams(new android.widget.AbsListView.LayoutParams(
-                        android.widget.AbsListView.LayoutParams.MATCH_PARENT,
-                        android.widget.AbsListView.LayoutParams.WRAP_CONTENT));
-            } else {
-                btn = (Button) convertView;
-            }
-
-            final String name = items.get(position);
-            btn.setText((type.equals("ARTIST") ? "👤 " : "💿 ") + name);
-
-            btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    if (hasFocus) {
-                        btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
-                        btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                        showFastScrollLetter(name);
-                    } else {
-                        btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
-                        btn.setTextColor(ThemeManager.getTextColorPrimary());
-                    }
-                }
-            });
-
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    virtualQueryType = type;
-                    virtualQueryValue = name;
-                    currentBrowserMode = BROWSER_VIRTUAL_SONGS;
-                    buildVirtualSongs();
-                }
-            });
-
-            return btn;
-        }
-    }
 
     // 💡 4. 자체 DB에서 노래를 뽑아 '재활용 엔진'에 밀어넣는 함수
-    private void buildVirtualSongs() {
+    public void buildVirtualSongs() {
         if (isCustomScanning) {
             showLoadingPopup(); // 🚀 잘 안보이는 텍스트 대신, 대형 스피너 팝업을 띄웁니다!
             currentBrowserMode = BROWSER_ROOT;
@@ -4855,7 +4783,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void playTrackList(List<File> playlist, int startIndex) {
+    public void playTrackList(List<File> playlist, int startIndex) {
         originalPlaylist.clear();
         originalPlaylist.addAll(playlist);
         currentPlaylist.clear();
@@ -5164,8 +5092,8 @@ public class MainActivity extends Activity {
                 // 🚀 장전이 무사히 끝났다면, 다음 검사를 위해 방금 연결한 회선 번호를 뇌리에 기억(저장)합니다!
                 currentAudioSessionId = sessionId;
 
-                applyEqProfile();
-                applyAudioEffects();
+                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
+                com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -6548,51 +6476,6 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [수정] 속이 꽉 찬 리얼 파이(Pie) 차트 클래스
-    public static class PieChartView extends View {
-        private android.graphics.Paint paintBg;
-        private android.graphics.Paint paintUsed;
-        private float percentage = 0f;
-
-        public PieChartView(Context context) {
-            super(context);
-            init();
-        }
-
-        private void init() {
-            // 1. 남은 용량 (배경 원) - 은은한 반투명 흰색
-            paintBg = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            paintBg.setStyle(android.graphics.Paint.Style.FILL); // 🚀 선(STROKE)에서 면(FILL)으로 변경!
-            paintBg.setColor(0x33FFFFFF);
-
-            // 2. 사용한 용량 (테마 색상 파이 조각)
-            paintUsed = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            paintUsed.setStyle(android.graphics.Paint.Style.FILL); // 🚀 면(FILL)으로 변경!
-        }
-
-        public void setStorageData(long used, long total, int themeColor) {
-            if (total > 0)
-                percentage = (float) used / total;
-            paintUsed.setColor(themeColor);
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas);
-            int width = getWidth();
-            int height = getHeight();
-            float padding = 10f;
-            android.graphics.RectF rect = new android.graphics.RectF(padding, padding, width - padding,
-                    height - padding);
-
-            // 360도 전체 원 그리기 (남은 용량 베이스)
-            canvas.drawArc(rect, 0, 360, true, paintBg);
-
-            // 사용된 용량만큼 파이 조각 덮어 그리기 (시작점 -90도는 12시 방향)
-            float sweepAngle = percentage * 360f;
-            canvas.drawArc(rect, -90, sweepAngle, true, paintUsed); // 🚀 useCenter를 true로 하여 꽉 찬 조각을 만듭니다.
-        }
-    }
 
     // 💡 [추가] 화면에 존재하는 모든 글씨를 찾아내 테마 폰트로 갈아입히는 재귀 엔진!
     private void applyFontToAllViews(android.view.ViewGroup parent, android.graphics.Typeface font) {
@@ -6619,416 +6502,19 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [완벽 수정] 60fps 부드러운 애니메이션과 높이 제한이 적용된 와이드 스펙트럼 뷰!
-    public static class AudioVisualizerView extends View {
-        private byte[] fftData;
-        private float[] currentHeights; // 🚀 부드러운 움직임을 위한 이전 높이 기억 장치
-        private android.graphics.Paint paint;
-        private int barCount = 40; // 🚀 막대기 개수를 늘려서 옆으로 쫙 퍼지게!
-
-        public AudioVisualizerView(Context context) {
-            super(context);
-            paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
-            currentHeights = new float[barCount];
-        }
-
-        public void updateVisualizer(byte[] fft, int color) {
-            this.fftData = fft;
-            paint.setColor(color);
-            // invalidate() 대신 onDraw 내부에서 무한 루프를 돌려 60fps를 방어합니다!
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas);
-
-            int width = getWidth();
-            int height = getHeight();
-            float barWidth = width / (float) barCount;
-            paint.setStrokeWidth(barWidth * 0.4f); // 🚀 막대기 두께를 얇고 세련되게 (40%)
-
-            if (fftData != null) {
-                for (int i = 0; i < barCount && (i * 2 + 2) < fftData.length; i++) {
-                    byte rfk = fftData[i * 2 + 2];
-                    byte ifk = fftData[i * 2 + 3];
-                    float magnitude = (float) Math.hypot(rfk, ifk);
-
-                    // 🚀 1. 높이 제한: 아무리 소리가 커도 화면 높이의 85%를 넘지 못하게 캡을 씌웁니다.
-                    float targetHeight = Math.min(height * 0.85f, (magnitude * height) / 100f);
-
-                    // 🚀 2. 부드러운 보간: 목표 지점까지 한 번에 점프하지 않고 15%씩 스무스하게 따라갑니다.
-                    currentHeights[i] += (targetHeight - currentHeights[i]) * 0.15f;
-                }
-            }
-
-            // 그려내기
-            for (int i = 0; i < barCount; i++) {
-                float x = i * barWidth + (barWidth / 2f);
-                canvas.drawLine(x, height, x, height - currentHeights[i], paint);
-            }
-
-            // 🚀 3. 화면에 보일 때는 초당 60번(16ms) 강제 새로고침하여 버벅임을 없앱니다.
-            if (getVisibility() == View.VISIBLE) {
-                postInvalidateDelayed(16);
-            }
-        }
-    }
 
     // 💡 [위젯 전용] 모던하고 깔끔한 가로형 라운드 프로그레스 바(Pill 형태) 배터리 위젯!
-    public static class WidgetBatteryBarView extends View {
-        private android.graphics.Paint bgPaint, progressPaint, textPaint;
-        private int level = 100;
-        private boolean isCharging = false;
-        private int baseColor = 0xFFFFFFFF;
-        private float customTextSize = -1; // 🚀 [신규] 사용자 지정 텍스트 크기 변수
-
-        public WidgetBatteryBarView(Context context) {
-            super(context);
-            bgPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            bgPaint.setStyle(android.graphics.Paint.Style.FILL);
-            progressPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            progressPaint.setStyle(android.graphics.Paint.Style.FILL);
-            textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
-            textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        }
-
-        public void setBatteryLevel(int level, boolean isCharging) {
-            this.level = level; this.isCharging = isCharging; invalidate();
-        }
-
-        public void setColor(int color) {
-            this.baseColor = color; invalidate();
-        }
-
-        // 🚀 [신규 추가] 외부에서 글자 크기를 강제 지정할 수 있는 함수
-        public void setCustomTextSize(float size) {
-            this.customTextSize = size; invalidate();
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas);
-            int width = getWidth();
-            int height = getHeight();
-
-            int highlightColor;
-            try { highlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; }
-            catch (Exception e) { highlightColor = baseColor; }
-
-            if (isCharging) progressPaint.setColor(0xFF44FF44);
-            else if (level <= 15) progressPaint.setColor(0xFFFF4444);
-            else progressPaint.setColor(highlightColor);
-
-            bgPaint.setColor(baseColor & 0x22FFFFFF);
-
-            float radius = height / 2f;
-
-            android.graphics.RectF bgRect = new android.graphics.RectF(0, 0, width, height);
-            canvas.drawRoundRect(bgRect, radius, radius, bgPaint);
-
-            float progressWidth = width * (level / 100f);
-            android.graphics.RectF progressRect = new android.graphics.RectF(0, 0, progressWidth, height);
-            canvas.drawRoundRect(progressRect, radius, radius, progressPaint);
-
-            textPaint.setColor(0xFFFFFFFF);
-            // 🚀 [핵심 로직] 사용자 지정 크기가 있으면 적용, 없으면 기존처럼 위젯 높이에 비례해서 자동 조절!
-            if (customTextSize > 0) textPaint.setTextSize(customTextSize);
-            else textPaint.setTextSize(height * 0.6f);
-
-            float textY = bgRect.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
-
-            String text = isCharging ? "⚡ " + level + "%" : level + "%";
-            canvas.drawText(text, bgRect.centerX(), textY, textPaint);
-        }
-    }
     // 💡 [수정] 속이 꽉 찬 배터리 모양 안에 잔량(숫자)을 직관적으로 그려 넣는 뷰
-    public static class BatteryIconView extends View {
-        private android.graphics.Paint shellPaint, textPaint;
-        private int level = 100;
-        private boolean isCharging = false;
-        private int color = 0xFFFFFFFF; // 기본 바탕색 (보통 흰색)
-
-        public BatteryIconView(Context context) {
-            super(context);
-
-            // 배터리 바탕을 그리는 붓 (속을 꽉 채우기)
-            shellPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            shellPaint.setStyle(android.graphics.Paint.Style.FILL);
-
-            // 숫자를 그리는 붓 (검은색, 가운데 정렬, 굵게)
-            textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            textPaint.setColor(0xFF000000); // 🚀 검은색 글씨!
-            textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
-            textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        }
-
-        public void setBatteryLevel(int level, boolean isCharging) {
-            this.level = level;
-            this.isCharging = isCharging;
-            invalidate(); // 화면 새로고침
-        }
-
-        public void setColor(int color) {
-            this.color = color;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas);
-            int width = getWidth();
-            int height = getHeight();
-
-            float pad = 2f;
-            float terminalWidth = width * 0.08f;
-            float shellWidth = width - terminalWidth - pad * 2;
-            float shellHeight = height - pad * 2;
-
-            // 🚀 스마트 컬러: 충전 중이면 초록색 바탕, 15% 이하면 빨간색 바탕, 평소엔 테마색(보통 흰색)
-            if (isCharging) {
-                shellPaint.setColor(0xFF44FF44);
-            } else if (level <= 15) {
-                shellPaint.setColor(0xFFFF4444);
-            } else {
-                shellPaint.setColor(color);
-            }
-
-            // 1. 꽉 찬 배터리 몸통 그리기
-            android.graphics.RectF shell = new android.graphics.RectF(pad, pad, pad + shellWidth, pad + shellHeight);
-            canvas.drawRoundRect(shell, 4f, 4f, shellPaint);
-
-            // 2. 배터리 오른쪽 튀어나온 꼭지 그리기
-            float terminalHeight = shellHeight * 0.4f;
-            float terminalTop = pad + (shellHeight - terminalHeight) / 2;
-            android.graphics.RectF terminal = new android.graphics.RectF(shell.right, terminalTop,
-                    shell.right + terminalWidth, terminalTop + terminalHeight);
-            canvas.drawRoundRect(terminal, 2f, 2f, shellPaint);
-
-            // 3. 배터리 몸통 정중앙에 숫자(잔량) 새기기
-            textPaint.setTextSize(shellHeight * 0.95f); // 텍스트 크기를 배터리 높이에 꽉 차게 조절
-
-            // 텍스트를 위아래 정중앙에 오도록 계산하는 공식
-            float textY = shell.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
-            String levelText = String.valueOf(level);
-
-            // 검은색 숫자를 배터리 몸통 한가운데에 찍어냅니다.
-            canvas.drawText(levelText, shell.centerX(), textY, textPaint);
-        }
-    }
 
     // 💡 [추가] 딱 10개의 버튼만 만들어서 수천 곡의 텍스트를 갈아끼우며 재활용하는 마법의 어댑터!
-    private class SongListAdapter extends android.widget.BaseAdapter {
-        private List<SongItem> items;
-
-        public SongListAdapter(List<SongItem> items) {
-            this.items = items;
-        }
-
-        @Override
-        public int getCount() {
-            return items.size();
-        }
-
-        @Override
-        public Object getItem(int position) {
-            return items.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public View getView(final int position, View convertView, android.view.ViewGroup parent) {
-            final Button btn;
-
-            // 🚀 핵심 로직: 화면 밖으로 밀려난 기존 버튼(convertView)을 가져와서 재활용합니다!
-            if (convertView == null) {
-                btn = createListButton(""); // 처음 화면에 보이는 개수만큼만 새로 생성
-
-                // 🚀 [버그 해결 1] 리스트뷰 전용 레이아웃 파라미터(규격)로 강제 변환합니다! (튕김 원천 차단)
-                btn.setLayoutParams(new android.widget.AbsListView.LayoutParams(
-                        android.widget.AbsListView.LayoutParams.MATCH_PARENT,
-                        android.widget.AbsListView.LayoutParams.WRAP_CONTENT));
-            } else {
-                btn = (Button) convertView; // 나머지는 새로 만들지 않고 돌려쓰기!
-            }
-
-            final SongItem song = items.get(position);
-            btn.setText("🎵 " + song.title); // 버튼 껍데기에 새 노래 이름만 덧칠합니다.
-
-            // 포커스와 클릭 이벤트 재부여
-            btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    if (hasFocus) {
-                        btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
-                        btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                        showFastScrollLetter(song.title);
-                    } else {
-                        btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
-                        btn.setTextColor(ThemeManager.getTextColorPrimary());
-                    }
-                }
-            });
-
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    playTrackList(virtualSongList, position);
-                }
-            });
-
-            return btn;
-        }
-    }
 
     // =========================================================================
     // 🚀 [신규 추가] 테마 색상을 자동으로 따라가는 아날로그 시계 위젯
     // =========================================================================
-    public class CustomAnalogClockView extends View {
-        private Paint paint;
-        private boolean isAttached;
-        private int clockBgColor = 0; // 🚀 배경색을 저장할 변수 추가
 
-        private final Runnable ticker = new Runnable() {
-            public void run() {
-                invalidate();
-                if (isAttached) postDelayed(this, 1000);
-            }
-        };
-
-        public CustomAnalogClockView(Context context) {
-            super(context);
-            paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
-
-            paint.setStrokeCap(Paint.Cap.ROUND);
-        }
-
-        // 🚀 배경색을 시계 내부로 전달받는 함수
-        public void setClockBackgroundColor(int color) {
-            this.clockBgColor = color;
-            invalidate();
-        }
-
-        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); isAttached = true; ticker.run(); }
-        @Override protected void onDetachedFromWindow() { super.onDetachedFromWindow(); isAttached = false; removeCallbacks(ticker); }
-
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            int w = getWidth(), h = getHeight();
-            int cx = w / 2, cy = h / 2;
-            int radius = Math.min(cx, cy) - (int)(10 * getResources().getDisplayMetrics().density); // 패딩
-
-            // 🚀 0. 시계 배경 채우기
-            if (clockBgColor != 0) {
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(clockBgColor);
-                canvas.drawCircle(cx, cy, radius, paint);
-            }
-
-            // 🚀 1. 시계 테두리 (크기에 비례하여 굵기 자동 조절!)
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(radius * 0.06f); // 반지름의 6% 굵기
-            paint.setColor(ThemeManager.getTextColorPrimary());
-            canvas.drawCircle(cx, cy, radius, paint);
-
-            java.util.Calendar cal = java.util.Calendar.getInstance();
-            float sec = cal.get(java.util.Calendar.SECOND);
-            float min = cal.get(java.util.Calendar.MINUTE) + sec / 60f;
-            float hr = (cal.get(java.util.Calendar.HOUR) % 12) + min / 60f;
-
-            // 🚀 2. 시침 (반지름의 8% 굵기)
-            paint.setStrokeWidth(radius * 0.08f);
-            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(hr * 30)) * radius * 0.5f, cy - (float)Math.cos(Math.toRadians(hr * 30)) * radius * 0.5f, paint);
-
-            // 🚀 3. 분침 (반지름의 5% 굵기)
-            paint.setStrokeWidth(radius * 0.05f);
-            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(min * 6)) * radius * 0.7f, cy - (float)Math.cos(Math.toRadians(min * 6)) * radius * 0.7f, paint);
-
-            // 🚀 4. 초침 (반지름의 2% 굵기, 빨간색)
-            paint.setStrokeWidth(radius * 0.02f);
-            paint.setColor(android.graphics.Color.RED);
-            canvas.drawLine(cx, cy, cx + (float)Math.sin(Math.toRadians(sec * 6)) * radius * 0.8f, cy - (float)Math.cos(Math.toRadians(sec * 6)) * radius * 0.8f, paint);
-        }
-    }
     // =========================================================================
     // 🚀 [신규 추가] 중앙에 잔량이 텍스트로 표시되는 원형 배터리 위젯
     // =========================================================================
-    public class CircularBatteryView extends View {
-        private Paint trackPaint, progressPaint, textPaint;
-        private int level = 100;
-        private boolean isCharging = false;
-        private RectF rectF = new RectF();
-
-        public CircularBatteryView(Context context) {
-            super(context);
-            float density = getResources().getDisplayMetrics().density;
-
-            // 배경 회색 트랙
-            trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            trackPaint.setStyle(Paint.Style.STROKE);
-            trackPaint.setStrokeWidth(8 * density);
-            trackPaint.setColor(ThemeManager.getTextColorSecondary()); // 테마 보조 색상 적용
-            trackPaint.setAlpha(60);
-
-            // 게이지 바
-            progressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            progressPaint.setStyle(Paint.Style.STROKE);
-            progressPaint.setStrokeWidth(8 * density);
-            progressPaint.setStrokeCap(Paint.Cap.ROUND);
-            progressPaint.setColor(ThemeManager.getTextColorPrimary()); // 테마 메인 색상 적용
-
-            // 중앙 숫자 텍스트
-            textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            textPaint.setColor(ThemeManager.getTextColorPrimary());
-            textPaint.setTextAlign(Paint.Align.CENTER);
-            textPaint.setTypeface(android.graphics.Typeface.create(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD));
-        }
-
-        public void setBatteryLevel(int level, boolean isCharging) {
-            this.level = level;
-            this.isCharging = isCharging;
-            invalidate();
-        }
-        public void setCustomTextSize(float size) { textPaint.setTextSize(size); }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            int w = getWidth(), h = getHeight();
-
-            // 🚀 테마 크기에 비례하여 원형 선 굵기 자동 조절! (전체 너비의 8%)
-            float stroke = Math.min(w, h) * 0.08f;
-            trackPaint.setStrokeWidth(stroke);
-            progressPaint.setStrokeWidth(stroke);
-
-            float halfStroke = stroke / 2f;
-            rectF.set(halfStroke, halfStroke, w - halfStroke, h - halfStroke);
-
-            // 🚀 스마트 컬러 로직: 충전 중이면 초록색, 15% 이하면 빨간색!
-            if (isCharging) {
-                progressPaint.setColor(0xFF44FF44);
-            } else if (level <= 15) {
-                progressPaint.setColor(0xFFFF4444);
-            } else {
-                progressPaint.setColor(ThemeManager.getTextColorPrimary());
-            }
-
-            // 배경 원 그리기
-            canvas.drawArc(rectF, 0, 360, false, trackPaint);
-            // 잔량만큼 호(Arc) 그리기
-            canvas.drawArc(rectF, -90, 360f * level / 100f, false, progressPaint);
-
-            // 중앙에 텍스트 배치
-            float textY = (h / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f);
-            canvas.drawText(String.valueOf(level), w / 2f, textY, textPaint);
-        }
-    }
 
     // 🚀 [신규 엔진] 앱 최초 실행 시, APK에 내장된 테마 ZIP 파일들을 기기에 자동 설치하는 함수
     private void installBundledThemes() {
@@ -7086,121 +6572,13 @@ public class MainActivity extends Activity {
             e.printStackTrace();
         }
     }
-    // =========================================================================
-    // 🚀 [오디오 서브 시스템 고성능 엔진 코어]
-    // =========================================================================
-    private void ensureAudioEffectsReady() {
-        try {
-            int sessionId = (mediaPlayer != null) ? mediaPlayer.getAudioSessionId() : 0;
-            // 🚀 여기도 우리가 기억해둔 변수와 대조하여 끊겼으면 다시 이어줍니다.
-            if (equalizer == null || currentAudioSessionId != sessionId) {
-                if (equalizer != null) equalizer.release();
-                equalizer = new Equalizer(0, sessionId); equalizer.setEnabled(true);
-            }
-            if (bassBoost == null || currentAudioSessionId != sessionId) {
-                if (bassBoost != null) bassBoost.release();
-                bassBoost = new android.media.audiofx.BassBoost(0, sessionId); bassBoost.setEnabled(true);
-            }
-            if (virtualizer == null || currentAudioSessionId != sessionId) {
-                if (virtualizer != null) virtualizer.release();
-                virtualizer = new android.media.audiofx.Virtualizer(0, sessionId); virtualizer.setEnabled(true);
-            }
-            currentAudioSessionId = sessionId;
-        } catch (Exception e) {}
-    }
-
-    private void applyAudioEffects() {
-        ensureAudioEffectsReady();
-        if (bassBoost == null || virtualizer == null) return;
-        try {
-            // 4구 베이스 부스터 강도 매핑 (0, 333, 666, 1000)
-            short bassStrength = (short) (currentBassBoostStep * 333);
-            if (currentBassBoostStep == 3) bassStrength = 1000;
-            if (bassBoost.getStrengthSupported()) bassBoost.setStrength(bassStrength);
-
-            // 4구 공간감 이펙터 강도 매핑 (0, 333, 666, 1000)
-            short virtStrength = (short) (currentVirtualizerStep * 333);
-            if (currentVirtualizerStep == 3) virtStrength = 1000;
-            if (virtualizer.getStrengthSupported()) virtualizer.setStrength(virtStrength);
-        } catch (Exception e) {}
-    }
-
-    private void applyEqProfile() {
-        ensureAudioEffectsReady();
-        if (equalizer == null) return;
-        try {
-            if (currentEqProfile.startsWith("preset_")) {
-                int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-                if (pIdx < equalizer.getNumberOfPresets()) {
-                    equalizer.usePreset((short) pIdx);
-                    currentEqPresetIndex = pIdx;
-                    prefs.edit().putInt("eq_preset", currentEqPresetIndex).putString("eq_profile_id", currentEqProfile).commit();
-                }
-            } else {
-                String name = currentEqProfile.replace("custom_", "");
-                short bands = equalizer.getNumberOfBands();
-                for (short i = 0; i < bands; i++) {
-                    int level = prefs.getInt("eq_custom_" + name + "_band_" + i, 0);
-                    customBandLevels[i] = level;
-                    equalizer.setBandLevel(i, (short) level);
-                }
-                prefs.edit().putString("eq_profile_id", currentEqProfile).commit();
-            }
-        } catch (Exception e) {}
-    }
-
-    private void saveCustomEqProfile(String name) {
-        if (equalizer == null) return;
-        short bands = equalizer.getNumberOfBands();
-        SharedPreferences.Editor editor = prefs.edit();
-        for (short i = 0; i < bands; i++) {
-            editor.putInt("eq_custom_" + name + "_band_" + i, customBandLevels[i]);
-        }
-        editor.commit();
-    }
-
-    private void deleteCustomEqProfile(String name) {
-        // 🚀 [버그 해결 1] 외부 공유 폴더(/storage/sdcard0/Y1_EQs/)에 저장된 .json 파일부터 물리적으로 즉시 삭제합니다!
-        // 이 파일이 지워져야 다음 화면 진입 시 자동 동기화 엔진이 프로필을 부활시키지 못합니다.
-        try {
-            File file = new File("/storage/sdcard0/Y1_EQs/" + name + ".json");
-            if (file.exists()) {
-                file.delete();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        // 전체 목록 문자열에서 삭제할 프로필 이름 걸러내기
-        String listStr = prefs.getString("custom_eq_list", "");
-        String[] items = listStr.split(",");
-        StringBuilder sb = new StringBuilder();
-        for (String item : items) {
-            if (!item.equals(name) && !item.trim().isEmpty()) {
-                if (sb.length() > 0) sb.append(",");
-                sb.append(item);
-            }
-        }
-
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putString("custom_eq_list", sb.toString());
-
-        // 🚀 [버그 해결 2] _band_0 하나만 지우던 꼼수를 버리고, 32개 주파수 밴드 전체 영역의 찌꺼기 데이터를 완벽하게 지워버립니다.
-        for (int i = 0; i < 32; i++) {
-            editor.remove("eq_custom_" + name + "_band_" + i);
-        }
-        editor.commit(); // 금고 잠금
-
-        Toast.makeText(this, "Profile Deleted Completely.", Toast.LENGTH_SHORT).show();
-    }
 
     // 고급 EQ 메인 서브 페이지 빌더
     private void buildEqualizerSettingsUI() {
         currentSettingsDepth = 1;
         settingsSubMode = 2; // EQ 서브 모드 활성화
-        loadAndSyncExternalEqProfiles();
-
-        ensureAudioEffectsReady();
+        com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
+        com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
         containerSettingsItems.removeAllViews();
 
         // 1. 프로필 선택 라우터
@@ -7222,7 +6600,7 @@ public class MainActivity extends Activity {
             clickFeedback();
             currentBassBoostStep = (currentBassBoostStep + 1) % 4;
             ((TextView) rowBass.getChildAt(1)).setText(steps[currentBassBoostStep]);
-            applyAudioEffects();
+            com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
             prefs.edit().putInt("bass_boost_step", currentBassBoostStep).commit();
         });
         containerSettingsItems.addView(rowBass);
@@ -7233,7 +6611,7 @@ public class MainActivity extends Activity {
             clickFeedback();
             currentVirtualizerStep = (currentVirtualizerStep + 1) % 4;
             ((TextView) rowVirt.getChildAt(1)).setText(steps[currentVirtualizerStep]);
-            applyAudioEffects();
+            com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
             prefs.edit().putInt("virtualizer_step", currentVirtualizerStep).commit();
         });
         containerSettingsItems.addView(rowVirt);
@@ -7244,7 +6622,7 @@ public class MainActivity extends Activity {
             Button btnSave = createListButton("💾 Save Current Configuration");
             btnSave.setOnClickListener(v -> {
                 clickFeedback();
-                saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
+                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
                 Toast.makeText(this, "Configuration Saved!", Toast.LENGTH_SHORT).show();
             });
             containerSettingsItems.addView(btnSave);
@@ -7253,9 +6631,9 @@ public class MainActivity extends Activity {
             btnDel.setTextColor(0xFFFF4444);
             btnDel.setOnClickListener(v -> {
                 clickFeedback();
-                deleteCustomEqProfile(currentEqProfile.replace("custom_", ""));
+                com.themoon.y1.managers.AudioEffectManager.getInstance().deleteCustomEqProfile(currentEqProfile.replace("custom_", ""));
                 currentEqProfile = "preset_0";
-                applyEqProfile();
+                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
                 buildEqualizerSettingsUI();
             });
             containerSettingsItems.addView(btnDel);
@@ -7284,9 +6662,9 @@ public class MainActivity extends Activity {
                 }
             }
 
-            saveCustomEqProfile(newName);
-            exportEqProfileToFile(newName); // 생성과 동시에 공유용 단독 파일로도 즉시 배출!
-            applyEqProfile();
+            com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(newName);
+            com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(newName); // 생성과 동시에 공유용 단독 파일로도 즉시 배출!
+            com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
 
             // 🚀 [UX 혁신] 메인화면 리로드 단계를 과감히 생략하고 그래프 스튜디오로 바로 워프시킵니다!
             buildGraphicEqualizerUI();
@@ -7324,7 +6702,7 @@ public class MainActivity extends Activity {
                 String prefix = currentEqProfile.equals(pId) ? "✔ " : "   ";
                 Button btn = createListButton(prefix + eqPresetNames.get(i));
                 if (currentEqProfile.equals(pId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = pId; applyEqProfile(); buildEqualizerSettingsUI(); });
+                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = pId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
                 containerSettingsItems.addView(btn);
             }
         }
@@ -7338,7 +6716,7 @@ public class MainActivity extends Activity {
                 String prefix = currentEqProfile.equals(cId) ? "✔ " : "   ";
                 Button btn = createListButton(prefix + prof);
                 if (currentEqProfile.equals(cId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = cId; applyEqProfile(); buildEqualizerSettingsUI(); });
+                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = cId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
                 containerSettingsItems.addView(btn);
             }
         } else {
@@ -7356,77 +6734,6 @@ public class MainActivity extends Activity {
                 }
             }
         }, 50);
-    }
-
-
-    // =========================================================================
-    // 🚀 [그래픽 이퀄라이저 스튜디오 전용 엔진]
-    // =========================================================================
-
-    // 1. 첨부해주신 이미지의 슬라이더 모양을 그대로 그려내는 커스텀 그래픽 뷰
-    public static class EqSliderView extends android.view.View {
-        private android.graphics.Paint trackPaint, activeTrackPaint, thumbPaint, textPaint;
-        private int min = -1500, max = 1500, level = 0;
-        private boolean isFocused = false, isAdjusting = false;
-        private int themeColor = 0xFF00FFFF;
-
-        public EqSliderView(android.content.Context context) {
-            super(context);
-            try { themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; } catch(Exception e){}
-
-            trackPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            trackPaint.setStyle(android.graphics.Paint.Style.FILL);
-            trackPaint.setColor(0xFF555555);
-
-            activeTrackPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            activeTrackPaint.setStyle(android.graphics.Paint.Style.FILL);
-
-            thumbPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            thumbPaint.setStyle(android.graphics.Paint.Style.FILL);
-
-            textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-            textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
-            textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        }
-
-        public void setRange(int min, int max) { this.min = min; this.max = max; invalidate(); }
-        public void setLevel(int level) { this.level = level; invalidate(); }
-        public void setFocused(boolean focused) { this.isFocused = focused; invalidate(); }
-        public void setAdjusting(boolean adjusting) { this.isAdjusting = adjusting; invalidate(); }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            int w = getWidth(), h = getHeight();
-            float padY = 40f;
-            float trackX = w / 2f;
-            float trackHeight = h - (padY * 2);
-            float trackTop = padY, trackBottom = h - padY;
-
-            // 뒷 배경 트랙 (회색 선)
-            trackPaint.setStrokeWidth(6f);
-            canvas.drawLine(trackX, trackTop, trackX, trackBottom, trackPaint);
-            // 정중앙 0dB 눈금 선
-            canvas.drawLine(trackX - 10f, trackTop + trackHeight/2f, trackX + 10f, trackTop + trackHeight/2f, trackPaint);
-
-            // 현재 데시벨의 위치 비율 계산
-            float ratio = (float) (level - min) / (max - min);
-            float thumbY = trackBottom - (ratio * trackHeight);
-
-            // 조작 중일 땐 주황색, 포커스 상태일 땐 테마색, 평소엔 밝은 회색
-            activeTrackPaint.setColor(isAdjusting ? 0xFFFF8800 : (isFocused ? themeColor : 0xFFAAAAAA));
-            activeTrackPaint.setStrokeWidth(8f);
-            canvas.drawLine(trackX, trackTop + trackHeight/2f, trackX, thumbY, activeTrackPaint);
-
-            // 동그란 손잡이(Thumb)
-            thumbPaint.setColor(isAdjusting ? 0xFFFF8800 : (isFocused ? themeColor : 0xFFDDDDDD));
-            canvas.drawCircle(trackX, thumbY, 15f, thumbPaint);
-
-            // 손잡이 바로 위에 떠다니는 +dB 텍스트
-            textPaint.setColor(0xFFFFFFFF);
-            textPaint.setTextSize(22f);
-            String dbStr = (level > 0 ? "+" : "") + (level / 100);
-            canvas.drawText(dbStr, trackX, thumbY - 25f, textPaint);
-        }
     }
 
     // =========================================================================
@@ -7547,7 +6854,7 @@ public class MainActivity extends Activity {
                                 customBandLevels[bandIdx] = level;
                                 try { equalizer.setBandLevel(bandIdx, (short) level); } catch(Exception e){}
                                 slider.setLevel(level);
-                                saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
+                                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
                                 clickFeedback();
                                 return true;
                             }
@@ -7570,9 +6877,9 @@ public class MainActivity extends Activity {
             public void onClick(android.view.View v) {
                 clickFeedback();
                 String name = currentEqProfile.replace("custom_", "");
-                saveCustomEqProfile(name); // 1. 내부 로컬 금고 저장
-                exportEqProfileToFile(name); // 2. 🚀 [핵심] 유저 공유용 외부 개별 파일(.json) 실시간 내보내기 실행!
-                applyEqProfile(); // 3. 오디오 칩셋에 실시간 음압 가해 즉시 적용
+                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(name); // 1. 내부 로컬 금고 저장
+                com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(name); // 2. 🚀 [핵심] 유저 공유용 외부 개별 파일(.json) 실시간 내보내기 실행!
+                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); // 3. 오디오 칩셋에 실시간 음압 가해 즉시 적용
 
                 android.widget.Toast.makeText(MainActivity.this, "💾 File saved successfully!", android.widget.Toast.LENGTH_SHORT).show();
                 buildEqualizerSettingsUI(); // 4. 이전 페이지로 복귀하면 최상단 라우터에 방금 지정한 이름이 즉시 동기화되어 표기됩니다!
@@ -7621,78 +6928,6 @@ public class MainActivity extends Activity {
     // 🚀 [이퀄라이저 프로필 외부 공유 공유 및 파일 연동 엔진]
     // =========================================================================
 
-    // 1. [내보내기] 저장 시 /storage/sdcard0/Y1_EQs/ 폴더 안에 개별 JSON 파일로 자동 백업합니다.
-    private void exportEqProfileToFile(String name) {
-        try {
-            File folder = new File("/storage/sdcard0/Y1_EQs");
-            if (!folder.exists()) folder.mkdirs();
-            File file = new File(folder, name + ".json");
 
-            org.json.JSONObject json = new org.json.JSONObject();
-            json.put("profile_name", name);
-
-            org.json.JSONArray bandsArray = new org.json.JSONArray();
-            short bands = (equalizer != null) ? equalizer.getNumberOfBands() : 5;
-            for (short i = 0; i < bands; i++) {
-                bandsArray.put(prefs.getInt("eq_custom_" + name + "_band_" + i, 0));
-            }
-            json.put("bands", bandsArray);
-
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
-            fos.write(json.toString(2).getBytes("UTF-8"));
-            fos.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    // 2. [가져오기] 다른 유저들이 폴더에 넣어둔 .json 이퀄라이저 파일을 스캔하여 공유 목록에 동적으로 추가합니다.
-    private void loadAndSyncExternalEqProfiles() {
-        try {
-            File folder = new File("/storage/sdcard0/Y1_EQs");
-            if (!folder.exists()) { folder.mkdirs(); return; }
-            File[] files = folder.listFiles();
-
-            // 🚀 [버그 해결] 무조건 기존 목록에 더하기만 하던 방식을 폐기합니다!
-            // 오직 현재 폴더에 '실제 존재하는 파일들'만 기준으로 리스트를 깨끗하게 새로 짭니다.
-            java.util.ArrayList<String> validCustomList = new java.util.ArrayList<>();
-
-            if (files != null) {
-                SharedPreferences.Editor editor = prefs.edit();
-                for (File f : files) {
-                    if (f.isFile() && f.getName().toLowerCase().endsWith(".json")) {
-                        try {
-                            java.io.FileInputStream fis = new java.io.FileInputStream(f);
-                            byte[] data = new byte[(int) f.length()];
-                            fis.read(data);
-                            fis.close();
-
-                            org.json.JSONObject json = new org.json.JSONObject(new String(data, "UTF-8"));
-                            String name = json.optString("profile_name", f.getName().replace(".json", ""));
-                            org.json.JSONArray bandsArray = json.optJSONArray("bands");
-
-                            if (bandsArray != null) {
-                                for (int i = 0; i < bandsArray.length(); i++) {
-                                    editor.putInt("eq_custom_" + name + "_band_" + i, bandsArray.getInt(i));
-                                }
-                                if (!validCustomList.contains(name)) {
-                                    validCustomList.add(name);
-                                }
-                            }
-                        } catch (Exception e) { e.printStackTrace(); }
-                    }
-                }
-
-                // 🚀 실제 파일이 살아있는 프로필들로만 금고(custom_eq_list)를 완전히 새로 갈아엎어 찌꺼기를 청소합니다.
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < validCustomList.size(); i++) {
-                    if (i > 0) sb.append(",");
-                    sb.append(validCustomList.get(i));
-                }
-                editor.putString("custom_eq_list", sb.toString());
-                editor.commit();
-            }
-        } catch (Exception e) { e.printStackTrace(); }
-    }
 }
 
