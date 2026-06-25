@@ -1366,6 +1366,31 @@ public class MainActivity extends Activity {
                 countAudioFiles(rootFolder); // 1. 총 몇 곡인지 광속으로 파악!
                 buildCustomLibrary(rootFolder); // 2. 본격적인 태그 추출 및 UI 갱신 시작!
 
+                // 🚀 [즐겨찾기 자동 청소기 가동!]
+                // 음악 스캔이 끝난 직후, 현재 기기에 '실제로 살아있는' 노래들의 목록을 뽑아냅니다.
+                java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
+                for (SongItem song : customLibrary) {
+                    aliveSongs.add(song.file.getAbsolutePath());
+                }
+
+                boolean isCleanedUp = false;
+                java.util.Iterator<String> favIterator = favoritePaths.iterator();
+
+                // 내 금고(즐겨찾기 명단)를 하나씩 넘겨보면서 검사합니다.
+                while (favIterator.hasNext()) {
+                    String favPath = favIterator.next();
+                    // 만약 즐겨찾기 명단에 있는 파일이 기기(aliveSongs)에 존재하지 않는다면?
+                    if (!aliveSongs.contains(favPath)) {
+                        favIterator.remove(); // 🚀 찌꺼기 유령 데이터를 명단에서 즉시 삭제!
+                        isCleanedUp = true;
+                    }
+                }
+
+                // 청소한 내역이 있다면, 갱신된 깨끗한 명단을 금고에 다시 덮어씌워 영구 저장합니다.
+                if (isCleanedUp) {
+                    prefs.edit().putStringSet("favorites", favoritePaths).commit();
+                }
+
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
