@@ -198,12 +198,7 @@ public class MainActivity extends Activity {
     private ProgressBar volumeProgress, pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [수정] 수동 APP_VERSION 변수는 지우고 서버 폴더 주소만 적습니다.
-// 🚀 [추가] 유니버설 캐스트 제어를 위한 핵심 객체들
-    public UniversalCastManager castManager;
-    private com.google.android.gms.cast.framework.CastContext castContext;
-    private androidx.mediarouter.media.MediaRouter mediaRouter;
-    private androidx.mediarouter.media.MediaRouteSelector mediaRouteSelector;
-    private List<UniversalDevice> scannedCastDevices = new java.util.ArrayList<>(); // 🚀 이름 충돌 방지!
+
     private TextView tvServerStatus, tvServerIp;
     private Button btnServerToggle;
     // 🚀 [추가] 화면 전체를 덮는 고급 로딩 인디케이터 오버레이
@@ -1271,25 +1266,7 @@ public class MainActivity extends Activity {
         }
 
         btnNowPlaying.requestFocus();
-// 🚀🚀🚀 [여기에 추가해 주세요!] 구글 캐스트 컨텍스트 및 미디어 라우터 스캐너 초기화 🚀🚀🚀
-        try {
-            castContext = com.google.android.gms.cast.framework.CastContext.getSharedInstance(this);
-            castManager = new UniversalCastManager(this);
 
-            // 와이파이 안의 크롬캐스트 기기들을 탐색하기 위한 라우터 세팅
-            mediaRouter = androidx.mediarouter.media.MediaRouter.getInstance(this);
-            mediaRouteSelector = new androidx.mediarouter.media.MediaRouteSelector.Builder()
-                    // 🚀 MediaControlIntent 앞에 'Cast'를 붙여줍니다!
-                    .addControlCategory(com.google.android.gms.cast.CastMediaControlIntent.categoryForCast("CC1AD845"))
-                    .build();
-
-            // 기기 실시간 탐색 시작 (에디터/런처 구동 중 계속 스캔)
-            mediaRouter.addCallback(mediaRouteSelector, mediaRouterCallback,
-                    androidx.mediarouter.media.MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
-        } catch (Exception e) {
-            e.printStackTrace(); // 구글 플레이 서비스가 없는 기기 대전 방어
-        }
-        // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
         // 🚀 1. 메인 화면의 배경과 글자색도 테마 매니저에 맞춰 갈아입힙니다!
         applyThemeToMainMenu();
 
@@ -1615,33 +1592,7 @@ public class MainActivity extends Activity {
         fastScrollHandler.removeCallbacks(hideFastScrollTask);
         fastScrollHandler.postDelayed(hideFastScrollTask, 800);
     }
-    // 🚀 [추가] 와이파이 내부 캐스트 기기 실시간 감시 콜백
-    private final androidx.mediarouter.media.MediaRouter.Callback mediaRouterCallback =
-            new androidx.mediarouter.media.MediaRouter.Callback() {
-                @Override
-                public void onRouteAdded(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
-                    updateScannedDevices();
-                }
-                @Override
-                public void onRouteRemoved(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
-                    updateScannedDevices();
-                }
-                @Override
-                public void onRouteChanged(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
-                    updateScannedDevices();
-                }
 
-                private void updateScannedDevices() {
-                    scannedCastDevices.clear();
-                    for (androidx.mediarouter.media.MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
-                        // 구글 캐스트 규격에 맞는 원격 스피커/허브만 필터링해서 수집합니다.
-                        if (route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
-                            scannedCastDevices.add(new UniversalDevice(route.getId(), route.getName(), UniversalDevice.TYPE_GOOGLE_CAST, route));
-                        }
-                    }
-                    // 💡 추후 이 자리에 에어플레이(mDNS)로 찾은 기기들을 쏙 합류(merge)시키면 완벽한 유니버설 목록이 됩니다!
-                }
-            };
     // 💡 [수정 완료] 메인 화면 테마 적용기. 동적 렌더링 엔진 호출 추가!
     private void applyThemeToMainMenu() {
         try {
@@ -5138,35 +5089,23 @@ public class MainActivity extends Activity {
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                    if (castManager != null && castManager.currentConnectedDevice != null) {
+
                         com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                        File nextFile = currentPlaylist.get(currentIndex);
-                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                    } else {
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                    }
+
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                    if (castManager != null && castManager.currentConnectedDevice != null) {
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack(); // 인덱스 먼저 넘기고
-                        File nextFile = currentPlaylist.get(currentIndex);
-                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                    } else {
+
                         com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-                    }
+
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                    if (castManager != null && castManager.currentConnectedDevice != null) {
+
                         com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                        File nextFile = currentPlaylist.get(currentIndex);
-                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                    } else {
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                    }
+
                     clickFeedback();
                     return true;
                 }
@@ -5185,13 +5124,9 @@ public class MainActivity extends Activity {
                 || keyCode == 86) {
             if (event.getRepeatCount() == 0) {
 
-                if (castManager != null && castManager.currentConnectedDevice != null) {
+
                     com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                    File nextFile = currentPlaylist.get(currentIndex);
-                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                }
+
             }
             return true;
         }
@@ -5199,27 +5134,18 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                // 🚀 [무선 라우팅 가로채기] 원격 스피커가 연결되어 있다면 폰 대신 원격 기기로 곡 넘김 명령 전송!
-                if (castManager != null && castManager.currentConnectedDevice != null) {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack(); // 인덱스 먼저 넘기고
-                    File nextFile = currentPlaylist.get(currentIndex);
-                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                } else {
+
                     com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-                }
+
             }
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                if (castManager != null && castManager.currentConnectedDevice != null) {
+
                     com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                    File nextFile = currentPlaylist.get(currentIndex);
-                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                }
+
 
             }
             return true;
@@ -6989,163 +6915,8 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .show();
     }
-    // =======================================================
-    // 🚀 유니버설 캐스트 (구글 & 애플 통합 제어) 엔진 및 UI
-    // =======================================================
 
-    public static class UniversalDevice {
-        public static final int TYPE_GOOGLE_CAST = 1;
-        public static final int TYPE_AIRPLAY = 2;
 
-        public String id;
-        public String name;
-        public int type;
-        public Object rawDevice;
 
-        public UniversalDevice(String id, String name, int type, Object rawDevice) {
-            this.id = id; this.name = name; this.type = type; this.rawDevice = rawDevice;
-        }
-    }
-
-    public interface UniversalAudioEngine {
-        void connect(UniversalDevice device);
-        void play(File audioFile, String title, String artist, String coverUrl);
-        void pause();
-        void stop();
-        void setVolume(int volume);
-    }
-
-    public class UniversalCastManager implements UniversalAudioEngine {
-        public UniversalDevice currentConnectedDevice = null;
-        private Context context;
-
-        public UniversalCastManager(Context context) { this.context = context; }
-
-        @Override
-        public void connect(UniversalDevice device) {
-            this.currentConnectedDevice = device;
-            if (device.type == UniversalDevice.TYPE_GOOGLE_CAST) {
-                androidx.mediarouter.media.MediaRouter.RouteInfo route = (androidx.mediarouter.media.MediaRouter.RouteInfo) device.rawDevice;
-                if (route != null) {
-                    route.select();
-                    Toast.makeText(context, "Connected to: " + device.name, Toast.LENGTH_SHORT).show();
-
-                    if (!currentPlaylist.isEmpty()) {
-                        File currentFile = currentPlaylist.get(currentIndex);
-                        String t = tvPlayerTitle != null ? tvPlayerTitle.getText().toString() : "Y1 Audio Track";
-                        String a = tvPlayerArtist != null ? tvPlayerArtist.getText().toString() : "Y1 Launcher";
-                        play(currentFile, t, a, "");
-                    }
-                }
-            } else if (device.type == UniversalDevice.TYPE_AIRPLAY) {
-                Toast.makeText(context, "AirPlay Protocol Pending...", Toast.LENGTH_SHORT).show();
-            }
-        }
-
-        @Override
-        public void play(File audioFile, String title, String artist, String coverUrl) {
-            if (currentConnectedDevice == null) return;
-
-            String myIp = webServer != null ? webServer.getLocalIpAddress() : "127.0.0.1";
-            String streamUrl = "http://" + myIp + ":8080/api/file?path=" + android.net.Uri.encode(audioFile.getAbsolutePath().replace("/storage/sdcard0", ""));
-
-            if (currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
-                try {
-                    com.google.android.gms.cast.framework.CastSession session =
-                            castContext.getSessionManager().getCurrentCastSession();
-                    if (session != null && session.getRemoteMediaClient() != null) {
-
-                        com.google.android.gms.cast.MediaMetadata movieMetadata =
-                                new com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MUSIC_TRACK);
-                        movieMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title);
-                        movieMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_ARTIST, artist);
-
-                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-                            mediaPlayer.pause();
-                            isPausedByHand = false;
-                            updatePlayerUI();
-                        }
-
-                        com.google.android.gms.cast.MediaInfo mediaInfo = new com.google.android.gms.cast.MediaInfo.Builder(streamUrl)
-                                .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
-                                .setContentType("audio/mpeg")
-                                .setMetadata(movieMetadata)
-                                .build();
-
-                        session.getRemoteMediaClient().load(mediaInfo, true, 0);
-                    }
-                } catch (Exception e) { e.printStackTrace(); }
-            }
-        }
-
-        @Override public void pause() {
-            if (currentConnectedDevice != null && currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
-                try {
-                    com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
-                    if (session != null && session.getRemoteMediaClient() != null) session.getRemoteMediaClient().pause();
-                } catch (Exception e){}
-            }
-        }
-        @Override public void stop() {
-            if (currentConnectedDevice != null && currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
-                try {
-                    mediaRouter.getDefaultRoute().select();
-                    currentConnectedDevice = null;
-                } catch (Exception e){}
-            }
-        }
-        @Override public void setVolume(int volume) {}
-    }
-
-    public void showUniversalCastDialog() {
-        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
-        scrollView.setBackgroundColor(0xFF222222);
-
-        final LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(30, 30, 30, 30);
-        scrollView.addView(layout);
-
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText("━ WIRELESS AUDIO CAST ━");
-        tvTitle.setTextColor(0xFF00FFFF);
-        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        tvTitle.setGravity(android.view.Gravity.CENTER);
-        tvTitle.setPadding(0, 10, 0, 30);
-        layout.addView(tvTitle);
-
-        if (scannedCastDevices.isEmpty()) {
-            TextView tvEmpty = new TextView(this);
-            tvEmpty.setText("   Searching for speakers...\n   (Check if Wi-Fi is same)");
-            tvEmpty.setTextColor(0xFF888888);
-            tvEmpty.setPadding(10, 20, 10, 20);
-            layout.addView(tvEmpty);
-        } else {
-            for (final UniversalDevice device : scannedCastDevices) {
-                String icon = (device.type == UniversalDevice.TYPE_GOOGLE_CAST) ? "📺 " : "🍎 ";
-                Button btnDevice = createListButton(icon + device.name);
-                btnDevice.setOnClickListener(v -> {
-                    clickFeedback();
-                    castManager.connect(device);
-                });
-                layout.addView(btnDevice);
-            }
-        }
-
-        Button btnDisconnect = createListButton("📱 Disconnect (Play on Phone)");
-        btnDisconnect.setTextColor(0xFFFF5555);
-        btnDisconnect.setOnClickListener(v -> {
-            clickFeedback();
-            if (castManager != null) castManager.stop();
-        });
-        layout.addView(btnDisconnect);
-
-        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setView(scrollView).create();
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.show();
-
-        if (layout.getChildCount() > 1) layout.getChildAt(1).requestFocus();
-    }
 }
 
