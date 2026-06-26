@@ -14,9 +14,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.RectF;
+
 import android.media.AudioManager;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
@@ -50,7 +48,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
+
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
@@ -89,6 +87,7 @@ public class MainActivity extends Activity {
             }
         }
     };
+    public boolean isLongPressConsumed = false; // 🚀 롱클릭 방어막 변수 추가
     // 🚀 [신규 추가] 오디오 이펙트 전역 변수 및 프로필 상태 관리
     public android.media.audiofx.BassBoost bassBoost;
     public android.media.audiofx.Virtualizer virtualizer;
@@ -157,7 +156,10 @@ public class MainActivity extends Activity {
 
     // 💡 미디어 라이브러리 브라우저 상태 관리 변수들 근처에 추가
     private static final int BROWSER_FAVORITES = 5;
-
+    // 🚀 [네이티브 M3U 전용 가상 브라우저 모드 신설]
+    private static final int BROWSER_PLAYLISTS = 6;
+    private static final int BROWSER_M3U_SONGS = 7;
+    private File currentM3uFile = null; // 현재 사용자가 들여다보고 있는 M3U 파일 주소창
     // 🚀 [추가] 즐겨찾기 전용 변수들
     private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
     private TextView tvPlayerFavoriteStatus;
@@ -196,7 +198,12 @@ public class MainActivity extends Activity {
     private ProgressBar volumeProgress, pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [수정] 수동 APP_VERSION 변수는 지우고 서버 폴더 주소만 적습니다.
-
+// 🚀 [추가] 유니버설 캐스트 제어를 위한 핵심 객체들
+    public UniversalCastManager castManager;
+    private com.google.android.gms.cast.framework.CastContext castContext;
+    private androidx.mediarouter.media.MediaRouter mediaRouter;
+    private androidx.mediarouter.media.MediaRouteSelector mediaRouteSelector;
+    private List<UniversalDevice> scannedCastDevices = new java.util.ArrayList<>(); // 🚀 이름 충돌 방지!
     private TextView tvServerStatus, tvServerIp;
     private Button btnServerToggle;
     // 🚀 [추가] 화면 전체를 덮는 고급 로딩 인디케이터 오버레이
@@ -1264,7 +1271,25 @@ public class MainActivity extends Activity {
         }
 
         btnNowPlaying.requestFocus();
+// 🚀🚀🚀 [여기에 추가해 주세요!] 구글 캐스트 컨텍스트 및 미디어 라우터 스캐너 초기화 🚀🚀🚀
+        try {
+            castContext = com.google.android.gms.cast.framework.CastContext.getSharedInstance(this);
+            castManager = new UniversalCastManager(this);
 
+            // 와이파이 안의 크롬캐스트 기기들을 탐색하기 위한 라우터 세팅
+            mediaRouter = androidx.mediarouter.media.MediaRouter.getInstance(this);
+            mediaRouteSelector = new androidx.mediarouter.media.MediaRouteSelector.Builder()
+                    // 🚀 MediaControlIntent 앞에 'Cast'를 붙여줍니다!
+                    .addControlCategory(com.google.android.gms.cast.CastMediaControlIntent.categoryForCast("CC1AD845"))
+                    .build();
+
+            // 기기 실시간 탐색 시작 (에디터/런처 구동 중 계속 스캔)
+            mediaRouter.addCallback(mediaRouteSelector, mediaRouterCallback,
+                    androidx.mediarouter.media.MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+        } catch (Exception e) {
+            e.printStackTrace(); // 구글 플레이 서비스가 없는 기기 대전 방어
+        }
+        // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
         // 🚀 1. 메인 화면의 배경과 글자색도 테마 매니저에 맞춰 갈아입힙니다!
         applyThemeToMainMenu();
 
@@ -1403,6 +1428,8 @@ public class MainActivity extends Activity {
                         if (currentScreenState == STATE_BROWSER) {
                             if (currentBrowserMode == BROWSER_ROOT) buildFileBrowserUI();
                             else if (currentBrowserMode == BROWSER_ARTISTS) buildVirtualCategories("ARTIST");
+                            else if (currentBrowserMode == BROWSER_PLAYLISTS) buildM3uPlaylistUI();
+                            else if (currentBrowserMode == BROWSER_M3U_SONGS) buildM3uSongsUI(currentM3uFile);
                             else if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
                             else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
                         }
@@ -1588,7 +1615,33 @@ public class MainActivity extends Activity {
         fastScrollHandler.removeCallbacks(hideFastScrollTask);
         fastScrollHandler.postDelayed(hideFastScrollTask, 800);
     }
+    // 🚀 [추가] 와이파이 내부 캐스트 기기 실시간 감시 콜백
+    private final androidx.mediarouter.media.MediaRouter.Callback mediaRouterCallback =
+            new androidx.mediarouter.media.MediaRouter.Callback() {
+                @Override
+                public void onRouteAdded(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
+                    updateScannedDevices();
+                }
+                @Override
+                public void onRouteRemoved(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
+                    updateScannedDevices();
+                }
+                @Override
+                public void onRouteChanged(androidx.mediarouter.media.MediaRouter router, androidx.mediarouter.media.MediaRouter.RouteInfo route) {
+                    updateScannedDevices();
+                }
 
+                private void updateScannedDevices() {
+                    scannedCastDevices.clear();
+                    for (androidx.mediarouter.media.MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
+                        // 구글 캐스트 규격에 맞는 원격 스피커/허브만 필터링해서 수집합니다.
+                        if (route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
+                            scannedCastDevices.add(new UniversalDevice(route.getId(), route.getName(), UniversalDevice.TYPE_GOOGLE_CAST, route));
+                        }
+                    }
+                    // 💡 추후 이 자리에 에어플레이(mDNS)로 찾은 기기들을 쏙 합류(merge)시키면 완벽한 유니버설 목록이 됩니다!
+                }
+            };
     // 💡 [수정 완료] 메인 화면 테마 적용기. 동적 렌더링 엔진 호출 추가!
     private void applyThemeToMainMenu() {
         try {
@@ -1949,6 +2002,10 @@ public class MainActivity extends Activity {
                 buildFileBrowserUI();
             } else if (currentBrowserMode == BROWSER_ARTISTS) {
                 buildVirtualCategories("ARTIST");
+            } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
+                buildM3uPlaylistUI();
+            } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
+                buildM3uSongsUI(currentM3uFile);
             } else if (currentBrowserMode == BROWSER_ALBUMS) {
                 buildVirtualCategories("ALBUM");
             } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
@@ -2582,9 +2639,11 @@ public class MainActivity extends Activity {
         layout.setFocusable(true);
         layout.setPadding(20, 15, 20, 15);
 
-        // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
-        layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+        // 🚀 [세팅창 UI 복구] 여기서도 포커스 색상을 기반으로 은은한 반투명 색상을 만들어 깔아줍니다.
+        int focusColor = ThemeManager.getListButtonFocusedBg();
+        final int faintNormalBg = (focusColor & 0x00FFFFFF) | 0x22000000;
 
+        layout.setBackground(createButtonBackground(faintNormalBg));
         TextView tvLeft = new TextView(this);
         tvLeft.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
         tvLeft.setText(leftText);
@@ -2616,7 +2675,6 @@ public class MainActivity extends Activity {
                     layout.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     ((TextView) layout.getChildAt(0)).setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     ((TextView) layout.getChildAt(1)).setTextColor(ThemeManager.getListButtonFocusedTextColor());
-
                     // 🚀 [버그 완벽 차단] 깊이가 0(메인 셋팅)일 때만 기억하도록 제한을 겁니다!
                     if (currentScreenState == STATE_SETTINGS && currentSettingsDepth == 0) {
                         int idx = containerSettingsItems.indexOfChild(layout);
@@ -2624,10 +2682,9 @@ public class MainActivity extends Activity {
                             lastSettingsFocusIndex = idx;
                     }
                 } else {
-                    // 🚀 일반 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
-                    layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+                    // 🚀 포커스가 벗어나면 은은한 배경으로 복귀!
+                    layout.setBackground(createButtonBackground(faintNormalBg));
                     ((TextView) layout.getChildAt(0)).setTextColor(ThemeManager.getTextColorPrimary());
-
                     TextView rightTv = (TextView) layout.getChildAt(1);
                     String currentText = rightTv.getText().toString();
                     if (currentText.equals("ON") || currentText.equals("ONE") || currentText.equals("ALL"))
@@ -2649,8 +2706,11 @@ public class MainActivity extends Activity {
     public Button createListButton(String text) {
         final Button btn = new Button(this);
 
-        // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
-        btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+        // 🚀 [과거 UI 완벽 복구] 테마의 포커스 색상을 훔쳐와서, 투명도를 15% 정도(0x22)로 낮춘 '은은한 배경색'을 자동 생성합니다!
+        int focusColor = ThemeManager.getListButtonFocusedBg();
+        final int faintNormalBg = (focusColor & 0x00FFFFFF) | 0x22000000;
+
+        btn.setBackground(createButtonBackground(faintNormalBg)); // 은은한 배경 적용!
         btn.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
         btn.setSoundEffectsEnabled(false);
         btn.setText(text);
@@ -2666,14 +2726,12 @@ public class MainActivity extends Activity {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
-                    // 🚀 포커스 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
                     btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     showFastScrollLetter(((Button) v).getText().toString());
-
                 } else {
-                    // 🚀 일반 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
-                    btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+                    // 🚀 휠이 빠져나갔을 때도 우리가 만든 은은한 배경으로 복귀시킵니다!
+                    btn.setBackground(createButtonBackground(faintNormalBg));
                     btn.setTextColor(ThemeManager.getTextColorPrimary());
                 }
             }
@@ -3051,7 +3109,7 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnClearCache);
-        LinearLayout btnTime = createSettingRow("Date & Time Settings", "〉");
+        LinearLayout btnTime = createSettingRow("Date & Time", "〉");
         btnTime.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -3721,7 +3779,13 @@ public class MainActivity extends Activity {
                 buildVirtualSongs();
             });
             containerBrowserItems.addView(btnAll);
-
+            Button btnM3uPlaylist = createListButton("📝 Playlists");
+            btnM3uPlaylist.setOnClickListener(v -> {
+                clickFeedback();
+                currentBrowserMode = BROWSER_PLAYLISTS;
+                buildM3uPlaylistUI();
+            });
+            containerBrowserItems.addView(btnM3uPlaylist);
             // 🚀 시스템을 거치지 않는 '앱 자체 스캔 엔진' 버튼!
             Button btnScan = createListButton(isCustomScanning ? "⏳ Scanning Media..." : "🔄 Scan Media Library");
             btnScan.setTextColor(0xFFFFFFFF);
@@ -4057,6 +4121,16 @@ public class MainActivity extends Activity {
 
                         // 🚀 [해결] 폴더에서 개별 노래 재생 시 플레이어 화면으로 자동 전환!
                         changeScreen(STATE_PLAYER);
+                    }
+                });
+
+                b.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        clickFeedback();
+                        isLongPressConsumed = true; // 🚀 [버그 해결] 롱클릭 방어막을 팝업이 뜨는 순간 강제로 켜버립니다!
+                        showAddToPlaylistDialog(audio);
+                        return true;
                     }
                 });
                 containerBrowserItems.addView(b);
@@ -5064,17 +5138,35 @@ public class MainActivity extends Activity {
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    if (castManager != null && castManager.currentConnectedDevice != null) {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                        File nextFile = currentPlaylist.get(currentIndex);
+                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    }
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                    if (castManager != null && castManager.currentConnectedDevice != null) {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack(); // 인덱스 먼저 넘기고
+                        File nextFile = currentPlaylist.get(currentIndex);
+                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                    }
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+                    if (castManager != null && castManager.currentConnectedDevice != null) {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+                        File nextFile = currentPlaylist.get(currentIndex);
+                        castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+                    }
                     clickFeedback();
                     return true;
                 }
@@ -5092,24 +5184,43 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
                 || keyCode == 86) {
             if (event.getRepeatCount() == 0) {
-                com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+
+                if (castManager != null && castManager.currentConnectedDevice != null) {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+                    File nextFile = currentPlaylist.get(currentIndex);
+                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
+                }
             }
             return true;
         }
 
-        // 🚀 [수정] 플레이어 화면(STATE_PLAYER) 제한을 완전히 삭제했습니다!
-        // 이제 메인 화면, 브라우저, 설정 창 등 어느 화면에 있든 버튼(87, 88)을 누르면 즉시 곡이 넘어갑니다.
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                // 🚀 [무선 라우팅 가로채기] 원격 스피커가 연결되어 있다면 폰 대신 원격 기기로 곡 넘김 명령 전송!
+                if (castManager != null && castManager.currentConnectedDevice != null) {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack(); // 인덱스 먼저 넘기고
+                    File nextFile = currentPlaylist.get(currentIndex);
+                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                }
             }
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                if (castManager != null && castManager.currentConnectedDevice != null) {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    File nextFile = currentPlaylist.get(currentIndex);
+                    castManager.play(nextFile, nextFile.getName(), "Y1 Cast", "");
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                }
+
             }
             return true;
         }
@@ -5264,6 +5375,13 @@ public class MainActivity extends Activity {
                             currentBrowserMode = BROWSER_ROOT;
                             lastBrowserFocusText = "💖 My Favorites";
                             buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = "📝 Playlists";
+                            buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
+                            currentBrowserMode = BROWSER_PLAYLISTS;
+                            buildM3uPlaylistUI();
                         } else if (currentBrowserMode == BROWSER_ALBUMS) {
                             currentBrowserMode = BROWSER_ROOT;
                             lastBrowserFocusText = "💿 Albums";
@@ -5511,7 +5629,12 @@ public class MainActivity extends Activity {
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            // 🚀 길게 눌러서 소모된(Canceled) 이벤트가 아닐 때만 숏클릭(스펙트럼)을 발동시킵니다!
+            // 🚀 [버그 해결] 꾹~ 누른 직후 손을 뗄 때 발생하는 '가짜 짧은 클릭(재생)'을 완벽하게 무시합니다!
+            if (isLongPressConsumed) {
+                isLongPressConsumed = false; // 방어막 초기화
+                return true; // 여기서 아무것도 안 하고 함수를 끝내버립니다!
+            }
+
             if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
                 try { handleCenterShortClick(); } catch (Exception e) {}
             }
@@ -5530,9 +5653,18 @@ public class MainActivity extends Activity {
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             if (currentScreenState == STATE_PLAYER) {
-                toggleFavorite(); // 💖 즐겨찾기 추가/해제!
+                toggleFavorite();
                 clickFeedback();
+                isLongPressConsumed = true; // 🚀 [방어막 켜짐] 롱클릭을 썼다고 기록!
                 return true;
+            }
+            else if (currentScreenState == STATE_BROWSER) {
+                View c = getCurrentFocus();
+                if (c != null) {
+                    c.performLongClick();
+                    isLongPressConsumed = true; // 🚀 [방어막 켜짐] 롱클릭을 썼다고 기록!
+                    return true;
+                }
             }
         }
         return super.onKeyLongPress(keyCode, event);
@@ -5587,7 +5719,7 @@ public class MainActivity extends Activity {
     }
 
     // 💡 안드로이드 하드웨어 가속(RenderScript)을 이용한 고화질 가우시안 블러 함수!
-    private Bitmap applyGaussianBlur(Bitmap original) {
+    public Bitmap applyGaussianBlur(Bitmap original) {
         if (original == null)
             return null;
         try {
@@ -6080,33 +6212,43 @@ public class MainActivity extends Activity {
 
 
 
-    // 🚀 [신규 엔진] 앱 최초 실행 시, APK에 내장된 테마 ZIP 파일들을 기기에 자동 설치하는 함수
     private void installBundledThemes() {
-        // 이미 설치를 완료했는지 금고(SharedPreferences)에서 확인합니다. (매번 압축을 푸는 과부하 방지)
         SharedPreferences prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
-        if (prefs.getBoolean("bundled_themes_installed", false)) return;
+
+        // 🚀 [개조] 단순한 true/false 대신, 마지막으로 테마를 설치했던 '앱의 버전 번호'를 읽어옵니다.
+        int lastInstalledVersion = prefs.getInt("last_theme_version", 0);
+
+        // 현재 실행된 이 앱의 진짜 버전 번호(versionCode)를 알아냅니다.
+        int currentAppVersion = 1;
+        try {
+            android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            currentAppVersion = pInfo.versionCode; // 예: 1, 2, 3...
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // 🚀 [핵심 방어막] 이미 현재 버전과 같거나 더 높은 버전의 테마가 깔려있다면 건너뜁니다!
+        // 만약 앱 버전이 올라갔다면(예: 1 -> 2) 이 조건문을 통과하여 테마를 새로 덮어씌웁니다.
+        if (lastInstalledVersion >= currentAppVersion) return;
 
         File targetDir = new File("/storage/sdcard0/Y1_Themes");
         if (!targetDir.exists()) targetDir.mkdirs();
 
         try {
             android.content.res.AssetManager assetManager = getAssets();
-            String[] files = assetManager.list("themes"); // assets/themes 폴더 안의 파일 목록 읽기
+            String[] files = assetManager.list("themes");
 
             if (files != null) {
                 for (String filename : files) {
                     if (filename.toLowerCase().endsWith(".zip")) {
-                        // 1. zip 파일 이름에서 확장자를 뗀 폴더를 만듭니다. (예: yellow_gold)
                         String folderName = filename.substring(0, filename.lastIndexOf("."));
                         File themeFolder = new File(targetDir, folderName);
                         if (!themeFolder.exists()) themeFolder.mkdirs();
 
-                        // 2. APK 내부에 잠들어있는 zip 파일을 스트림으로 끌어옵니다.
                         java.io.InputStream is = assetManager.open("themes/" + filename);
                         java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(is));
                         java.util.zip.ZipEntry ze;
 
-                        // 3. 압축 파일 안의 부품(config.json, 이미지 등)들을 하나씩 새 폴더에 조립합니다.
                         while ((ze = zis.getNextEntry()) != null) {
                             File extractFile = new File(themeFolder, ze.getName());
                             if (ze.isDirectory()) {
@@ -6129,14 +6271,14 @@ public class MainActivity extends Activity {
                     }
                 }
             }
-            // 4. 모든 설치가 끝났으므로, 다음 앱 실행부터는 이 작업을 건너뛰도록 도장을 찍어둡니다!
-            prefs.edit().putBoolean("bundled_themes_installed", true).commit();
+
+            // 🚀 테마 덮어쓰기 조립이 완벽히 끝났다면, 현재 버전을 금고에 저장합니다.
+            prefs.edit().putInt("last_theme_version", currentAppVersion).commit();
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-
     // 고급 EQ 메인 서브 페이지 빌더
     private void buildEqualizerSettingsUI() {
         currentSettingsDepth = 1;
@@ -6488,10 +6630,522 @@ public class MainActivity extends Activity {
             }
         }, 50);
     }
-    // =========================================================================
-    // 🚀 [이퀄라이저 프로필 외부 공유 공유 및 파일 연동 엔진]
-    // =========================================================================
+    // 🚀 [네이티브 엔진 1] M3U 리스트 화면 구축
+    private void buildM3uPlaylistUI() {
+        if (scrollViewBrowser != null) scrollViewBrowser.setVisibility(View.VISIBLE);
+        if (listVirtualSongs != null) listVirtualSongs.setVisibility(View.GONE);
+        containerBrowserItems.removeAllViews();
+        tvBrowserPath.setText("Library: 📝 Playlists");
 
+        // 전용 재생목록 보관함 개설
+        File playlistDir = new File("/storage/sdcard0/Y1_Playlists");
+        if (!playlistDir.exists()) playlistDir.mkdirs();
 
+        File[] files = playlistDir.listFiles();
+        List<File> m3uFiles = new ArrayList<>();
+        if (files != null) {
+            for (File f : files) {
+                // 🚀 [해결] 파일 이름이 .m3u 이거나(OR) .m3u8 로 끝나는 파일들을 모두 수집합니다!
+                String name = f.getName().toLowerCase();
+                if (f.isFile() && (name.endsWith(".m3u") || name.endsWith(".m3u8"))) {
+                    m3uFiles.add(f);
+                }
+            }
+        }
+
+        // 알파벳 대소문자 구분 없이 깔끔하게 정렬
+        java.util.Collections.sort(m3uFiles, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
+
+        if (m3uFiles.isEmpty()) {
+            Button btnEmpty = createListButton("📝 No .m3u files found in Y1_Playlists");
+            btnEmpty.setTextColor(ThemeManager.getTextColorSecondary());
+            containerBrowserItems.addView(btnEmpty);
+        } else {
+            for (final File m3u : m3uFiles) {
+                // 확장자를 떼고 순수 재생목록 이름만 추출하여 리스트업
+                String cleanName = m3u.getName().substring(0, m3u.getName().lastIndexOf("."));
+                Button b = createListButton("📝 " + cleanName);
+
+                // 1. 기존 동작: 짧게 누르면 플레이리스트 내부로 진입
+                b.setOnClickListener(v -> {
+                    clickFeedback();
+                    currentBrowserMode = BROWSER_M3U_SONGS;
+                    currentM3uFile = m3u;
+                    buildM3uSongsUI(m3u);
+                });
+
+                // 🚀 2. 신규 동작: 길게 누르면 플레이리스트 파일 자체를 물리적으로 삭제!
+                b.setLongClickable(true); // 길게 누르기 허용
+                b.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        clickFeedback();
+                        new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                                .setTitle("Delete Playlist")
+                                .setMessage("Are you sure you want to completely delete this playlist file?\n\n[ " + m3u.getName() + " ]")
+                                .setPositiveButton("Delete", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        // 🚀 실제 .m3u / .m3u8 파일 삭제
+                                        if (m3u.exists() && m3u.delete()) {
+                                            Toast.makeText(MainActivity.this, "Playlist deleted.", Toast.LENGTH_SHORT).show();
+                                            buildM3uPlaylistUI(); // 🚀 삭제 즉시 화면을 갱신하여 목록에서 지워버립니다!
+                                        } else {
+                                            Toast.makeText(MainActivity.this, "Failed to delete.", Toast.LENGTH_SHORT).show();
+                                        }
+                                    }
+                                })
+                                .setNegativeButton("Cancel", null)
+                                .show();
+
+                        return true; // 🚀 true를 반환해야 짧은 클릭(진입) 이벤트가 중복으로 실행되지 않습니다.
+                    }
+                });
+
+                containerBrowserItems.addView(b);
+            }
+        }
+        if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
+    }
+
+    // 🚀 [네이티브 엔진 2] M3U 실시간 텍스트 경로 파서 (핵심 디테일 공정)
+    private List<SongItem> parseM3uFile(File m3uFile) {
+        List<SongItem> songs = new ArrayList<>();
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(m3uFile), "UTF-8"));
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                // 빈 줄이거나 주석(#EXTINF 등) 라인은 매끄럽게 통과
+                if (line.isEmpty() || line.startsWith("#")) continue;
+
+                // 윈도우 스타일 역슬래시(\)가 섞여있다면 리눅스/안드로이드용 슬래시(/)로 자동 치환 보정!
+                line = line.replace("\\", "/");
+
+                File audioFile = new File(line);
+                // 만약 PC용 상대 경로 파일 형태라면 기본 음악 폴더(Music) 기준으로 강제 맵핑 보정!
+                if (!audioFile.isAbsolute()) {
+                    audioFile = new File(rootFolder, line);
+                }
+
+                // 해당 경로에 진짜 음원이 살아숨쉬고 있는지 물리적 최종 검증
+                if (audioFile.exists() && isAudioFile(audioFile)) {
+                    String title = audioFile.getName();
+                    // 확장자 제거
+                    int dotIdx = title.lastIndexOf(".");
+                    if (dotIdx > 0) title = title.substring(0, dotIdx);
+
+                    // 네이티브 구동 속도를 위해 무거운 태그 조회는 생략하고 제목만 들고 광속 조립!
+                    songs.add(new SongItem(audioFile, title, "M3U Playlist", ""));
+                }
+            }
+            br.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return songs;
+    }
+
+    // 🚀 [네이티브 엔진 3] 추출된 곡들을 초고속 재활용 엔진(ListView)에 직결 송출
+    private void buildM3uSongsUI(File m3uFile) {
+        scrollViewBrowser.setVisibility(View.GONE);
+        listVirtualSongs.setVisibility(View.VISIBLE);
+        tvBrowserPath.setText("Playlist: " + m3uFile.getName().substring(0, m3uFile.getName().lastIndexOf(".")));
+
+        virtualSongList.clear();
+        currentScrollIndexList.clear();
+
+        List<SongItem> songs = parseM3uFile(m3uFile);
+
+        // 정렬하지 않고 사용자가 .m3u 파일 안에 수동으로 배열해둔 순서 "그대로" 보존하여 장전합니다!
+        for (SongItem song : songs) {
+            virtualSongList.add(song.file);
+            currentScrollIndexList.add(song.title);
+        }
+
+        if (songs.isEmpty()) {
+            Toast.makeText(this, "No valid tracks found in this playlist.", Toast.LENGTH_SHORT).show();
+        }
+
+        SongListAdapter adapter = new SongListAdapter(songs);
+        listVirtualSongs.setAdapter(adapter);
+        listVirtualSongs.post(() -> {
+            if (listVirtualSongs.getChildCount() > 0) listVirtualSongs.getChildAt(0).requestFocus();
+        });
+    }
+
+    // 🚀 [디자인 개조 및 휠 버그 완벽 해결]
+    public void showAddToPlaylistDialog(final File songFile) {
+        final File playlistDir = new File("/storage/sdcard0/Y1_Playlists");
+        if (!playlistDir.exists()) playlistDir.mkdirs();
+
+        File[] files = playlistDir.listFiles();
+        final List<File> playlistFiles = new ArrayList<>();
+
+        if (files != null) {
+            for (File f : files) {
+                String name = f.getName().toLowerCase();
+                if (f.isFile() && (name.endsWith(".m3u") || name.endsWith(".m3u8"))) {
+                    playlistFiles.add(f);
+                }
+            }
+        }
+
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+        scrollView.setBackgroundColor(0xFF222222);
+
+        final android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layout.setPadding(30, 30, 30, 30);
+        scrollView.addView(layout);
+
+        // 🚀 1. 촌스러운 시스템 타이틀 대신, 메인 화면과 똑같은 '커스텀 타이틀'을 우리가 직접 그립니다!
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("━ ADD TO PLAYLIST ━");
+        tvTitle.setTextColor(0xFFFFFFFF); // 하늘색으로 예쁘게!
+        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(android.view.Gravity.CENTER);
+        tvTitle.setPadding(0, 10, 0, 30);
+        tvTitle.setTextSize(16);
+        layout.addView(tvTitle);
+
+        // 🚀 2. 팝업창 안쪽에서도 휠(21, 22)을 인식하게 만드는 '팝업 전용 조향 장치(Listener)'
+        android.view.View.OnKeyListener dialogWheelListener = new android.view.View.OnKeyListener() {
+            @Override
+            public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (keyCode == 21) { // 휠 위로 (UP)
+                        int idx = layout.indexOfChild(v);
+                        for (int i = idx - 1; i >= 0; i--) {
+                            if (layout.getChildAt(i).isFocusable()) {
+                                layout.getChildAt(i).requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                        }
+                        return true; // 위가 막히면 정지
+                    }
+                    if (keyCode == 22) { // 휠 아래로 (DOWN)
+                        int idx = layout.indexOfChild(v);
+                        for (int i = idx + 1; i < layout.getChildCount(); i++) {
+                            if (layout.getChildAt(i).isFocusable()) {
+                                layout.getChildAt(i).requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                        }
+                        return true; // 아래가 막히면 정지
+                    }
+                }
+                return false;
+            }
+        };
+
+        // 🚀 3. 시스템 팝업을 만들 때, 순정 타이틀(.setTitle)을 빼버려서 보이지 않게 만듭니다!
+        final AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView)
+                .create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        // 4. [첫 번째 버튼] 새 플레이리스트 만들기
+        Button btnNew = createListButton("➕ Create New Playlist");
+        btnNew.setTextColor(0xFF00FFFF);
+        btnNew.setOnKeyListener(dialogWheelListener); // 🚀 버튼에 팝업 전용 조향 장치 연결!
+        btnNew.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                int count = 1;
+                File newPlaylistFile;
+                do {
+                    newPlaylistFile = new File(playlistDir, "Playlist " + count + ".m3u8");
+                    count++;
+                } while (newPlaylistFile.exists());
+
+                writeSongToM3uFile(newPlaylistFile, songFile, false);
+                Toast.makeText(MainActivity.instance, "Created 'Playlist " + (count-1) + "' successfully!", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            }
+        });
+        layout.addView(btnNew);
+
+        // 5. [나머지 버튼들] 기존 플레이리스트 파일들 목록
+        for (final File targetM3u : playlistFiles) {
+            String cleanName = targetM3u.getName().substring(0, targetM3u.getName().lastIndexOf("."));
+            Button btnExisting = createListButton("📝 " + cleanName);
+            btnExisting.setOnKeyListener(dialogWheelListener); // 🚀 버튼에 팝업 전용 조향 장치 연결!
+            btnExisting.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    writeSongToM3uFile(targetM3u, songFile, true);
+                    Toast.makeText(MainActivity.instance, "Added to playlist successfully!", Toast.LENGTH_SHORT).show();
+                    dialog.dismiss();
+                }
+            });
+            layout.addView(btnExisting);
+        }
+
+        dialog.show();
+
+        // 6. 팝업창이 열리면 자동으로 '첫 번째 버튼'에 포커스 꽂아주기
+        layout.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                // 레이아웃의 0번 인덱스는 '커스텀 타이틀 텍스트'이므로, 포커스는 1번(btnNew)에 줍니다!
+                if (layout.getChildCount() > 1) layout.getChildAt(1).requestFocus();
+            }
+        }, 50);
+    }
+    // 🚀 [자체 플레이리스트 엔진 4단계] 실시간 하드디스크 물리 레코딩 스트림
+    private void writeSongToM3uFile(File m3uFile, File songFile, boolean append) {
+        try {
+            java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(m3uFile, append), "UTF-8"));
+
+            // 새 파일인 경우 표준 재생목록 헤더 규격을 명시해 줍니다.
+            if (!append) {
+                bw.write("#EXTM3U\n");
+            }
+
+            // 곡의 절대 경로 주소를 안전하게 마킹한 뒤 줄 바꿈 처리
+            bw.write(songFile.getAbsolutePath() + "\n");
+            bw.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    // 🚀 [자체 플레이리스트 엔진 5단계] 플레이리스트 내부 곡 삭제 팝업창
+    public void showRemoveFromPlaylistDialog(final File songFile) {
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Remove Song")
+                .setMessage("Do you want to remove\n'" + songFile.getName() + "'\nfrom this playlist?")
+                .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        clickFeedback();
+                        removeSongFromM3uFile(currentM3uFile, songFile);
+                        buildM3uSongsUI(currentM3uFile); // 🚀 삭제 즉시 리스트 화면을 다시 그려서 없애버립니다!
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    // 🚀 [자체 플레이리스트 엔진 6단계] M3U 파일에서 해당 곡의 텍스트 줄만 찾아 지우는 기능
+    public void removeSongFromM3uFile(File m3uFile, File songFile) {
+        if (m3uFile == null || !m3uFile.exists()) return;
+        try {
+            List<String> lines = new ArrayList<>();
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(m3uFile), "UTF-8"));
+            String line;
+            boolean isRemoved = false; // 💡 동일한 곡이 여러 개 담겼을 경우, 한 번에 하나씩만 지우도록 방어
+
+            while ((line = br.readLine()) != null) {
+                String cleanLine = line.replace("\\", "/").trim();
+
+                // 주석이나 빈 줄은 삭제하지 않고 그대로 통과시켜 M3U 본연의 형식을 보존합니다.
+                if (cleanLine.isEmpty() || cleanLine.startsWith("#")) {
+                    lines.add(line);
+                    continue;
+                }
+
+                // 지울 노래와 파일명이 일치하고, 아직 이번 타임에 지운 적이 없다면 (리스트에 넣지 않고 스킵 = 삭제)
+                if (!isRemoved && cleanLine.endsWith(songFile.getName())) {
+                    isRemoved = true;
+                    continue;
+                }
+
+                lines.add(line); // 삭제 대상이 아닌 곡들은 그대로 유지
+            }
+            br.close();
+
+            // 갱신된(한 곡이 빠진) 리스트를 원본 M3U 파일에 덮어쓰기 (Append = false)
+            java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(m3uFile, false), "UTF-8"));
+            for (String l : lines) {
+                bw.write(l + "\n");
+            }
+            bw.close();
+
+            Toast.makeText(this, "Removed successfully.", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // 🚀 [보너스] 즐겨찾기(Favorites) 내부에서도 꾹 누르면 바로 해제할 수 있는 전용 팝업!
+    public void showRemoveFromFavoritesDialog(final File songFile) {
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Remove from Favorites")
+                .setMessage("Remove this song from your favorites list?")
+                .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        clickFeedback();
+                        if (favoritePaths.contains(songFile.getAbsolutePath())) {
+                            favoritePaths.remove(songFile.getAbsolutePath());
+                            try { prefs.edit().putStringSet("favorites", favoritePaths).commit(); } catch(Exception e){}
+                            buildVirtualSongsForFavorites(); // 화면 즉시 갱신
+                            Toast.makeText(MainActivity.instance, "Removed from Favorites.", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+    // =======================================================
+    // 🚀 유니버설 캐스트 (구글 & 애플 통합 제어) 엔진 및 UI
+    // =======================================================
+
+    public static class UniversalDevice {
+        public static final int TYPE_GOOGLE_CAST = 1;
+        public static final int TYPE_AIRPLAY = 2;
+
+        public String id;
+        public String name;
+        public int type;
+        public Object rawDevice;
+
+        public UniversalDevice(String id, String name, int type, Object rawDevice) {
+            this.id = id; this.name = name; this.type = type; this.rawDevice = rawDevice;
+        }
+    }
+
+    public interface UniversalAudioEngine {
+        void connect(UniversalDevice device);
+        void play(File audioFile, String title, String artist, String coverUrl);
+        void pause();
+        void stop();
+        void setVolume(int volume);
+    }
+
+    public class UniversalCastManager implements UniversalAudioEngine {
+        public UniversalDevice currentConnectedDevice = null;
+        private Context context;
+
+        public UniversalCastManager(Context context) { this.context = context; }
+
+        @Override
+        public void connect(UniversalDevice device) {
+            this.currentConnectedDevice = device;
+            if (device.type == UniversalDevice.TYPE_GOOGLE_CAST) {
+                androidx.mediarouter.media.MediaRouter.RouteInfo route = (androidx.mediarouter.media.MediaRouter.RouteInfo) device.rawDevice;
+                if (route != null) {
+                    route.select();
+                    Toast.makeText(context, "Connected to: " + device.name, Toast.LENGTH_SHORT).show();
+
+                    if (!currentPlaylist.isEmpty()) {
+                        File currentFile = currentPlaylist.get(currentIndex);
+                        String t = tvPlayerTitle != null ? tvPlayerTitle.getText().toString() : "Y1 Audio Track";
+                        String a = tvPlayerArtist != null ? tvPlayerArtist.getText().toString() : "Y1 Launcher";
+                        play(currentFile, t, a, "");
+                    }
+                }
+            } else if (device.type == UniversalDevice.TYPE_AIRPLAY) {
+                Toast.makeText(context, "AirPlay Protocol Pending...", Toast.LENGTH_SHORT).show();
+            }
+        }
+
+        @Override
+        public void play(File audioFile, String title, String artist, String coverUrl) {
+            if (currentConnectedDevice == null) return;
+
+            String myIp = webServer != null ? webServer.getLocalIpAddress() : "127.0.0.1";
+            String streamUrl = "http://" + myIp + ":8080/api/file?path=" + android.net.Uri.encode(audioFile.getAbsolutePath().replace("/storage/sdcard0", ""));
+
+            if (currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
+                try {
+                    com.google.android.gms.cast.framework.CastSession session =
+                            castContext.getSessionManager().getCurrentCastSession();
+                    if (session != null && session.getRemoteMediaClient() != null) {
+
+                        com.google.android.gms.cast.MediaMetadata movieMetadata =
+                                new com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MUSIC_TRACK);
+                        movieMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title);
+                        movieMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_ARTIST, artist);
+
+                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                            mediaPlayer.pause();
+                            isPausedByHand = false;
+                            updatePlayerUI();
+                        }
+
+                        com.google.android.gms.cast.MediaInfo mediaInfo = new com.google.android.gms.cast.MediaInfo.Builder(streamUrl)
+                                .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
+                                .setContentType("audio/mpeg")
+                                .setMetadata(movieMetadata)
+                                .build();
+
+                        session.getRemoteMediaClient().load(mediaInfo, true, 0);
+                    }
+                } catch (Exception e) { e.printStackTrace(); }
+            }
+        }
+
+        @Override public void pause() {
+            if (currentConnectedDevice != null && currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
+                try {
+                    com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
+                    if (session != null && session.getRemoteMediaClient() != null) session.getRemoteMediaClient().pause();
+                } catch (Exception e){}
+            }
+        }
+        @Override public void stop() {
+            if (currentConnectedDevice != null && currentConnectedDevice.type == UniversalDevice.TYPE_GOOGLE_CAST) {
+                try {
+                    mediaRouter.getDefaultRoute().select();
+                    currentConnectedDevice = null;
+                } catch (Exception e){}
+            }
+        }
+        @Override public void setVolume(int volume) {}
+    }
+
+    public void showUniversalCastDialog() {
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(this);
+        scrollView.setBackgroundColor(0xFF222222);
+
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(30, 30, 30, 30);
+        scrollView.addView(layout);
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("━ WIRELESS AUDIO CAST ━");
+        tvTitle.setTextColor(0xFF00FFFF);
+        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(android.view.Gravity.CENTER);
+        tvTitle.setPadding(0, 10, 0, 30);
+        layout.addView(tvTitle);
+
+        if (scannedCastDevices.isEmpty()) {
+            TextView tvEmpty = new TextView(this);
+            tvEmpty.setText("   Searching for speakers...\n   (Check if Wi-Fi is same)");
+            tvEmpty.setTextColor(0xFF888888);
+            tvEmpty.setPadding(10, 20, 10, 20);
+            layout.addView(tvEmpty);
+        } else {
+            for (final UniversalDevice device : scannedCastDevices) {
+                String icon = (device.type == UniversalDevice.TYPE_GOOGLE_CAST) ? "📺 " : "🍎 ";
+                Button btnDevice = createListButton(icon + device.name);
+                btnDevice.setOnClickListener(v -> {
+                    clickFeedback();
+                    castManager.connect(device);
+                });
+                layout.addView(btnDevice);
+            }
+        }
+
+        Button btnDisconnect = createListButton("📱 Disconnect (Play on Phone)");
+        btnDisconnect.setTextColor(0xFFFF5555);
+        btnDisconnect.setOnClickListener(v -> {
+            clickFeedback();
+            if (castManager != null) castManager.stop();
+        });
+        layout.addView(btnDisconnect);
+
+        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setView(scrollView).create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.show();
+
+        if (layout.getChildCount() > 1) layout.getChildAt(1).requestFocus();
+    }
 }
 

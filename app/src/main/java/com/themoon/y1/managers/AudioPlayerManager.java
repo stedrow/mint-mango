@@ -207,6 +207,15 @@ public class AudioPlayerManager {
                     optsCenter.inSampleSize = 2;
                     android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeByteArray(main.lastAlbumArtBytes, 0, main.lastAlbumArtBytes.length, optsCenter);
                     main.ivAlbumArt.setImageBitmap(bmpCenter);
+
+                    // 🚀 [버그 해결] 이사할 때 누락되었던 '플레이어 뒷배경 블러 처리' 코드를 다시 장착합니다!
+                    android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
+                    optsBg.inSampleSize = 4;
+                    android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(main.lastAlbumArtBytes, 0, main.lastAlbumArtBytes.length, optsBg);
+                    android.graphics.Bitmap blurredBg = main.applyGaussianBlur(sourceBg);
+                    main.ivPlayerBgBlur.setImageBitmap(blurredBg);
+                    if (sourceBg != blurredBg) sourceBg.recycle(); // 메모리 누수 방지
+
                     try {
                         int centerX = bmpCenter.getWidth() / 2;
                         int centerY = (int) (bmpCenter.getHeight() * 0.8);

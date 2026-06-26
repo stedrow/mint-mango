@@ -57,7 +57,26 @@ public class SongListAdapter extends BaseAdapter {
                 }
             }
         });
+        btn.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                MainActivity.instance.clickFeedback();
+                MainActivity.instance.isLongPressConsumed = true; // 방어막 켜기
 
+                // 🚀 [스마트 분기점] 현재 화면이 어디냐에 따라 롱클릭 기능을 다르게 작동시킵니다!
+                if (MainActivity.instance.currentBrowserMode == 7) {
+                    // 1. M3U 플레이리스트 내부라면 -> '삭제' 팝업 띄우기
+                    MainActivity.instance.showRemoveFromPlaylistDialog(song.file);
+                } else if (MainActivity.instance.currentBrowserMode == 5) {
+                    // 2. 즐겨찾기(Favorites) 내부라면 -> '즐겨찾기 해제' 팝업 띄우기
+                    MainActivity.instance.showRemoveFromFavoritesDialog(song.file);
+                } else {
+                    // 3. 그 외 일반 폴더/목록이라면 -> 기존처럼 '플레이리스트에 담기' 팝업 띄우기
+                    MainActivity.instance.showAddToPlaylistDialog(song.file);
+                }
+                return true;
+            }
+        });
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
