@@ -35,9 +35,7 @@ android {
 }
 
 dependencies {
-    // 🚀 젤리빈(API 16)을 지원하는 마지막 안정화 버전으로 낮춥니다!
-    implementation 'androidx.mediarouter:mediarouter:1.2.6'
-    implementation 'com.google.android.gms:play-services-cast-framework:20.0.0'
+
 }
 // 파일 맨 밑에 추가: 최신 라이브러리 버전 체크 안전장치를 강제로 끄는 코드
 tasks.withType(com.android.build.gradle.internal.tasks.CheckAarMetadataTask).configureEach {
