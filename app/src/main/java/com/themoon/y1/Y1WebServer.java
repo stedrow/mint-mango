@@ -162,7 +162,7 @@ public class Y1WebServer extends Thread {
                             "      let ext = f.name.split('.').pop().toLowerCase();" +
                             "      let isImg = ['jpg','jpeg','png','webp','gif'].includes(ext);" +
                             "      let isAudio = ['mp3','flac','wav','ogg','m4a','aac'].includes(ext);" +
-                            "      let isText = ['json','txt','xml','ini','md'].includes(ext);" + // 🚀 에디터 호환 확장자 추가
+                            "      let isText = ['json','txt','xml','ini','md','m3u','m3u8','eq'].includes(ext);" +
                             "      let fullPath = currentPath ? currentPath + '/' + f.name : f.name;" +
                             "      let safePath = encodeURIComponent(fullPath);" +
 
@@ -179,9 +179,12 @@ public class Y1WebServer extends Thread {
                             // 🚀 JSON/TXT 파일이면 Edit(수정) 버튼을 달아줍니다!
                             "      let editBtn = isText ? `<button class='action' style='background:#ffa500;' onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\">Edit</button>` : '';" +
 
+                            // 🚀 [수정 3] Edit 버튼과 Delete 버튼 사이에 Rename 버튼 추가!
+                            "      let renameBtn = `<button class='action' style='background:#2196F3;' onclick=\"renameItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Rename</button>`;" +
+
                             "      html += `<div class='item' ${rowAction}>` +" +
                             "              `<div class='item-left'>${iconHtml}<span class='item-name'>${f.name}</span></div>` +" +
-                            "              `<div class='btn-group'>${editBtn}<button class='danger' onclick=\"deleteItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Delete</button></div>` +" +
+                            "              `<div class='btn-group'>${editBtn}${renameBtn}<button class='danger' onclick=\"deleteItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Delete</button></div>` +" +
                             "              `</div>`;" +
                             "    });" +
                             "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:10px;\">No files found.</div>';" +
@@ -222,6 +225,13 @@ public class Y1WebServer extends Thread {
                             "function createFolder() { " +
                             "  var n = document.getElementById('fName').value; if(!n) return;" +
                             "  fetch('/api/create?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(n), {method:'POST'}).then(()=>{ document.getElementById('fName').value=''; loadList();});" +
+                            "}" +
+                            // 🚀 [수정 4] 팝업창을 띄워 새 이름을 받고 서버로 전송하는 자바스크립트 함수
+                            "function renameItem(e, oldName) { " +
+                            "  e.stopPropagation();" +
+                            "  var newName = prompt('Enter new name for: ' + oldName, oldName);" +
+                            "  if(!newName || newName === oldName) return;" +
+                            "  fetch('/api/rename?dir=' + encodeURIComponent(currentPath) + '&old=' + encodeURIComponent(oldName) + '&new=' + encodeURIComponent(newName), {method:'POST'}).then(()=>loadList());" +
                             "}" +
                             "function deleteItem(e, name) { " +
                             "  e.stopPropagation();" +
@@ -297,6 +307,30 @@ public class Y1WebServer extends Thread {
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 
+                // 🚀 [수정 5] [API] 파일 및 폴더 이름 변경 (Rename) 엔진 장착!
+                else if (method.equals("POST") && path.startsWith("/api/rename")) {
+                    String q = path.split("\\?")[1];
+                    String[] params = q.split("&");
+                    String dirStr = "", oldName = "", newName = "";
+                    for (String p : params) {
+                        if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
+                        if (p.startsWith("old=")) oldName = URLDecoder.decode(p.substring(4), "UTF-8");
+                        if (p.startsWith("new=")) newName = URLDecoder.decode(p.substring(4), "UTF-8");
+                    }
+
+                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
+                    File oldFile = new File(targetDir, oldName);
+                    File newFile = new File(targetDir, newName);
+
+                    // 기존 파일이 존재하고 새 이름의 파일이 없을 때만 안전하게 이름 변경 실행
+                    if (oldFile.exists() && !newFile.exists()) {
+                        oldFile.renameTo(newFile);
+                    }
+                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
+                }
+
+                // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
+
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
                     String q = path.split("\\?")[1];
@@ -315,8 +349,9 @@ public class Y1WebServer extends Thread {
                         else if (lowerName.endsWith(".m4a") || lowerName.endsWith(".aac")) mimeType = "audio/mp4";
                         else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
                         else if (lowerName.endsWith(".png")) mimeType = "image/png";
-                        else if (lowerName.endsWith(".json")) mimeType = "application/json"; // 🚀 JSON 명시
-                        else if (lowerName.endsWith(".txt")) mimeType = "text/plain"; // 🚀 텍스트 명시
+                        else if (lowerName.endsWith(".json")) mimeType = "application/json";
+                            // 🚀 [수정 2] 방금 추가한 파일들도 브라우저가 순수한 '글자'로 인식해서 에디터 창에 띄우도록 명시!
+                        else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")) mimeType = "text/plain";
 
                         String header = "HTTP/1.1 200 OK\r\n" +
                                 "Content-Type: " + mimeType + "\r\n" +
