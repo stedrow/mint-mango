@@ -53,8 +53,7 @@ import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
 import android.renderscript.ScriptIntrinsicBlur;
-import android.media.session.MediaSession;
-import android.media.session.PlaybackState;
+
 
 import com.themoon.y1.adapters.CategoryListAdapter;
 import com.themoon.y1.adapters.SongListAdapter;
@@ -88,6 +87,8 @@ public class MainActivity extends Activity {
         }
     };
     public boolean isLongPressConsumed = false; // 🚀 롱클릭 방어막 변수 추가
+    private boolean isSeekPerformed = false;
+    private long lastSeekTime = 0;
     // 🚀 [신규 추가] 오디오 이펙트 전역 변수 및 프로필 상태 관리
     public android.media.audiofx.BassBoost bassBoost;
     public android.media.audiofx.Virtualizer virtualizer;
@@ -151,7 +152,7 @@ public class MainActivity extends Activity {
     public String virtualQueryValue = "";
     public List<File> virtualSongList = new ArrayList<>();
     // 💡 백그라운드 미디어 제어권(스크린 오프) 변수
-    private MediaSession mediaSession;
+
     private ImageView ivStatusPlay;
 
     // 💡 미디어 라이브러리 브라우저 상태 관리 변수들 근처에 추가
@@ -159,6 +160,7 @@ public class MainActivity extends Activity {
     // 🚀 [네이티브 M3U 전용 가상 브라우저 모드 신설]
     private static final int BROWSER_PLAYLISTS = 6;
     private static final int BROWSER_M3U_SONGS = 7;
+    private static final int BROWSER_AUDIOBOOKS = 8; // 🚀 [추가] 오디오북 브라우저 상태 가동
     private File currentM3uFile = null; // 현재 사용자가 들여다보고 있는 M3U 파일 주소창
     // 🚀 [추가] 즐겨찾기 전용 변수들
     private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
@@ -174,9 +176,11 @@ public class MainActivity extends Activity {
     private android.widget.ListView listVirtualSongs;
     private View scrollViewBrowser;
     private boolean isScreenOffControlEnabled = false;
-    private boolean isAutoFetchEnabled = true; // 🚀 [추가] 인터넷 자동 검색 스위치 기본값
-    private static List<SongItem> customLibrary = new ArrayList<>();
+    public boolean isAutoFetchEnabled = true; // 🚀 [추가] 인터넷 자동 검색 스위치 기본값
+    public static List<SongItem> customLibrary = new ArrayList<>();
     private boolean isCustomScanning = false;
+    public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
+
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -192,7 +196,12 @@ public class MainActivity extends Activity {
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
 
     public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
-    public TextView tvAudioQualityInfo; // 🚀 [추가] 오디오 스펙 전용 텍스트뷰
+    // 🚀 [캡슐 UI 전용 변수들]
+    private LinearLayout layoutAudioQualityContainer;
+    private TextView tvQualityExt;
+    private TextView tvQualityFormat;
+    private TextView tvQualityBitrate;
+
     public TextView tvPlayerTrackCount;
     private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 텍스트뷰에서 이미지뷰로 변경!
     public ProgressBar playerProgress;
@@ -227,7 +236,6 @@ public class MainActivity extends Activity {
     private boolean isTargetWifiOpen = false;
     // 💡 미디어 스캐너가 현재 작업 중인지 추적하는 변수
     private boolean isMediaScanning = false;
-    public MediaPlayer mediaPlayer;
     private AudioManager audioManager;
     private File rootFolder = new File("/storage/sdcard0/Music");
     private File currentFolder = rootFolder;
@@ -285,22 +293,33 @@ public class MainActivity extends Activity {
             clockHandler.postDelayed(this, 1000);
         }
     };
-
+    // 🚀 [신규 추가] 알약 UI 5초 자동 숨김 타이머 엔진
+    private Handler qualityInfoHandler = new Handler();
+    private Runnable hideQualityInfoTask = new Runnable() {
+        @Override
+        public void run() {
+            // 타이머가 발동하면 알약 컨테이너를 화면에서 완전히 숨깁니다!
+            if (layoutAudioQualityContainer != null) {
+                layoutAudioQualityContainer.setVisibility(View.GONE);
+            }
+        }
+    };
     private Handler progressHandler = new Handler();
+    // ⭕ [아래 코드로 덮어쓰기]
     private Runnable updateProgressTask = new Runnable() {
         @Override
         public void run() {
             try {
-                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-                    int current = mediaPlayer.getCurrentPosition();
-                    int duration = mediaPlayer.getDuration();
-                    int progress = (int) (((float) current / duration) * 100);
+                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                if (am.isPlaying()) {
+                    int current = am.getCurrentPosition();
+                    int duration = am.getDuration();
+                    int progress = duration > 0 ? (int) (((float) current / duration) * 100) : 0;
                     playerProgress.setProgress(progress);
                     tvPlayerTimeCurrent.setText(formatTime(current));
                     tvPlayerTimeTotal.setText(formatTime(duration));
                 }
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
             progressHandler.postDelayed(this, 500);
         }
     };
@@ -697,62 +716,6 @@ public class MainActivity extends Activity {
         // 🚀 [시스템 공식 등록] 화면이 꺼져도 버튼 신호를 받을 수 있도록 수신기를 장착합니다!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
         audioManager.registerMediaButtonEventReceiver(componentName);
-        // 🚀 [스크린 오프 완벽 제어 1단계] 시스템의 미디어/버튼 제어권을 앱이 뺏어옵니다!
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 21) {
-                mediaSession = new MediaSession(this, "Y1_MEDIA_SESSION");
-                mediaSession.setFlags(
-                        MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
-                mediaSession.setCallback(new MediaSession.Callback() {
-                    @Override
-                    public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
-                        KeyEvent event = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                        if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
-
-                            // 💡 설정에서 스크린 오프 컨트롤이 꺼져(OFF) 있으면 무시합니다!
-                            if (!isScreenOffControlEnabled)
-                                return super.onMediaButtonEvent(mediaButtonIntent);
-
-                            int keyCode = event.getKeyCode();
-
-                            // 🔊 휠 왼쪽 (볼륨 다운)
-                            if (keyCode == 21) {
-                                adjustVolume(false);
-                                clickFeedback();
-                                return true;
-                            }
-                            // 🔊 휠 오른쪽 (볼륨 업)
-                            if (keyCode == 22) {
-                                adjustVolume(true);
-                                clickFeedback();
-                                return true;
-                            }
-                            // ⏮ 이전 곡 버튼
-                            if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                                com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                                clickFeedback();
-                                return true;
-                            }
-                            // ⏭ 다음 곡 버튼
-                            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                                com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-                                clickFeedback();
-                                return true;
-                            }
-                            // ⏯ 재생/일시정지 버튼
-                            if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                                com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                                clickFeedback();
-                                return true;
-                            }
-                        }
-                        return super.onMediaButtonEvent(mediaButtonIntent);
-                    }
-                });
-                mediaSession.setActive(true);
-            }
-        } catch (Exception e) {
-        }
 
         prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
 
@@ -1062,43 +1025,22 @@ public class MainActivity extends Activity {
         btnSettings = findViewById(R.id.btn_settings);
         btnBluetooth = findViewById(R.id.btn_bluetooth);
         btnRadio = findViewById(R.id.btn_radio);
-        ((android.view.View) btnRadio.getParent()).setVisibility(View.GONE);
+        ((android.view.View) btnRadio.getParent()).setVisibility(View.VISIBLE);
         Button btnWebServer = findViewById(R.id.btn_webserver);
         tvPlayerTitle = findViewById(R.id.tv_player_title);
         tvPlayerArtist = findViewById(R.id.tv_player_artist);
-        // 🚀 [신규 추가] 가수 이름 바로 밑에 '반투명 오디오 스펙 박스'를 꽂아 넣습니다!
-        tvAudioQualityInfo = new TextView(this);
-        tvAudioQualityInfo.setVisibility(View.GONE);
-        tvAudioQualityInfo.setTextSize(14); // 디자인을 해치지 않는 작고 세련된 크기
-        tvAudioQualityInfo.setTextColor(0xaaFFFFFF); // 은은한 흰색
-        tvAudioQualityInfo.setGravity(android.view.Gravity.CENTER);
-        tvAudioQualityInfo.setIncludeFontPadding(false);
-        tvAudioQualityInfo.setPadding(20, 5, 20, 5);
-        tvAudioQualityInfo.setSingleLine(true);
-        tvAudioQualityInfo.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-
-        // 반투명 블랙 둥근 배경 생성
-        android.graphics.drawable.GradientDrawable qualityBg = new android.graphics.drawable.GradientDrawable();
-        qualityBg.setColor(0x55000000); // 26% 불투명도의 검은색 (디자인을 절대 해치지 않음)
-        qualityBg.setCornerRadius(12 * getResources().getDisplayMetrics().density);
-        tvAudioQualityInfo.setBackground(qualityBg);
-
-        android.view.ViewGroup artistParent = (android.view.ViewGroup) tvPlayerArtist.getParent();
-        int artistIndex = artistParent.indexOfChild(tvPlayerArtist);
-
-        android.widget.LinearLayout.LayoutParams qualityLp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        qualityLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        qualityLp.topMargin = (int) (8 * getResources().getDisplayMetrics().density); // 가수 이름과 살짝 띄움
-
-        artistParent.addView(tvAudioQualityInfo, artistIndex + 1, qualityLp);
-        // 🚀 [추가 끝]
         tvPlayerTimeCurrent = findViewById(R.id.tv_player_time_current);
         tvPlayerTimeTotal = findViewById(R.id.tv_player_time_total);
         ivAlbumArt = findViewById(R.id.iv_album_art);
+        ivPlayerBgBlur = findViewById(R.id.iv_player_bg_blur);
+        ivPauseOverlay = findViewById(R.id.iv_pause_overlay);
+        playerProgress = findViewById(R.id.player_progress); // 💖 프로그레시브바 완벽 노출 보호
+        tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
 
-        // 🚀 [수정] 좁은 정사각형 액자(FrameLayout)가 아니라, 화면 전체 넓이를 쓰는 부모(LinearLayout)에게 붙입니다!
+        ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
+        ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
+
+        // 🚀 순정 비주얼라이저 결합 프레임 유지
         android.widget.FrameLayout albumContainer = (android.widget.FrameLayout) ivAlbumArt.getParent();
         android.widget.LinearLayout playerInnerLayout = (android.widget.LinearLayout) albumContainer.getParent();
 
@@ -1106,40 +1048,105 @@ public class MainActivity extends Activity {
         visualizerView.setVisibility(View.GONE);
 
         int height190 = (int) (190 * getResources().getDisplayMetrics().density);
-        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+        android.widget.LinearLayout.LayoutParams visLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, height190);
-        lp.setMargins(0, 0, 0, (int) (8 * getResources().getDisplayMetrics().density));
+        visLp.setMargins(0, 0, 0, (int) (8 * getResources().getDisplayMetrics().density));
+        playerInnerLayout.addView(visualizerView, 0, visLp);
 
-        playerInnerLayout.addView(visualizerView, 0, lp); // 곡 제목 바로 위에 끼워 넣습니다.
-
-        ivPlayerBgBlur = findViewById(R.id.iv_player_bg_blur);
-        ivPauseOverlay = findViewById(R.id.iv_pause_overlay);
-        playerProgress = findViewById(R.id.player_progress);
-        tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
-
-        ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
-        ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
-
-        // 🚀🚀🚀 [수정 완료] 하트를 셔플/반복 아이콘과 겹치지 않게 바로 밑(세로)에 배치합니다! 🚀🚀🚀
+        // 🚀 상위 상대 레이아웃(parentRel) 획득
         android.widget.LinearLayout statusIconsLayout = (android.widget.LinearLayout) ivPlayerShuffleStatus.getParent();
         android.widget.RelativeLayout parentRel = (android.widget.RelativeLayout) statusIconsLayout.getParent();
 
-        // 1. 셔플/반복 아이콘과 하트 아이콘을 위아래로 묶어줄 '세로형 투명 폴더'를 만듭니다.
+        // 🚀 [핵심 수정] 앨범 이미지 내부가 아니라, 플레이어 화면 전체를 쓰는 parentRel 좌측 벽면에 알약을 정렬합니다!
+
+        layoutAudioQualityContainer = new LinearLayout(this);
+        layoutAudioQualityContainer.setOrientation(LinearLayout.VERTICAL);
+        layoutAudioQualityContainer.setVisibility(View.GONE);
+
+        int capsuleBgColor = 0x44000000; // 가독성이 뛰어난 40% 블랙 반투명 박스
+        float capsuleRadius = 20 * density; // 라운딩 반경
+
+        // ① 확장자 캡슐 (Format)
+        tvQualityExt = new TextView(this);
+        tvQualityExt.setTextSize(13);
+        tvQualityExt.setTextColor(0xbbFFFFFF);
+        tvQualityExt.setGravity(android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
+        tvQualityExt.setIncludeFontPadding(false); // 💡 글자 정중앙 정렬
+        tvQualityExt.setPadding((int)(16*density), (int)(8*density), (int)(16*density), (int)(8*density));
+        tvQualityExt.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        android.graphics.drawable.GradientDrawable bgExt = new android.graphics.drawable.GradientDrawable();
+        bgExt.setColor(capsuleBgColor);
+        bgExt.setCornerRadius(capsuleRadius);
+        tvQualityExt.setBackground(bgExt);
+
+        // ② 형식 캡슐 (Type)
+        tvQualityFormat = new TextView(this);
+        tvQualityFormat.setTextSize(13);
+        tvQualityFormat.setTextColor(0xbbFFFFFF);
+        tvQualityFormat.setGravity(android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
+        tvQualityFormat.setIncludeFontPadding(false);
+        tvQualityFormat.setPadding((int)(16*density), (int)(8*density), (int)(16*density), (int)(8*density));
+        tvQualityFormat.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        android.graphics.drawable.GradientDrawable bgFormat = new android.graphics.drawable.GradientDrawable();
+        bgFormat.setColor(capsuleBgColor);
+        bgFormat.setCornerRadius(capsuleRadius);
+        tvQualityFormat.setBackground(bgFormat);
+
+        // ③ 비트레이트 음질 캡슐 (Quality)
+        tvQualityBitrate = new TextView(this);
+        tvQualityBitrate.setTextSize(13);
+        tvQualityBitrate.setTextColor(0xbbFFFFFF);
+        tvQualityBitrate.setGravity(android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
+        tvQualityBitrate.setIncludeFontPadding(false);
+        tvQualityBitrate.setPadding((int)(16*density), (int)(8*density), (int)(16*density), (int)(8*density));
+        tvQualityBitrate.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        android.graphics.drawable.GradientDrawable bgBitrate = new android.graphics.drawable.GradientDrawable();
+        bgBitrate.setColor(capsuleBgColor);
+        bgBitrate.setCornerRadius(capsuleRadius);
+        tvQualityBitrate.setBackground(bgBitrate);
+
+        // 각 알약 상자가 위아래 독립된 라인(Line)으로 정렬되도록 개별 LayoutParams 적용
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp1.bottomMargin = (int)(6 * density);
+        lp1.gravity = android.view.Gravity.LEFT;
+
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp2.bottomMargin = (int)(6 * density);
+        lp2.gravity = android.view.Gravity.LEFT;
+
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp3.gravity = android.view.Gravity.LEFT;
+
+        layoutAudioQualityContainer.addView(tvQualityExt, lp1);
+        layoutAudioQualityContainer.addView(tvQualityFormat, lp2);
+        layoutAudioQualityContainer.addView(tvQualityBitrate, lp3);
+
+        // 🚀 [위치 정밀 수정] 화면 정중앙이 아니라, 왼쪽 상단 트랙 표시(01 / 100) 바로 밑으로 배치 규칙 변경!
+        android.widget.RelativeLayout.LayoutParams containerLp = new android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT);
+        containerLp.addRule(android.widget.RelativeLayout.ALIGN_PARENT_LEFT); // 화면 왼쪽 벽에 정렬
+        containerLp.addRule(android.widget.RelativeLayout.BELOW, R.id.tv_player_track_count); // 💡 트랙 표시(01/100) 바로 밑에 꽂아 넣기!
+
+        // 💡 [팁] 아래 마진 값들을 조절하여 01 / 100 글자와 자로 잰 듯이 줄을 맞출 수 있습니다.
+        containerLp.leftMargin = (int) (density); // 왼쪽 상단 트랙 표시의 시작 라인과 일치하도록 마진 세팅
+        containerLp.topMargin = (int) (16 * density);  // 01 / 100 글자와 첫 번째 알약 사이의 우아한 세로 간격(여백) 부여
+
+        parentRel.addView(layoutAudioQualityContainer, containerLp);
+
+        // 🚀 기존에 정상 조립된 하트 및 우측 상단 아이콘 정렬 세트 유지 복원
         android.widget.LinearLayout verticalWrapper = new android.widget.LinearLayout(this);
         verticalWrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
-        verticalWrapper.setGravity(android.view.Gravity.RIGHT); // 전체를 오른쪽으로 정렬
+        verticalWrapper.setGravity(android.view.Gravity.RIGHT);
 
-        // 2. 기존 그룹의 위치 규칙을 뺏어온 뒤, 기존 그룹을 분리합니다.
         android.widget.RelativeLayout.LayoutParams params = (android.widget.RelativeLayout.LayoutParams) statusIconsLayout.getLayoutParams();
         parentRel.removeView(statusIconsLayout);
 
-        // 3. 기존 셔플/반복 그룹의 속성을 정리하여 세로형 폴더 최상단에 넣습니다.
         statusIconsLayout.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
         verticalWrapper.addView(statusIconsLayout);
 
-        // 4. 대망의 하트 아이콘을 만들고, 반복 아이콘 바로 밑에 붙입니다!
         tvPlayerFavoriteStatus = new TextView(this);
         tvPlayerFavoriteStatus.setText("♥");
         tvPlayerFavoriteStatus.setTextSize(20);
@@ -1148,11 +1155,10 @@ public class MainActivity extends Activity {
         android.widget.LinearLayout.LayoutParams heartLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-        heartLp.topMargin = (int) (8 * getResources().getDisplayMetrics().density); // 반복 아이콘과의 간격을 8dp 띄움
-        heartLp.rightMargin = (int) (2 * getResources().getDisplayMetrics().density); // 우측 여백 미세 조정
+        heartLp.topMargin = (int) (8 * density);
+        heartLp.rightMargin = (int) (2 * density);
         verticalWrapper.addView(tvPlayerFavoriteStatus, heartLp);
 
-        // 5. 완성된 세로형 폴더를 원래 자리에 쏙 끼워 넣습니다.
         parentRel.addView(verticalWrapper, params);
 
         try {
@@ -1344,13 +1350,25 @@ public class MainActivity extends Activity {
                         String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
                         String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
                         String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER); // 🚀 트랙 번호 추출!
 
                         if (title == null || title.isEmpty()) title = f.getName();
                         if (artist == null || artist.isEmpty()) artist = "Unknown Artist";
                         if (album == null || album.isEmpty()) album = "Unknown Album";
 
                         customLibrary.add(new SongItem(f, title, artist, album));
-
+// 🚀 [추가] 추출한 트랙 번호를 다듬어서 파일 주소와 함께 금고에 저장합니다.
+                        int trackNum = 0;
+                        if (trackStr != null && !trackStr.isEmpty()) {
+                            try {
+                                if (trackStr.contains("/")) {
+                                    trackNum = Integer.parseInt(trackStr.split("/")[0].trim()); // "1/10" 같은 형태에서 "1"만 빼옵니다.
+                                } else {
+                                    trackNum = Integer.parseInt(trackStr.trim());
+                                }
+                            } catch (Exception e) {}
+                        }
+                        trackNumberMap.put(f.getAbsolutePath(), trackNum);
                         fis.close();
                         mmr.release();
                     } catch (Exception e) {}
@@ -1392,6 +1410,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 customLibrary.clear();
+                trackNumberMap.clear();
                 totalAudioFiles = 0;
                 scannedAudioFiles = 0;
 
@@ -2795,7 +2814,33 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnEq);
+// 🚀 [신규 추가] 구글 ExoPlayer 타임 스트레칭 (배속 재생) 컨트롤 스위치!
+        final String[] speedLabels = {"1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)"};
+        final float[] speedValues = {1.0f, 1.2f, 1.5f, 2.0f};
 
+        // 현재 적용된 배속이 몇 번째 인덱스인지 확인
+        float currentSpd = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentSpeed();
+        int spdIdx = 0;
+        for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == currentSpd) spdIdx = i; }
+
+        final LinearLayout btnSpeed = createSettingRow("Playback Speed", speedLabels[spdIdx]);
+        btnSpeed.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                float current = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentSpeed();
+                int nextIdx = 0;
+                for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == current) nextIdx = (i + 1) % speedValues.length; }
+
+                // 엔진에 새로운 배속 즉시 주입! (다람쥐 목소리 없이 깔끔하게 빨라집니다)
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().setPlaybackSpeed(speedValues[nextIdx]);
+
+                TextView tvStatus = (TextView) btnSpeed.getChildAt(1);
+                tvStatus.setText(speedLabels[nextIdx]);
+                android.widget.Toast.makeText(MainActivity.this, "Speed set to " + speedLabels[nextIdx], android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        containerSettingsItems.addView(btnSpeed);
         final LinearLayout btnSound = createSettingRow("Button Sound", isSoundEffectEnabled ? "ON" : "OFF");
         btnSound.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -2850,6 +2895,17 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnTheme);
+        // 🚀 [여기에 1개 추가!] 위젯 서브 메뉴 진입 버튼
+        LinearLayout btnWidgetMenu = createSettingRow("Home Screen Widgets", "〉 ");
+        btnWidgetMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildWidgetSettingsUI(); // 방금 만든 위젯 창 열기!
+            }
+        });
+        containerSettingsItems.addView(btnWidgetMenu);
+
         final LinearLayout btnTimeout = createSettingRow("Screen Timeout", TIMEOUT_NAMES[currentTimeoutIndex]);
         btnTimeout.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -2871,16 +2927,6 @@ public class MainActivity extends Activity {
         // (기존 타임아웃 버튼 코드)
         containerSettingsItems.addView(btnTimeout);
 
-        // 🚀 [여기에 1개 추가!] 위젯 서브 메뉴 진입 버튼
-        LinearLayout btnWidgetMenu = createSettingRow("Home Screen Widgets", "〉 ");
-        btnWidgetMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildWidgetSettingsUI(); // 방금 만든 위젯 창 열기!
-            }
-        });
-        containerSettingsItems.addView(btnWidgetMenu);
 
         // (그 아래에 이어지는 Power Off 메뉴 등 기존 코드 유지...)
 
@@ -3003,7 +3049,70 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnAutoFetch);
+        // 🚀 [수정] 기기에 쌓인 앨범 아트 이미지와 저장된 곡 정보(제목, 가수)까지 한 번에 싹 초기화합니다!
+        LinearLayout btnClearCache = createSettingRow("Clear Album Art & Info", "〉 ");
+        btnClearCache.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Clear Cache & Track Info")
+                        .setMessage("Delete all downloaded album covers and saved track information (Title/Artist)?")
+                        .setPositiveButton("Clear", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    // 1. 물리적인 이미지 파일(앨범 커버) 삭제
+                                    File coverFolder = new File("/storage/sdcard0/Y1_Covers");
+                                    int count = 0;
+                                    if (coverFolder.exists()) {
+                                        File[] files = coverFolder.listFiles();
+                                        if (files != null) {
+                                            for (File f : files) {
+                                                if (f.isFile() && f.delete())
+                                                    count++;
+                                            }
+                                        }
+                                    }
 
+                                    // 🚀 2. [핵심 추가] 금고(SharedPreferences)에 저장된 제목, 가수 정보 싹 다 지우기
+                                    android.content.SharedPreferences.Editor editor = prefs.edit();
+                                    java.util.Map<String, ?> allEntries = prefs.getAll();
+                                    for (java.util.Map.Entry<String, ?> entry : allEntries.entrySet()) {
+                                        String key = entry.getKey();
+                                        // "meta_title_", "meta_artist_", "album_art_" 로 시작하는 기억들만 골라서 지웁니다.
+                                        if (key.startsWith("meta_title_") || key.startsWith("meta_artist_") || key.startsWith("album_art_")) {
+                                            editor.remove(key);
+                                        }
+                                    }
+                                    editor.commit(); // 변경사항 영구 저장!
+
+                                    Toast.makeText(MainActivity.this, "Deleted " + count + " covers & cleared track info.",
+                                            Toast.LENGTH_SHORT).show();
+
+                                    // 3. 메인 화면에 남아있는 이미지를 기본 아이콘으로 초기화합니다.
+                                    ivAlbumArt.setImageResource(R.drawable.default_album);
+                                    ivPlayerBgBlur.setImageResource(0);
+                                    lastAlbumArtBytes = null;
+
+                                    // 🚀 4. [추가] 현재 틀어져 있는 곡의 제목과 가수도 파일 원본 이름으로 즉시 되돌리기
+                                    if (!currentPlaylist.isEmpty()) {
+                                        File currentFile = currentPlaylist.get(currentIndex);
+                                        tvPlayerTitle.setText(currentFile.getName());
+                                        tvPlayerArtist.setText("Unknown Artist");
+                                    }
+
+                                    updateMainMenuBackground();
+                                    refreshNowPlayingPreview();
+                                } catch (Exception e) {
+                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnClearCache);
         LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
         btnBtMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3044,49 +3153,7 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnBgMenu);
-        // 🚀 [추가 2] 기기에 쌓인 앨범 아트 캐시 파일들 한 번에 지우기 (용량 확보)
-        LinearLayout btnClearCache = createSettingRow("Clear Album Art Cache", "〉 ");
-        btnClearCache.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle("Clear Cache")
-                        .setMessage("Delete all downloaded album covers to free up storage space?")
-                        .setPositiveButton("Clear", new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    File coverFolder = new File("/storage/sdcard0/Y1_Covers");
-                                    int count = 0;
-                                    if (coverFolder.exists()) {
-                                        File[] files = coverFolder.listFiles();
-                                        if (files != null) {
-                                            for (File f : files) {
-                                                if (f.isFile() && f.delete())
-                                                    count++;
-                                            }
-                                        }
-                                    }
-                                    Toast.makeText(MainActivity.this, "Deleted " + count + " cover images.",
-                                            Toast.LENGTH_SHORT).show();
 
-                                    // 메인 화면에 남아있는 이미지를 기본 아이콘으로 초기화합니다.
-                                    ivAlbumArt.setImageResource(R.drawable.default_album);
-                                    ivPlayerBgBlur.setImageResource(0);
-                                    lastAlbumArtBytes = null;
-                                    updateMainMenuBackground();
-                                    refreshNowPlayingPreview();
-                                } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT)
-                                            .show();
-                                }
-                            }
-                        })
-                        .setNegativeButton("Cancel", null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnClearCache);
         LinearLayout btnTime = createSettingRow("Date & Time", "〉");
         btnTime.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3112,7 +3179,41 @@ public class MainActivity extends Activity {
             myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception e) {
         }
+// 🚀 1. 현재 기기의 비행기 모드 상태를 읽어옵니다. (젤리빈 4.2 기준 Global 세팅)
+        boolean isAirplaneModeOn = false;
+        try {
+            isAirplaneModeOn = android.provider.Settings.Global.getInt(getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
+        } catch (Exception e) {}
 
+        // 🚀 2. 비행기 모드 스위치 UI를 만듭니다.
+        final android.widget.LinearLayout btnAirplane = createSettingRow("Airplane Mode", isAirplaneModeOn ? "ON" : "OFF");
+        btnAirplane.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override
+            public void onClick(android.view.View v) {
+                clickFeedback();
+                try {
+                    // 현재 상태의 반대로 뒤집기 (ON -> OFF, OFF -> ON)
+                    boolean currentStatus = android.provider.Settings.Global.getInt(getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
+                    boolean newStatus = !currentStatus;
+                    int statusInt = newStatus ? 1 : 0;
+                    String statusStr = newStatus ? "true" : "false";
+
+                    // 💡 [핵심 해킹 기술] 루트 권한(su)을 이용해 안드로이드 시스템 심장부에 직접 비행기 모드 변경 명령을 때려 박습니다!
+                    String cmd = "settings put global airplane_mode_on " + statusInt +
+                            "; am broadcast -a android.intent.action.AIRPLANE_MODE --ez state " + statusStr;
+
+                    Runtime.getRuntime().exec(new String[] { "su", "-c", cmd }).waitFor();
+
+                    // 화면 텍스트 즉시 변경
+                    ((android.widget.TextView) btnAirplane.getChildAt(1)).setText(newStatus ? "ON" : "OFF");
+                    android.widget.Toast.makeText(MainActivity.this, "Airplane Mode is now " + (newStatus ? "ON" : "OFF"), android.widget.Toast.LENGTH_SHORT).show();
+
+                } catch (Exception e) {
+                    android.widget.Toast.makeText(MainActivity.this, "Failed: Root access required.", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        containerSettingsItems.addView(btnAirplane);
         LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
         btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3699,6 +3800,7 @@ public class MainActivity extends Activity {
         });
     }
     // 💡 2. 라이브러리 메인 라우터 (자체 스캔 버튼 적용)
+    // 💡 기존 코드 수정
     private void buildFileBrowserUI() {
         if (scrollViewBrowser != null)
             scrollViewBrowser.setVisibility(View.VISIBLE);
@@ -3706,7 +3808,8 @@ public class MainActivity extends Activity {
             listVirtualSongs.setVisibility(View.GONE);
         containerBrowserItems.removeAllViews();
 
-        if (isPickingBackground || currentBrowserMode == BROWSER_FOLDER) {
+        // 🚀 [수정] 오디오북 모드일 때도 폴더 탐색기 프레임을 타도록 조건을 묶어줍니다.
+        if (isPickingBackground || currentBrowserMode == BROWSER_FOLDER || currentBrowserMode == BROWSER_AUDIOBOOKS) {
             buildFolderBrowserUI();
             return;
         }
@@ -3722,11 +3825,11 @@ public class MainActivity extends Activity {
                 buildVirtualSongsForFavorites();
             });
             containerBrowserItems.addView(btnFav);
-            // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
             Button btnFolder = createListButton("📁 Folders");
             btnFolder.setOnClickListener(v -> {
                 clickFeedback();
                 currentBrowserMode = BROWSER_FOLDER;
+                currentFolder = rootFolder; // 🚀 [추가] 일반 폴더 메뉴 진입 시 무조건 경로를 기본 뮤직 폴더로 리셋합니다!
                 buildFileBrowserUI();
             });
             containerBrowserItems.addView(btnFolder);
@@ -3757,6 +3860,18 @@ public class MainActivity extends Activity {
                 buildVirtualSongs();
             });
             containerBrowserItems.addView(btnAll);
+
+
+            // 🚀 [추가] 즐겨찾기 버튼 밑에 오디오북 전용 다이렉트 버튼 배치
+            Button btnAudiobook = createListButton("🎧 Audiobooks");
+            btnAudiobook.setOnClickListener(v -> {
+                clickFeedback();
+                currentBrowserMode = BROWSER_AUDIOBOOKS;
+                // 오디오북 루트 폴더로 탐색기 전환
+                currentFolder = com.themoon.y1.managers.AudiobookManager.getInstance(this).getRootFolder();
+                buildFileBrowserUI();
+            });
+            containerBrowserItems.addView(btnAudiobook);
             Button btnM3uPlaylist = createListButton("📝 Playlists");
             btnM3uPlaylist.setOnClickListener(v -> {
                 clickFeedback();
@@ -3901,10 +4016,20 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 🚀 [수정] 수집된 노래들을 대소문자 구분 없이 제목순으로 깔끔하게 정렬합니다!
+        // 🚀 [수정] 앨범 모드일 땐 '트랙 번호'로 정렬하고, 그 외에는 '제목순'으로 정렬합니다!
         java.util.Collections.sort(targetSongs, new java.util.Comparator<SongItem>() {
             @Override
             public int compare(SongItem s1, SongItem s2) {
+                if ("ALBUM".equals(virtualQueryType)) {
+                    // 금고에서 두 노래의 트랙 번호를 꺼내옵니다. (없으면 0번 처리)
+                    int t1 = trackNumberMap.containsKey(s1.file.getAbsolutePath()) ? trackNumberMap.get(s1.file.getAbsolutePath()) : 0;
+                    int t2 = trackNumberMap.containsKey(s2.file.getAbsolutePath()) ? trackNumberMap.get(s2.file.getAbsolutePath()) : 0;
+
+                    if (t1 != t2) {
+                        return Integer.valueOf(t1).compareTo(t2); // 💡 구형 젤리빈 호환 번호순 정렬
+                    }
+                }
+                // 앨범 모드가 아니거나 트랙 번호가 같을 경우, 원래대로 제목순 정렬
                 return s1.title.compareToIgnoreCase(s2.title);
             }
         });
@@ -4095,8 +4220,11 @@ public class MainActivity extends Activity {
                     @Override
                     public void onClick(View v) {
                         clickFeedback();
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().setupFolderPlaylist(audio, currentFolder);
-
+                        if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
+                            com.themoon.y1.managers.AudiobookManager.getInstance(MainActivity.this).setupBookPlaylist(MainActivity.this, audio, currentFolder);
+                        } else {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().setupFolderPlaylist(audio, currentFolder);
+                        }
                         // 🚀 [해결] 폴더에서 개별 노래 재생 시 플레이어 화면으로 자동 전환!
                         changeScreen(STATE_PLAYER);
                     }
@@ -4290,7 +4418,7 @@ public class MainActivity extends Activity {
                         boxView.setScaleType(ImageView.ScaleType.CENTER_CROP);
 
                         if (android.os.Build.VERSION.SDK_INT >= 21) {
-                            boxView.setClipToOutline(true);
+                           // boxView.setClipToOutline(true);
                         }
                     }
                 }
@@ -4505,7 +4633,7 @@ public class MainActivity extends Activity {
                 ivWidgetFocusImage.setPadding(p, p, p, p);
 
                 if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    ivWidgetFocusImage.setClipToOutline(true); // 둥근 배경에 맞춰 이미지도 둥글게 자르기
+              //      ivWidgetFocusImage.setClipToOutline(true); // 둥근 배경에 맞춰 이미지도 둥글게 자르기
                 }
 
                 // 🚀 [여기 추가!!] 버튼 목록 중 가장 첫 번째(포커스 인덱스 0번)의 이미지를 기본값으로 쫙 깔아둡니다!
@@ -4761,7 +4889,17 @@ public class MainActivity extends Activity {
                         case "OPEN_BLUETOOTH": changeScreen(STATE_BLUETOOTH); break;
                         case "OPEN_SETTINGS": changeScreen(STATE_SETTINGS); break;
                         case "OPEN_WEBSERVER": changeScreen(STATE_WEBSERVER); break;
-
+// 🚀 [라디오 부활] 테마에서 라디오 버튼을 누르면 안드로이드 내장 FM 라디오를 켭니다!
+                        case "OPEN_RADIO":
+                            clickFeedback();
+                            try {
+                                startActivity(new Intent().setClassName("com.mediatek.FMRadio", "com.mediatek.FMRadio.FMRadioActivity"));
+                            } catch (Exception e) {
+                                Intent b = getPackageManager().getLaunchIntentForPackage("com.mediatek.FMRadio");
+                                if (b != null) startActivity(b);
+                                else Toast.makeText(MainActivity.this, "Radio app not found.", Toast.LENGTH_SHORT).show();
+                            }
+                            break;
                         // 🚀🚀🚀 [여기서부터 새로 추가된 다이렉트 숏컷 액션들!] 🚀🚀🚀
                         case "OPEN_ROOT_FOLDER":
                             currentBrowserMode = BROWSER_FOLDER;
@@ -4867,34 +5005,22 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [수정] 액자 전체를 숨기도록 개조
+    // ⭕ [아래 코드로 덮어쓰기]
     private void toggleVisualizer() {
-        if (android.os.Build.VERSION.SDK_INT >= 23) {
-            if (checkSelfPermission(
-                    android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[] { android.Manifest.permission.RECORD_AUDIO }, 101);
-                Toast.makeText(this, "Please grant Audio Permission first!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-        }
-
         isVisualizerShowing = !isVisualizerShowing;
-        View albumContainer = (View) ivAlbumArt.getParent(); // 🚀 앨범 아트의 부모(액자)를 통째로 숨깁니다!
+        View albumContainer = (View) ivAlbumArt.getParent();
 
         if (isVisualizerShowing) {
             albumContainer.setVisibility(View.GONE);
             visualizerView.setVisibility(View.VISIBLE);
-            visualizerView.invalidate(); // 애니메이션 킥스타트
-            if (audioVisualizer != null)
-                audioVisualizer.setEnabled(true);
+            visualizerView.invalidate();
+            if (audioVisualizer != null) audioVisualizer.setEnabled(true);
         } else {
             visualizerView.setVisibility(View.GONE);
             albumContainer.setVisibility(View.VISIBLE);
-            if (audioVisualizer != null)
-                audioVisualizer.setEnabled(false);
+            if (audioVisualizer != null) audioVisualizer.setEnabled(false);
         }
     }
-
     // 💡 [수정] 오디오 엔진에 빨대를 꽂아 주파수 데이터를 빼오는 함수
     public void setupVisualizer() {
         try {
@@ -4905,7 +5031,8 @@ public class MainActivity extends Activity {
                 audioVisualizer = null;
             }
 
-            audioVisualizer = new android.media.audiofx.Visualizer(mediaPlayer.getAudioSessionId());
+            // ⭕ [아래 코드로 덮어쓰기]
+            audioVisualizer = new android.media.audiofx.Visualizer(com.themoon.y1.managers.AudioPlayerManager.getInstance().getAudioSessionId());
             audioVisualizer.setCaptureSize(android.media.audiofx.Visualizer.getCaptureSizeRange()[1]);
             audioVisualizer.setDataCaptureListener(new android.media.audiofx.Visualizer.OnDataCaptureListener() {
                 @Override
@@ -4993,66 +5120,37 @@ public class MainActivity extends Activity {
 
         updatePlayerStatusIndicators(); // 💖 아이콘 새로고침
     }
+    // ⭕ [아래 코드로 덮어쓰기]
     public void updatePlayerUI() {
         try {
             if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
                 updateAudioQualityInfo(currentPlaylist.get(currentIndex));
             }
-            if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+
+            if (am.isPlaying()) {
                 ivAlbumArt.setAlpha(1.0f);
                 ivPauseOverlay.setVisibility(View.GONE);
                 progressHandler.post(updateProgressTask);
-
-                // 🚀 [수정] 재생 중일 때는 '재생 아이콘(ic_media_play)'으로 변경하고 띄웁니다!
                 if (ivStatusPlay != null) {
                     ivStatusPlay.setVisibility(View.VISIBLE);
                     ivStatusPlay.setImageResource(android.R.drawable.ic_media_play);
-                }
-
-                // 🚀 [스크린 오프 완벽 제어 3단계] 재생 상태(PLAYING)를 시스템에 신고하여 제어권 유지
-                if (mediaSession != null && android.os.Build.VERSION.SDK_INT >= 21) {
-                    PlaybackState state = new PlaybackState.Builder()
-                            .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
-                                    | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SKIP_TO_NEXT
-                                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                            .setState(PlaybackState.STATE_PLAYING, mediaPlayer.getCurrentPosition(), 1.0f)
-                            .build();
-                    mediaSession.setPlaybackState(state);
                 }
             } else {
                 ivAlbumArt.setAlpha(0.4f);
                 ivPauseOverlay.setVisibility(View.VISIBLE);
                 progressHandler.removeCallbacks(updateProgressTask);
-
-                // 🚀 [수정] 정지 상태일 때 숨기지 않고 '일시정지 아이콘(ic_media_pause)'으로 바꿉니다!
                 if (ivStatusPlay != null) {
-                    if (currentPlaylist.isEmpty()) {
-                        // 아예 재생할 곡이 1곡도 없는 깡통 상태면 아이콘을 숨깁니다.
-                        ivStatusPlay.setVisibility(View.GONE);
-                    } else {
-                        // 곡이 장전되어 있는데 멈춘 상태라면 일시정지 아이콘을 띄웁니다.
+                    if (currentPlaylist.isEmpty()) ivStatusPlay.setVisibility(View.GONE);
+                    else {
                         ivStatusPlay.setVisibility(View.VISIBLE);
                         ivStatusPlay.setImageResource(android.R.drawable.ic_media_pause);
                     }
                 }
-
-                // 일시정지 상태(PAUSED) 신고
-                if (mediaSession != null && android.os.Build.VERSION.SDK_INT >= 21) {
-                    PlaybackState state = new PlaybackState.Builder()
-                            .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
-                                    | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SKIP_TO_NEXT
-                                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                            .setState(PlaybackState.STATE_PAUSED,
-                                    mediaPlayer == null ? 0 : mediaPlayer.getCurrentPosition(), 1.0f)
-                            .build();
-                    mediaSession.setPlaybackState(state);
-                }
             }
             updatePlayerStatusIndicators();
-        } catch (Exception e) {
-        }
+        } catch (Exception e) {}
     }
-
     private void adjustVolume(boolean up) {
         int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
@@ -5119,17 +5217,35 @@ public class MainActivity extends Activity {
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-
-                    clickFeedback();
+                    if (event.getRepeatCount() == 0) {
+                        event.startTracking();
+                        isSeekPerformed = false;
+                    } else {
+                        long now = System.currentTimeMillis();
+                        if (now - lastSeekTime > 300) {
+                            isSeekPerformed = true;
+                            lastSeekTime = now;
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(-10000); // -10초 점프
+                            clickFeedback();
+                        }
+                    }
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
 
-                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-
-                    clickFeedback();
+                    if (event.getRepeatCount() == 0) {
+                        event.startTracking(); // 감시 시작
+                        isSeekPerformed = false;
+                    } else {
+                        // 🚀 버튼을 떼지 않고 계속 꾹 누르고 있을 때 (0.3초마다 10초씩 계속 점프!)
+                        long now = System.currentTimeMillis();
+                        if (now - lastSeekTime > 300) {
+                            isSeekPerformed = true;
+                            lastSeekTime = now;
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(10000); // +10초 점프
+                            clickFeedback(); // 드르륵 거리는 햅틱 반응
+                        }
+                    }
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
@@ -5162,21 +5278,35 @@ public class MainActivity extends Activity {
         }
 
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+            // 버튼을 처음 눌렀을 때
             if (event.getRepeatCount() == 0) {
-                clickFeedback();
-
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-
+                event.startTracking(); // 감시 시작
+                isSeekPerformed = false;
+            } else {
+                // 🚀 버튼을 떼지 않고 계속 꾹 누르고 있을 때 (0.3초마다 10초씩 계속 점프!)
+                long now = System.currentTimeMillis();
+                if (now - lastSeekTime > 300) {
+                    isSeekPerformed = true;
+                    lastSeekTime = now;
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(10000); // +10초 점프
+                    clickFeedback(); // 드르륵 거리는 햅틱 반응
+                }
             }
             return true;
         }
+
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (event.getRepeatCount() == 0) {
-                clickFeedback();
-
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-
-
+                event.startTracking();
+                isSeekPerformed = false;
+            } else {
+                long now = System.currentTimeMillis();
+                if (now - lastSeekTime > 300) {
+                    isSeekPerformed = true;
+                    lastSeekTime = now;
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(-10000); // -10초 점프
+                    clickFeedback();
+                }
             }
             return true;
         }
@@ -5330,6 +5460,10 @@ public class MainActivity extends Activity {
                         } else if (currentBrowserMode == BROWSER_FAVORITES) {
                             currentBrowserMode = BROWSER_ROOT;
                             lastBrowserFocusText = "💖 My Favorites";
+                            buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = "🎧 Audiobooks";
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
                             currentBrowserMode = BROWSER_ROOT;
@@ -5597,11 +5731,28 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86
-                || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                || keyCode == 88) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
             return true;
         }
+
+        // 🚀 버튼에서 손을 뗐을 때의 최종 판결
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+            // 만약 길게 누르기(10초 점프)를 한 번도 안 한 상태로 손을 뗐다면? -> 단순 '다음 곡' 버튼으로 판단!
+            if (!isSeekPerformed) {
+                clickFeedback();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+            }
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+            // 길게 누르기를 안 했다면 -> 단순 '이전 곡' 버튼으로 판단!
+            if (!isSeekPerformed) {
+                clickFeedback();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+            }
+            return true;
+        }
+
         return super.onKeyUp(keyCode, event);
     }
     // 🚀 [신규 추가] 1초 이상 꾹~ 눌렀을 때 발동하는 안드로이드 공식 시스템 이벤트
@@ -5625,6 +5776,7 @@ public class MainActivity extends Activity {
         }
         return super.onKeyLongPress(keyCode, event);
     }
+    // ⭕ [아래 코드로 덮어쓰기]
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -5632,35 +5784,28 @@ public class MainActivity extends Activity {
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);
 
-        if (currentFileInputStream != null) {
-            try {
-                currentFileInputStream.close();
-            } catch (Exception e) {
-            }
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+
+        if (currentBrowserMode == BROWSER_AUDIOBOOKS && !currentPlaylist.isEmpty()) {
+            com.themoon.y1.managers.AudiobookManager.getInstance(this).saveBookmark(
+                    currentPlaylist.get(currentIndex).getAbsolutePath(),
+                    am.getCurrentPosition(),
+                    currentIndex
+            );
         }
 
-        // 💡 앱이 꺼질 때 엔진도 안전하게 종료
+        am.releasePlayer(); // 🚀 직접 끄지 않고 관리자에게 정중히 요청!
+
+        if (currentFileInputStream != null) {
+            try { currentFileInputStream.close(); } catch (Exception e) {}
+        }
         if (equalizer != null) {
             equalizer.release();
             equalizer = null;
         }
-        if (mediaPlayer != null) {
-            mediaPlayer.release();
-            mediaPlayer = null;
-        }
-        if (mediaPlayer != null) {
-            mediaPlayer.release();
-            mediaPlayer = null;
-        }
-
-        // 🚀 [스크린 오프 완벽 제어 4단계] 앱 종료 시 권한 반납
-        if (mediaSession != null && android.os.Build.VERSION.SDK_INT >= 21) {
-            mediaSession.release();
-        }
 
         unregisterReceiver(systemStatusReceiver);
     }
-
     // 💡 안드로이드 시스템 자체의 하드웨어 삑 소리 스트림을 직접 차단/허용하는 함수
     private void applySoundSetting() {
         try {
@@ -5962,10 +6107,47 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [수정] 정밀 검색 및 기존 태그(가수/제목) 보호 기능이 추가된 Deezer 스크래핑 엔진
+    // 💡 [추가] MP3/FLAC 파일 내부에 삽입된 앨범 아트를 띄우는 함수
+    public void applyEmbeddedCoverArt(byte[] pictureData) {
+        try {
+            android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
+            optsCenter.inSampleSize = 2;
+            android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeByteArray(pictureData, 0, pictureData.length, optsCenter);
+            ivAlbumArt.setImageBitmap(bmpCenter);
+
+            try {
+                int centerX = bmpCenter.getWidth() / 2;
+                int centerY = (int) (bmpCenter.getHeight() * 0.8);
+                currentAlbumColor = bmpCenter.getPixel(centerX, centerY) | 0xFF000000;
+            } catch (Exception e) {
+                currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
+            }
+
+            android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
+            optsBg.inSampleSize = 4;
+            android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(pictureData, 0, pictureData.length, optsBg);
+            android.graphics.Bitmap blurredBg = applyGaussianBlur(sourceBg);
+            ivPlayerBgBlur.setImageBitmap(blurredBg);
+            if (sourceBg != blurredBg)
+                sourceBg.recycle();
+
+            lastAlbumArtBytes = pictureData;
+            updateMainMenuBackground();
+            refreshNowPlayingPreview();
+        } catch (Exception e) {
+        }
+    }
+
     public void fetchTrackInfoFromInternet(final File track, final String originalQuery, final boolean hasValidTags,
-            final String origTitle, final String origArtist) {
-        // 찌꺼기 텍스트 청소기
+                                           final String origTitle, final String origArtist) {
+
+        // 🚀 [추가] 오프라인 방어막: 와이파이나 데이터 연결이 없으면 조용히 뒤돌아 나갑니다!
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo netInfo = cm.getActiveNetworkInfo();
+        if (netInfo == null || !netInfo.isConnected()) {
+            return;
+        }
+
         final String cleanQuery = originalQuery
                 .replaceAll("\\[.*?\\]", "")
                 .replaceAll("\\(.*?\\)", "")
@@ -6012,16 +6194,13 @@ public class MainActivity extends Activity {
                     if (dataArray != null && dataArray.length() > 0) {
                         org.json.JSONObject trackInfo = dataArray.getJSONObject(0);
 
-                        // 서버에서 가져온 가수와 제목
                         final String fetchedTitle = trackInfo.getString("title");
                         final String fetchedArtist = trackInfo.getJSONObject("artist").getString("name");
 
-                        // 🚀 [태그 보호 해제] 기존 파일에 잡다한 쓰레기 태그가 있더라도 무시하고, 인터넷의 정확한 공식 정보를 1순위로 강제 적용합니다!
                         final String finalTitle = fetchedTitle;
                         final String finalArtist = fetchedArtist;
 
-                        String coverUrl = trackInfo.getJSONObject("album").getString("cover_xl").replace("https://",
-                                "http://");
+                        String coverUrl = trackInfo.getJSONObject("album").getString("cover_xl").replace("https://", "http://");
                         java.net.URL imgUrl = new java.net.URL(coverUrl);
                         java.net.HttpURLConnection imgConn = (java.net.HttpURLConnection) imgUrl.openConnection();
                         java.io.InputStream in = imgConn.getInputStream();
@@ -6029,28 +6208,25 @@ public class MainActivity extends Activity {
                         in.close();
 
                         File coverFolder = new File("/storage/sdcard0/Y1_Covers");
-                        if (!coverFolder.exists())
-                            coverFolder.mkdirs();
+                        if (!coverFolder.exists()) coverFolder.mkdirs();
                         String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "");
                         final File coverFile = new File(coverFolder, safeFileName + ".jpg");
                         java.io.FileOutputStream fos = new java.io.FileOutputStream(coverFile);
                         coverBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fos);
                         fos.close();
 
-                        // 🚀 [무조건 저장] 검색에 성공했다면 무조건 영구 저장소에 깔끔한 태그를 덮어씌웁니다.
+                        // 🚀 [추가] 앨범 커버 경로(album_art_)도 잊지 말고 저장소에 함께 덮어씌웁니다!
                         prefs.edit()
                                 .putString("meta_title_" + track.getAbsolutePath(), finalTitle)
                                 .putString("meta_artist_" + track.getAbsolutePath(), finalArtist)
+                                .putString("album_art_" + track.getAbsolutePath(), coverFile.getAbsolutePath()) // 💡 누락되었던 핵심 코드
                                 .commit();
 
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(MainActivity.this, "✅ Album Art & Info Updated!", Toast.LENGTH_SHORT)
-                                        .show();
-                                if (currentPlaylist.get(currentIndex).getAbsolutePath()
-                                        .equals(track.getAbsolutePath())) {
-                                    // 🚀 화면의 글씨도 즉각 공식 정보로 갈아치웁니다!
+                                Toast.makeText(MainActivity.this, "✅ Album Art & Info Updated!", Toast.LENGTH_SHORT).show();
+                                if (currentPlaylist.get(currentIndex).getAbsolutePath().equals(track.getAbsolutePath())) {
                                     tvPlayerTitle.setText(finalTitle);
                                     tvPlayerArtist.setText(finalArtist);
                                     applyCachedCoverArt(coverFile.getAbsolutePath());
@@ -6060,23 +6236,18 @@ public class MainActivity extends Activity {
                     } else {
                         runOnUiThread(new Runnable() {
                             @Override
-                            public void run() {
-                                Toast.makeText(MainActivity.this, "❌ No results found.", Toast.LENGTH_SHORT).show();
-                            }
+                            public void run() { Toast.makeText(MainActivity.this, "❌ No results found.", Toast.LENGTH_SHORT).show(); }
                         });
                     }
                 } catch (final Exception e) {
                     runOnUiThread(new Runnable() {
                         @Override
-                        public void run() {
-                            Toast.makeText(MainActivity.this, "⚠️ Connection Error", Toast.LENGTH_LONG).show();
-                        }
+                        public void run() { Toast.makeText(MainActivity.this, "⚠️ Connection Error", Toast.LENGTH_LONG).show(); }
                     });
                 }
             }
         }).start();
     }
-
     // 💡 [추가] 구형 안드로이드의 잠든 최신 보안(TLS 1.2)을 강제로 깨우는 전용 소켓 팩토리
     private static class TLSSocketFactory extends javax.net.ssl.SSLSocketFactory {
         private javax.net.ssl.SSLSocketFactory internalSSLSocketFactory;
@@ -6948,8 +7119,8 @@ public class MainActivity extends Activity {
 
     // 🚀 [신규 엔진] 파일 확장자와 메타데이터를 뜯어내어 무손실 여부와 비트레이트(kbps)를 추출합니다.
     private void updateAudioQualityInfo(File audioFile) {
-        if (tvAudioQualityInfo == null || audioFile == null || !audioFile.exists()) {
-            if (tvAudioQualityInfo != null) tvAudioQualityInfo.setVisibility(View.GONE);
+        if (layoutAudioQualityContainer == null || audioFile == null || !audioFile.exists()) {
+            if (layoutAudioQualityContainer != null) layoutAudioQualityContainer.setVisibility(View.GONE);
             return;
         }
 
@@ -6961,7 +7132,7 @@ public class MainActivity extends Activity {
 
         boolean isLossless = ext.equals("FLAC") || ext.equals("WAV") || ext.equals("APE") || ext.equals("ALAC");
         String formatTag = isLossless ? "LOSSLESS" : "LOSSY";
-        if (ext.equals("WAV")) formatTag = "UNCOMPRESSED"; // WAV는 무손실을 넘어선 무압축!
+        if (ext.equals("WAV")) formatTag = "UNCOMPRESSED";
 
         // 2. 비트레이트(kbps) 추출 시도
         String bitrateStr = "";
@@ -6976,28 +7147,33 @@ public class MainActivity extends Activity {
             mmr.release();
         } catch (Exception e) {}
 
-        // 3. 젤리빈 환경에서 메타데이터 추출 실패 시, 파일 용량과 재생 시간으로 직접 계산! (Fallback)
-        if (bitrateStr.isEmpty() && mediaPlayer != null) {
+        // ⭕ [아래 코드로 덮어쓰기]
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        if (bitrateStr.isEmpty() && am.getDuration() > 0) {
             try {
-                int durationMs = mediaPlayer.getDuration();
+                int durationMs = am.getDuration();
                 if (durationMs > 0) {
                     long fileSize = audioFile.length();
-                    // (파일 바이트 수 * 8비트 * 1000) / 밀리초 = kbps
                     int kbps = (int) ((fileSize * 8000) / durationMs);
                     bitrateStr = kbps + " kbps";
                 }
             } catch (Exception e) {}
         }
 
-        // 4. 글씨 조립 후 화면에 쏘기 (예: FLAC • LOSSLESS • 920 kbps)
-        String info = ext + " • " + formatTag;
+        // 4. 🚀 각각 한 줄씩 깔끔하게 세로 목록으로 주입
+        tvQualityExt.setText(ext);
+        tvQualityFormat.setText(formatTag);
+
         if (!bitrateStr.isEmpty()) {
-            info += " • " + bitrateStr;
+            tvQualityBitrate.setText(bitrateStr);
+            tvQualityBitrate.setVisibility(View.VISIBLE);
+        } else {
+            tvQualityBitrate.setVisibility(View.GONE);
         }
 
-        tvAudioQualityInfo.setText(info);
-        tvAudioQualityInfo.setVisibility(View.VISIBLE);
+        layoutAudioQualityContainer.setVisibility(View.VISIBLE);
+        qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
+        qualityInfoHandler.postDelayed(hideQualityInfoTask, 3000);
     }
-
 }
 

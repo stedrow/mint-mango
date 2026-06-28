@@ -23,7 +23,8 @@ public class AudioEffectManager {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         try {
-            int sessionId = (main.mediaPlayer != null) ? main.mediaPlayer.getAudioSessionId() : 0;
+            // 🚀 [수정] 낡은 mediaPlayer 대신, 새 매니저의 다리(Bridge) 함수를 통해 안전하게 세션 ID를 가져옵니다!
+            int sessionId = com.themoon.y1.managers.AudioPlayerManager.getInstance().getAudioSessionId();
             if (main.equalizer == null || main.currentAudioSessionId != sessionId) {
                 if (main.equalizer != null) main.equalizer.release();
                 main.equalizer = new Equalizer(0, sessionId); main.equalizer.setEnabled(true);
