@@ -97,44 +97,57 @@ public class Y1WebServer extends Thread {
                 if (method.equals("GET") && path.equals("/")) {
                     String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
                             "<title>Y1 File Manager</title><style>" +
-                            "body{font-family:sans-serif; background:#111; color:#eee; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
-                            "input, select, button{font-size:14px; padding:10px; margin:5px; border-radius:5px; border:none; outline:none;} " +
-                            "input[type=text]{width:calc(100% - 100px); background:#333; color:#fff;} " +
-                            "button{background:#00ffff; color:#000; font-weight:bold; cursor:pointer;} " +
-                            "button.danger{background:#ff4444; color:#fff; padding:8px 12px;} " +
-                            "button.action{background:#44ff44; color:#000; padding:8px 12px;} " +
-                            ".box{background:#222; padding:15px; border-radius:10px; margin:15px 0; text-align:left;} " +
-                            ".item{display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid #444; cursor:pointer; transition:0.2s;} " +
-                            ".item:hover{background:#333;} " +
-                            ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:10px;} " +
-                            ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;} " +
-                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:5px; background:#000;} " +
-                            ".icon{font-size:24px; width:40px; text-align:center;} " +
-                            ".btn-group{display:flex; gap:5px;} " +
-                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#222; border-top:2px solid #00ffff; padding:15px; display:none; z-index:100;} " +
-                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none;} " +
+                            // 🚀 [디자인 수정] 바탕색 및 기본 글꼴 (Material Dark Theme 기반)
+                            "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
+                            "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:20px; border:none; outline:none; transition:0.2s;} " +
+                            "input[type=text]{width:calc(100% - 120px); background:#2A2A35; color:#E0E0E0; border-radius:12px; padding:12px;} " +
 
-                            // 🚀 [추가] 드래그 앤 드롭 시 박스 테두리와 배경색이 예쁘게 변하는 애니메이션
-                            "#uploadBox{transition:0.3s; border:2px solid transparent;} " +
-                            "#uploadBox.dragover{background:#333; border:2px dashed #00ffff;} " +
+                            // 🚀 [디자인 수정] 버튼 색상 (보라색 포인트 & 모던 톤)
+                            "button{background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " + // 기본 버튼 (연한 보라)
+                            "button:hover{background:#9575CD;} " +
+                            "button.danger{background:#424250; color:#E57373;} " + // 삭제/취소 버튼 (어두운 회색 바탕, 빨간 글씨)
+                            "button.danger:hover{background:#EF5350; color:#fff;} " +
+                            "button.action{background:#383848; color:#B39DDB;} " + // 서브 액션 버튼 (어두운 바탕, 보라색 글씨)
+                            "button.action:hover{background:#454555;} " +
 
-                            "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:#111; z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
-                            "#editorArea{width:100%; height:calc(100% - 120px); background:#222; color:#44ff44; font-family:monospace; font-size:14px; border:1px solid #444; padding:10px; resize:none;} " +
-                            "#editorTitle{color:#00ffff; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}" +
+                            // 🚀 [디자인 수정] 박스 및 리스트 아이템
+                            ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
+                            ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #333340; cursor:pointer; transition:0.2s;} " +
+                            ".item:last-child{border-bottom:none;} " +
+                            ".item:hover{background:#2D2D3A; border-radius:8px;} " +
+                            ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:12px;} " +
+                            ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;} " +
+                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:8px; background:#1A1A20;} " +
+                            ".icon{font-size:22px; width:40px; text-align:center; color:#B39DDB;} " + // 아이콘도 연보라 톤으로 통일
+                            ".btn-group{display:flex; gap:6px;} " +
+
+                            // 오디오 플레이어
+                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#252530; border-top:1px solid #454555; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
+                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:24px;} " +
+
+                            // 드래그 앤 드롭 애니메이션
+                            "#uploadBox{transition:0.3s; border:2px dashed #454555;} " +
+                            "#uploadBox.dragover{background:#2D2D3A; border:2px dashed #B39DDB;} " +
+
+                            // 텍스트 에디터 모달
+                            "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(18,18,22,0.95); z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
+                            "#editorArea{width:100%; height:calc(100% - 120px); background:#1E1E24; color:#E0E0E0; font-family:'Courier New', monospace; font-size:15px; border:1px solid #454555; border-radius:12px; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
+                            "#editorTitle{color:#B39DDB; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
                             "</style></head><body>" +
-                            "<h2>📁 Y1 Wireless File Manager</h2>" +
 
-                            // 업로드/폴더생성 박스 (🚀 ID 부여 및 안내 문구 추가)
+                            "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
+
+                            // 업로드/폴더생성 박스
                             "<div class='box' id='uploadBox'>" +
-                            "<div style='font-size:18px; margin-bottom:10px;'>📍 <span id='currentPathText'>/</span></div>" +
-                            "<div style='text-align:center; color:#00ffff; font-size:13px; margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
-                            "<div style='display:flex; gap:5px; margin-bottom:10px;'>" +
+                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>📍 <span id='currentPathText'>/</span></div>" +
+                            "<div style='text-align:center; color:#9E9E9E; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #333340;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
+                            "<div style='display:flex; gap:8px; margin-bottom:15px;'>" +
                             "<input type='text' id='fName' placeholder='New folder name...'>" +
                             "<button onclick='createFolder()'>Create</button></div>" +
-                            "<div style='display:flex; gap:5px; align-items:center;'>" +
-                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1;'>" +
+                            "<div style='display:flex; gap:8px; align-items:center;'>" +
+                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#9E9E9E;'>" +
                             "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
-                            "<div id='status' style='margin-top:10px; color:#4f4; font-weight:bold;'></div>" +
+                            "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
                             "</div>" +
 
                             // 파일 리스트 박스
@@ -142,7 +155,7 @@ public class Y1WebServer extends Thread {
 
                             // 플로팅 오디오 플레이어
                             "<div id='audioBox'>" +
-                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 10px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#00ffff;'></div>" +
+                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#B39DDB;'></div>" +
                             "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
                             "</div>" +
 
@@ -150,8 +163,8 @@ public class Y1WebServer extends Thread {
                             "<div id='editorBox'>" +
                             "<h3 id='editorTitle'>📝 Edit File</h3>" +
                             "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
-                            "<div style='display:flex; gap:10px; margin-top:10px;'>" +
-                            "<button class='action' style='flex:1;' onclick='saveFile()'>💾 Save Settings</button>" +
+                            "<div style='display:flex; gap:12px; margin-top:15px;'>" +
+                            "<button class='action' style='flex:1; background:#B39DDB; color:#121212;' onclick='saveFile()'>💾 Save Settings</button>" +
                             "<button class='danger' style='flex:1;' onclick='closeEditor()'>Cancel</button>" +
                             "</div></div>" +
 
@@ -161,7 +174,7 @@ public class Y1WebServer extends Thread {
                             "  fetch('/api/list?dir=' + encodeURIComponent(currentPath)).then(r=>r.json()).then(data => {" +
                             "    document.getElementById('currentPathText').innerText = '/' + currentPath;" +
                             "    let html = '';" +
-                            "    if(currentPath !== '') html += `<div class='item' onclick='goUp()'><div class='item-left'><div class='icon'>🔙</div><b>[Go Back]</b></div></div>`;" +
+                            "    if(currentPath !== '') html += `<div class='item' onclick='goUp()'><div class='item-left'><div class='icon'>🔙</div><b style='color:#B39DDB;'>[Go Back]</b></div></div>`;" +
                             "    data.forEach(f => {" +
                             "      let ext = f.name.split('.').pop().toLowerCase();" +
                             "      let isImg = ['jpg','jpeg','png','webp','gif'].includes(ext);" +
@@ -180,15 +193,15 @@ public class Y1WebServer extends Thread {
                             "                      isText ? `onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\"` : " +
                             "                      isImg ? `onclick=\"window.open('/api/file?path=${safePath}', '_blank')\"` : '';" +
 
-                            "      let editBtn = isText ? `<button class='action' style='background:#ffa500;' onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\">Edit</button>` : '';" +
-                            "      let renameBtn = `<button class='action' style='background:#2196F3;' onclick=\"renameItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Rename</button>`;" +
+                            "      let editBtn = isText ? `<button class='action' onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\">Edit</button>` : '';" +
+                            "      let renameBtn = `<button class='action' onclick=\"renameItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Rename</button>`;" +
 
                             "      html += `<div class='item' ${rowAction}>` +" +
                             "              `<div class='item-left'>${iconHtml}<span class='item-name'>${f.name}</span></div>` +" +
                             "              `<div class='btn-group'>${editBtn}${renameBtn}<button class='danger' onclick=\"deleteItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Delete</button></div>` +" +
                             "              `</div>`;" +
                             "    });" +
-                            "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:10px;\">No files found.</div>';" +
+                            "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:15px; color:#9E9E9E;\">No files found.</div>';" +
                             "    document.getElementById('fileList').innerHTML = html;" +
                             "  });" +
                             "}" +
@@ -238,7 +251,6 @@ public class Y1WebServer extends Thread {
                             "  fetch('/api/delete?path=' + encodeURIComponent(currentPath ? currentPath + '/' + name : name), {method:'POST'}).then(()=>loadList());" +
                             "}" +
 
-                            // 🚀 [핵심 개조] 파라미터로 파일을 던져주면 그 파일들을 업로드하고, 안 던져주면 기존 버튼 방식을 씁니다.
                             "async function uploadAll(droppedFiles) { " +
                             "  var files = droppedFiles || document.getElementById('fInput').files; var st = document.getElementById('status'); " +
                             "  if(files.length === 0) return;" +
@@ -249,7 +261,6 @@ public class Y1WebServer extends Thread {
                             "  st.innerText = '✅ Upload Complete!'; document.getElementById('fInput').value=''; loadList();" +
                             "}" +
 
-                            // 🚀 [폴더 지원 엔진] 드래그한 폴더 내부를 스캔하여 구조를 파악하는 업그레이드 함수
                             "async function uploadFolderItems(fileList) { " +
                             "  var st = document.getElementById('status'); " +
                             "  for(var i=0; i<fileList.length; i++) { " +
@@ -258,7 +269,7 @@ public class Y1WebServer extends Thread {
                             "    st.innerText = 'Uploading: ' + displayPath + ' (' + (i+1) + '/' + fileList.length + ')'; " +
                             "    let targetDir = currentPath; " +
                             "    if(item.path) { " +
-                            "       let subDir = item.path.replace(/\\/$/, ''); " + // 끝에 붙은 슬래시 제거
+                            "       let subDir = item.path.replace(/\\/$/, ''); " +
                             "       targetDir = currentPath ? currentPath + '/' + subDir : subDir; " +
                             "    } " +
                             "    await fetch('/api/upload?dir=' + encodeURIComponent(targetDir) + '&name=' + encodeURIComponent(item.file.name), {method:'POST', body:item.file}); " +
@@ -266,14 +277,13 @@ public class Y1WebServer extends Thread {
                             "  st.innerText = '✅ Folder Upload Complete!'; loadList();" +
                             "}" +
 
-                            // 🚀 [드래그 앤 드롭 전용 이벤트 리스너] 폴더와 파일을 완벽하게 구분해서 스캔합니다!
                             "let dropZone = document.getElementById('uploadBox');" +
                             "dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });" +
                             "dropZone.addEventListener('dragleave', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); });" +
                             "dropZone.addEventListener('drop', function(e) { " +
                             "  e.preventDefault(); dropZone.classList.remove('dragover'); " +
                             "  let items = e.dataTransfer.items; " +
-                            "  if(!items) { if(e.dataTransfer.files.length > 0) uploadAll(e.dataTransfer.files); return; } " + // 구형 브라우저 방어막
+                            "  if(!items) { if(e.dataTransfer.files.length > 0) uploadAll(e.dataTransfer.files); return; } " +
                             "  " +
                             "  document.getElementById('status').innerText = 'Scanning dropped items...'; " +
                             "  let filesToUpload = []; " +
