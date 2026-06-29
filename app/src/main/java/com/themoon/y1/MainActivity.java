@@ -308,6 +308,32 @@ public class MainActivity extends Activity {
             }
         }
     };
+    // 🚀 [추가] 글로벌 더블 클릭 및 루트 전원 제어용 변수 뱅크
+    private android.os.Handler doubleClickHandler = new android.os.Handler();
+    private long lastCenterUpTime = 0;
+    private Runnable singleClickRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try { handleCenterShortClick(); } catch (Exception e) {}
+        }
+    };
+
+    public void turnOffScreen() {
+        try {
+            // 루트 권한을 이용하여 음악은 살려둔 채 화면만 물리적으로 끕니다.
+            Runtime.getRuntime().exec(new String[]{"su", "-c", "input keyevent 26"});
+        } catch (Exception e) {}
+    }
+    // 🚀 [핵심 기술 1] 모든 버튼에 직접 장착될 '글로벌 화면 끄기 센서'입니다!
+    public View.OnLongClickListener globalScreenOffLongClickListener = new View.OnLongClickListener() {
+        @Override
+        public boolean onLongClick(View v) {
+            clickFeedback();
+            isLongPressConsumed = true; // 🚀 롱클릭 성공 마킹 (손 뗄 때 클릭되는 안드로이드 고질병 차단)
+            turnOffScreen(); // 전역 화면 끄기 발동!
+            return true; // 💡 true를 반환해야 버튼이 "아하, 롱클릭 처리했으니 일반 클릭은 취소해야지!" 하고 알아듣습니다.
+        }
+    };
     private Handler progressHandler = new Handler();
     // ⭕ [아래 코드로 덮어쓰기]
     private Runnable updateProgressTask = new Runnable() {
@@ -2643,7 +2669,7 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.HORIZONTAL);
         layout.setFocusable(true);
         layout.setPadding(20, 15, 20, 15);
-
+        layout.setOnLongClickListener(globalScreenOffLongClickListener);
         // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
         layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
 
@@ -2729,7 +2755,7 @@ public class MainActivity extends Activity {
 
         btn.setFocusable(true);
         btn.setSingleLine(true);
-
+        btn.setOnLongClickListener(globalScreenOffLongClickListener);
         btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
@@ -3938,7 +3964,12 @@ public class MainActivity extends Activity {
         scrollViewBrowser.setVisibility(View.GONE);
         listVirtualSongs.setVisibility(View.VISIBLE);
 
-        tvBrowserPath.setText("Library: " + type + "s");
+        // 🚀 [수정] 음악 라이브러리(Artists/Albums)와 오디오북 라이브러리(Authors/Books)에 맞춰 상단 타이틀이 연동되도록 보정!
+        if (isAudiobookLibraryMode) {
+            tvBrowserPath.setText("Library: " + (type.equals("ARTIST") ? "Authors" : "Books"));
+        } else {
+            tvBrowserPath.setText("Library: " + (type.equals("ARTIST") ? "Artists" : "Albums"));
+        }
 
         // 🚀 스위치에 따라 뒤질 바구니를 바꿉니다!
         List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
@@ -4013,8 +4044,12 @@ public class MainActivity extends Activity {
         scrollViewBrowser.setVisibility(View.GONE);
         listVirtualSongs.setVisibility(View.VISIBLE);
 
-        tvBrowserPath.setText("Library: " + (virtualQueryType.equals("ALL") ? "All Songs" : virtualQueryValue));
-
+        // 🚀 [수정] 모든 음악 / 모든 오디오북 모드에 맞춰 상단 헤더 타이틀이 올바르게 표시되도록 변경!
+        if (virtualQueryType.equals("ALL")) {
+            tvBrowserPath.setText(isAudiobookLibraryMode ? "Library: All Audiobooks" : "Library: All Songs");
+        } else {
+            tvBrowserPath.setText("Library: " + virtualQueryValue);
+        }
         virtualSongList.clear();
         currentScrollIndexList.clear(); // 🚀 [추가] 기존 인덱스 초기화
         final List<SongItem> targetSongs = new ArrayList<>();
@@ -4687,7 +4722,7 @@ public class MainActivity extends Activity {
             btn.setSoundEffectsEnabled(false);
             btn.setFocusable(true);
             btn.setOrientation(LinearLayout.HORIZONTAL);
-
+            btn.setOnLongClickListener(globalScreenOffLongClickListener);
             // 🚀 2. 좌측 메인 텍스트 및 아이콘 뷰
             final TextView tvMain = new TextView(this);
             tvMain.setSingleLine(true);
@@ -5771,18 +5806,34 @@ public class MainActivity extends Activity {
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            // 🚀 [버그 해결] 꾹~ 누른 직후 손을 뗄 때 발생하는 '가짜 짧은 클릭(재생)'을 완벽하게 무시합니다!
+            // 🚀 [방어막] 롱클릭(화면 끄기 또는 플레이리스트 팝업)이 이미 처리되었다면 숏클릭 루틴 파쇄
             if (isLongPressConsumed) {
-                isLongPressConsumed = false; // 방어막 초기화
-                return true; // 여기서 아무것도 안 하고 함수를 끝내버립니다!
+                isLongPressConsumed = false;
+                return true;
             }
 
             if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
-                try { handleCenterShortClick(); } catch (Exception e) {}
+                // 🚀 [지능형 숏클릭 분기] 플레이어 화면에서는 롱프레스를 화면 끄기에 양보했으므로,
+                // 즐겨찾기(♥) 등록을 '더블 클릭(따닥!)' 엔진으로 우아하게 구출합니다!
+                if (currentScreenState == STATE_PLAYER) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastCenterUpTime < 300) {
+                        doubleClickHandler.removeCallbacks(singleClickRunnable);
+                        lastCenterUpTime = 0; // 타이머 초기화
+                        clickFeedback();
+                        toggleFavorite(); // 따닥 누르면 즐겨찾기 추가/해제!
+                    } else {
+                        lastCenterUpTime = now;
+                        doubleClickHandler.postDelayed(singleClickRunnable, 300);
+                    }
+                } else {
+                    // 🚀 그 외의 모든 화면(메인 메뉴 선택, 설정 로직, 라이브러리 목록 등)에서는
+                    // 0.3초 대기 시간 없이 즉시 100% 원터치 광속 클릭이 작동하여 답답함을 완전히 없앱니다!
+                    try { handleCenterShortClick(); } catch (Exception e) {}
+                }
             }
             return true;
         }
-
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
             return true;
         }
@@ -5807,23 +5858,40 @@ public class MainActivity extends Activity {
 
         return super.onKeyUp(keyCode, event);
     }
-    // 🚀 [신규 추가] 1초 이상 꾹~ 눌렀을 때 발동하는 안드로이드 공식 시스템 이벤트
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            if (currentScreenState == STATE_PLAYER) {
-                toggleFavorite();
-                clickFeedback();
-                isLongPressConsumed = true; // 🚀 [방어막 켜짐] 롱클릭을 썼다고 기록!
+            clickFeedback();
+            isLongPressConsumed = true; // 손을 뗄 때 숏클릭이 중복 발동되는 현상 차단
+
+            // 🚀 [분기 1] 메인 화면, 플레이어 화면, 설정 화면 및 기타 시스템 창은 무조건 화면 끄기 가동!
+            if (currentScreenState == STATE_MENU || currentScreenState == STATE_PLAYER || currentScreenState == STATE_SETTINGS
+                    || currentScreenState == STATE_BLUETOOTH || currentScreenState == STATE_WIFI || currentScreenState == STATE_BRIGHTNESS
+                    || currentScreenState == STATE_STORAGE || currentScreenState == STATE_WEBSERVER) {
+
+                turnOffScreen();
                 return true;
             }
+            // 🚀 [분기 2] 라이브러리(Browser) 화면 진입 시 예외처리 저울질 시작
             else if (currentScreenState == STATE_BROWSER) {
-                View c = getCurrentFocus();
-                if (c != null) {
-                    c.performLongClick();
-                    isLongPressConsumed = true; // 🚀 [방어막 켜짐] 롱클릭을 썼다고 기록!
-                    return true;
+                // 현재 브라우저가 '순수 음원/파일'들을 나열하고 있는 화면인지 검사
+                boolean isFileVisible = (currentBrowserMode == BROWSER_FOLDER
+                        || currentBrowserMode == BROWSER_VIRTUAL_SONGS
+                        || currentBrowserMode == BROWSER_FAVORITES
+                        || currentBrowserMode == BROWSER_M3U_SONGS
+                        || currentBrowserMode == BROWSER_AUDIOBOOKS);
+
+                if (isFileVisible) {
+                    // 💡 [요청 반영] 파일이 보일 때는 화면 끄기 대상에서 제외하고, "기존 플레이리스트 팝업(롱클릭)"을 그대로 유지!
+                    View c = getCurrentFocus();
+                    if (c != null) {
+                        c.performLongClick();
+                    }
+                } else {
+                    // 💡 파일이 보이지 않는 루트 메뉴나 아티스트/앨범 카테고리 창에서는 편리하게 화면 끄기 작동!
+                    turnOffScreen();
                 }
+                return true;
             }
         }
         return super.onKeyLongPress(keyCode, event);
