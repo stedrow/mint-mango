@@ -102,7 +102,7 @@ public class ThemeManager {
         // 🚀 [수정] icon_focused("") 와 action("OPEN_PLAYER") 사이에 previewImage용 빈칸("")을 하나씩 추가했습니다!
         defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", 0, 140, 250, 50, "Bluetooth", "Bluetooth", "", "", "", "icon_bluetooth.png", "", "", "OPEN_BLUETOOTH", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", 0, 140, 250, 50, "Radio", "Radio", "", "", "", "icon_radio.png", "", "", "OPEN_RADIO", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
 
