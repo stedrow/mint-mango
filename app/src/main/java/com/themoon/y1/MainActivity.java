@@ -2392,8 +2392,16 @@ public class MainActivity extends Activity {
         if (state == STATE_MENU) {
             isPickingBackground = false;
             View c = getCurrentFocus();
-            if (c == null)
-                btnNowPlaying.requestFocus();
+
+            // 🚀 [포커스 증발 수리 1] 숨겨진 옛날 버튼(btnNowPlaying) 대신, 동적으로 생성된 진짜 0번 버튼(ID: 10000)을 찾아서 포커스를 꽂습니다!
+            if (c == null || c.getVisibility() != View.VISIBLE) {
+                View dynamicFirstBtn = findViewById(10000); // 0번 동적 버튼 호출
+                if (dynamicFirstBtn != null) {
+                    dynamicFirstBtn.requestFocus();
+                } else if (btnNowPlaying != null) {
+                    btnNowPlaying.requestFocus(); // 아직 조립 전일 때를 대비한 안전망
+                }
+            }
             refreshNowPlayingPreview();
         } else if (state == STATE_BROWSER) {
             if (currentBrowserMode == BROWSER_ROOT || currentBrowserMode == BROWSER_FOLDER) {
@@ -5769,13 +5777,57 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 💡 위젯 그리기
+        // 🚀 [신규 엔진] 생성된 리스트 박스(그룹)들을 기억해 둘 금고 생성
+        final java.util.HashMap<String, LinearLayout> listContainers = new java.util.HashMap<>();
+
         // 💡 위젯 그리기
         for (ThemeManager.MenuElement el : widgetElements) {
 
             android.graphics.drawable.GradientDrawable widgetBg = createWidgetBackground(el.bgColor, el.radius);
-            int p = (int)(el.padding * density); // 🚀 JSON에 적힌 여백(Padding)을 꺼내옵니다.
-            if (el.type.equals("box")) {
+            int p = (int)(el.padding * density);
+
+            // 🚀 [신규 엔진] 리스트 전용 투명 스크롤 상자 조립!
+            if (el.type.equals("list_box")) {
+                final android.widget.ScrollView sv = new android.widget.ScrollView(this);
+                sv.setLayoutParams(createDynamicLayoutParams(el, density));
+                sv.setVerticalScrollBarEnabled(false);
+
+                // 🚀 [점프 버그 수리] 안드로이드 시스템이 스크롤뷰 자체를 통째로 포커스 잡아버리는 것을 원천 차단합니다!
+                sv.setFocusable(false);
+                sv.setFocusableInTouchMode(false);
+                // 🚀 [포커스 증발 수리 2] 스크롤뷰 본인보다 '상자 안의 내용물(버튼들)'이 우선적으로 포커스를 먹도록 우선순위를 강제 지정합니다!
+                sv.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
+
+                if (widgetBg != null) sv.setBackground(widgetBg);
+
+                // 🚀 [잔상 버그 수리 1] 스크롤 시 부모 캔버스 전체를 새로고침하여 바깥으로 삐져나온 찌꺼기 픽셀 허상들을 싹 지워줍니다.
+                sv.getViewTreeObserver().addOnScrollChangedListener(new android.view.ViewTreeObserver.OnScrollChangedListener() {
+                    @Override
+                    public void onScrollChanged() {
+                        android.view.ViewParent p = sv.getParent();
+                        if (p instanceof android.view.View) {
+                            ((android.view.View) p).invalidate();
+                        }
+                        sv.invalidate();
+                    }
+                });
+
+                LinearLayout innerLayout = new LinearLayout(this);
+                innerLayout.setOrientation(LinearLayout.VERTICAL);
+                innerLayout.setPadding(p, p, p, p);
+
+                // 🚀 [잔상 버그 수리 2] 자르기 방지 옵션을 삭제하여 요소들이 스크롤 뷰 바깥으로 도망가 잔상을 남기는 것을 근본적으로 막습니다!
+                // (innerLayout.setClipChildren(false); 코드 두 줄을 완전히 삭제했습니다)
+
+                sv.addView(innerLayout, new android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                canvas.addView(sv);
+                listContainers.put(el.id, innerLayout);
+            }
+            else if (el.type.equals("box")) {
+// ... (기존 box 코드 등 이어짐)
                 ImageView boxView = new ImageView(this);
                 boxView.setLayoutParams(createDynamicLayoutParams(el, density));
 
@@ -6048,6 +6100,8 @@ public class MainActivity extends Activity {
             btn.setTag(el.action);
             btn.setSoundEffectsEnabled(false);
             btn.setFocusable(true);
+            // 🚀 [포커스 증발 수리 3] 클릭 가능 속성이 빠지면 안드로이드 엔진이 버튼의 존재를 무시해버리므로 클릭 본능을 주입합니다!
+            btn.setClickable(true);
             btn.setOrientation(LinearLayout.HORIZONTAL);
             btn.setOnLongClickListener(globalScreenOffLongClickListener);
             // 🚀 2. 좌측 메인 텍스트 및 아이콘 뷰
@@ -6327,15 +6381,29 @@ public class MainActivity extends Activity {
                 }
             });
 
-            canvas.addView(btn);
+            if (el.parentId != null && !el.parentId.isEmpty() && listContainers.containsKey(el.parentId)) {
+                // 💡 1. 리스트 상자 소속이라면: 세로 정렬(LinearLayout) 규칙에 맞게 속성을 바꿔서 넣습니다.
+                LinearLayout.LayoutParams listLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        el.height > 0 ? (int)(el.height * density) : LinearLayout.LayoutParams.WRAP_CONTENT);
+                // 리스트 안에서는 Y값을 Top Margin(위쪽 간격)으로, X값을 좌우 간격으로 똑똑하게 재활용합니다!
+                listLp.setMargins((int)(el.x * density), (int)(el.y * density), (int)(el.x * density), 0);
+                btn.setLayoutParams(listLp);
+
+                // 캔버스가 아니라, 부모 그룹(리스트 상자) 안으로 쏙 들어갑니다!
+                listContainers.get(el.parentId).addView(btn);
+            } else {
+                // 💡 2. 소속이 없다면: 기존처럼 X, Y 절대 좌표를 캔버스에 직접 꽂아 넣습니다.
+                btn.setLayoutParams(createDynamicLayoutParams(el, density));
+                canvas.addView(btn);
+            }
+
             createdButtons.add(btn);
 
-            if (i == 0) btn.post(new Runnable() { public void run() { btn.requestFocus(); } });
         }
 
         int totalBtns = createdButtons.size();
         for (int i = 0; i < totalBtns; i++) {
-            // 🚀 [수정 완료] Button이 아니라 LinearLayout으로 꺼내야 합니다!
             LinearLayout currentBtn = createdButtons.get(i);
             int prevId = 10000 + ((i - 1 + totalBtns) % totalBtns);
             int nextId = 10000 + ((i + 1) % totalBtns);
@@ -6347,6 +6415,23 @@ public class MainActivity extends Activity {
         }
 
         refreshWidgets();
+
+        // 🚀 [버그 수리] 화면 조립이 완전히 끝난 후(50ms 안전 대기), 0번 버튼에 강력하게 포커스를 꽂아줍니다!
+        if (!createdButtons.isEmpty()) {
+            final LinearLayout firstBtn = createdButtons.get(0);
+            firstBtn.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    firstBtn.requestFocus();
+
+                    // 만약 0번 버튼이 스크롤 상자 안에 있다면, 스크롤도 맨 위(0,0)로 확실하게 당겨줍니다.
+                    android.view.ViewParent parent = firstBtn.getParent();
+                    if (parent != null && parent.getParent() instanceof android.widget.ScrollView) {
+                        ((android.widget.ScrollView) parent.getParent()).scrollTo(0, 0);
+                    }
+                }
+            }, 50); // 💡 50ms 딜레이: 화면이 렌더링될 완벽한 틈을 벌려줌
+        }
     }
     private void collectAudioFilesAsFile(File dir, List<File> list) {
         File[] files = dir.listFiles();
@@ -7248,47 +7333,21 @@ public class MainActivity extends Activity {
                     // 🚀 [라디오 휠 조작] 깜빡임 완벽 제거 버전
                     if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
                         if (!isRadioSettingsMode) {
-                            adjustVolume(false); // 🎧 휠 돌릴 때 볼륨만 조용히 변경! (오버레이가 뜨므로 화면 갱신 불필요)
+                            adjustVolume(false);
                             return true;
                         } else if (isRadioAdjustingFreq) {
                             com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                            float newFreq = fm.currentFreq - 0.1f; // ⚙️ 설정 모드: 주파수 다운
+                            float newFreq = fm.currentFreq - 0.1f;
                             if (newFreq < 87.5f) newFreq = 108.0f;
                             if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
-
-                            showRadioFreqPopup(newFreq); // 🚀 [시각화 주입] 전체 화면 팝업 전광판 발사!
-
+                            showRadioFreqPopup(newFreq);
                             buildRadioUI();
                             return true;
                         }
                     }
 
-                    android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
-                    if (parent instanceof LinearLayout) {
-                        int index = parent.indexOfChild(c);
-                        boolean moved = false;
-                        // 1. 바로 위(-1)의 메뉴로 이동 시도
-                        for (int i = index - 1; i >= 0; i--) {
-                            View n = parent.getChildAt(i);
-                            if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                n.requestFocus();
-                                moved = true;
-                                break;
-                            }
-                        }
-                        // 2. [무한 스크롤] 더 이상 위로 갈 곳이 없으면 맨 아래쪽 끝 메뉴로 텔레포트!
-                        if (!moved) {
-                            for (int i = parent.getChildCount() - 1; i > index; i--) {
-                                View n = parent.getChildAt(i);
-                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                    n.requestFocus();
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // 🚀 [핵심 추가] 메인 화면(캔버스)에서는 안드로이드의 제멋대로 공간 탐색을 끄고,
-                        // 테마에 묶어둔 '이전 고유 번호(UpId)'를 찾아 무조건 강제로 점프시킵니다!
+                    // 🚀 [메인 메뉴 완벽 제어] 메인 화면에서는 무조건 우리가 조립한 인덱스 순서대로 포커스를 강제 이동시킵니다!
+                    if (currentScreenState == STATE_MENU) {
                         int targetId = c.getNextFocusUpId();
                         if (targetId != View.NO_ID) {
                             View target = findViewById(targetId);
@@ -7298,8 +7357,41 @@ public class MainActivity extends Activity {
                                 return true;
                             }
                         }
-                        View n = c.focusSearch(View.FOCUS_UP);
-                        if (n != null) n.requestFocus();
+                    } else {
+                        android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
+                        if (parent instanceof LinearLayout) {
+                            int index = parent.indexOfChild(c);
+                            boolean moved = false;
+                            for (int i = index - 1; i >= 0; i--) {
+                                View n = parent.getChildAt(i);
+                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                    n.requestFocus();
+                                    moved = true;
+                                    break;
+                                }
+                            }
+                            if (!moved) {
+                                for (int i = parent.getChildCount() - 1; i > index; i--) {
+                                    View n = parent.getChildAt(i);
+                                    if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                        n.requestFocus();
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            int targetId = c.getNextFocusUpId();
+                            if (targetId != View.NO_ID) {
+                                View target = findViewById(targetId);
+                                if (target != null) {
+                                    target.requestFocus();
+                                    clickFeedback();
+                                    return true;
+                                }
+                            }
+                            View n = c.focusSearch(View.FOCUS_UP);
+                            if (n != null) n.requestFocus();
+                        }
                     }
                     clickFeedback();
                     return true;
@@ -7309,46 +7401,21 @@ public class MainActivity extends Activity {
                     // 🚀 [라디오 휠 조작] 깜빡임 완벽 제거 버전
                     if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
                         if (!isRadioSettingsMode) {
-                            adjustVolume(true); // 🎧 휠 돌릴 때 볼륨만 조용히 변경! (오버레이가 뜨므로 화면 갱신 불필요)
+                            adjustVolume(true);
                             return true;
                         } else if (isRadioAdjustingFreq) {
                             com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                            float newFreq = fm.currentFreq + 0.1f; // ⚙️ 설정 모드: 주파수 업
+                            float newFreq = fm.currentFreq + 0.1f;
                             if (newFreq > 108.0f) newFreq = 87.5f;
                             if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
-
-                            showRadioFreqPopup(newFreq); // 🚀 [시각화 주입] 전체 화면 팝업 전광판 발사!
-
+                            showRadioFreqPopup(newFreq);
                             buildRadioUI();
                             return true;
                         }
                     }
 
-                    android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
-                    if (parent instanceof LinearLayout) {
-                        int index = parent.indexOfChild(c);
-                        boolean moved = false;
-                        // 1. 바로 아래(+1)의 메뉴로 이동 시도
-                        for (int i = index + 1; i < parent.getChildCount(); i++) {
-                            View n = parent.getChildAt(i);
-                            if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                n.requestFocus();
-                                moved = true;
-                                break;
-                            }
-                        }
-                        // 2. [무한 스크롤] 더 이상 아래로 갈 곳이 없으면 맨 위쪽 첫 메뉴로 텔레포트!
-                        if (!moved) {
-                            for (int i = 0; i < index; i++) {
-                                View n = parent.getChildAt(i);
-                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                    n.requestFocus();
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // 🚀 [핵심 추가] 테마에 묶어둔 '다음 고유 번호(DownId)'를 찾아 무조건 강제 점프!
+                    // 🚀 [메인 메뉴 완벽 제어] 메인 화면에서는 무조건 우리가 조립한 인덱스 순서대로 포커스를 강제 이동시킵니다!
+                    if (currentScreenState == STATE_MENU) {
                         int targetId = c.getNextFocusDownId();
                         if (targetId != View.NO_ID) {
                             View target = findViewById(targetId);
@@ -7358,11 +7425,55 @@ public class MainActivity extends Activity {
                                 return true;
                             }
                         }
-                        View n = c.focusSearch(View.FOCUS_DOWN);
-                        if (n != null) n.requestFocus();
+                    } else {
+                        android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
+                        if (parent instanceof LinearLayout) {
+                            int index = parent.indexOfChild(c);
+                            boolean moved = false;
+                            for (int i = index + 1; i < parent.getChildCount(); i++) {
+                                View n = parent.getChildAt(i);
+                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                    n.requestFocus();
+                                    moved = true;
+                                    break;
+                                }
+                            }
+                            if (!moved) {
+                                for (int i = 0; i < index; i++) {
+                                    View n = parent.getChildAt(i);
+                                    if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                                        n.requestFocus();
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            int targetId = c.getNextFocusDownId();
+                            if (targetId != View.NO_ID) {
+                                View target = findViewById(targetId);
+                                if (target != null) {
+                                    target.requestFocus();
+                                    clickFeedback();
+                                    return true;
+                                }
+                            }
+                            View n = c.focusSearch(View.FOCUS_DOWN);
+                            if (n != null) n.requestFocus();
+                        }
                     }
                     clickFeedback();
                     return true;
+                }
+            } else {
+                // 🚀 [포커스 점프 버그 완벽 해결] 처음 화면 진입 직후 포커스가 일시적으로 없는 상태(null)에서
+                // 사용자가 휠을 처음 딸깍 돌렸을 때, 시스템이 애매하게 걸린 하단 버튼으로 워프하는 현상을 원천 차단합니다!
+                if (keyCode == 21 || keyCode == 22) {
+                    android.view.View firstBtn = findViewById(10000); // 0번 버튼(Now Playing)의 고유 ID 저격
+                    if (firstBtn != null) {
+                        firstBtn.requestFocus(); // 0번으로 강제 귀환!
+                        clickFeedback();
+                        return true; // 💡 이벤트를 여기서 파쇄하여 엉뚱한 버튼으로 튀는 것을 막습니다.
+                    }
                 }
             }
             return super.onKeyDown(keyCode, event);
@@ -9099,7 +9210,7 @@ public class MainActivity extends Activity {
             }
 
             if (tvLoadingProgress != null) {
-                tvLoadingProgress.setTextSize(30f);
+                tvLoadingProgress.setTextSize(24f);
                 // 🚀 [수리 2] 실수로 주석(//) 처리되어 잠들어 있던 텍스트 출력 엔진을 다시 살려냅니다!
                 tvLoadingProgress.setText(String.format(java.util.Locale.US, "Tuning Frequency...\n\n%.1f MHz", freq));
             }

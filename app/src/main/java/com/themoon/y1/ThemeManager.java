@@ -11,25 +11,27 @@ import java.util.List;
 public class ThemeManager {
 
     public static class MenuElement {
-        public String id, type;
+        public String id, type, parentId; // 🚀 [추가] parentId 변수 추가!
         public int x, y, width, height;
         public String textNormal, textFocused, textRight;
-        public String textRightColor, textRightFocusedColor; // 🚀 색상 변수 깔끔하게 배치
-        public String iconNormal, iconFocused, previewImage; // 🚀 [추가] 포커스 전용 이미지 변수
+        public String textRightColor, textRightFocusedColor;
+        public String iconNormal, iconFocused, previewImage;
         public String action, gravity;
         public int radius, focusIndex, textSize, textSecondarySize;
         public String textPosition, textAlign, bgColor;
         public int padding;
-        public int focusOffsetX, focusOffsetY; // 🚀 [추가] 포커스 시 이동할 X, Y 좌표
-        public float focusScale; // 🚀 [추가] 포커스 시 중심 기준 확대 배율 (기본값 1.0)
-        // 🚀 생성자 순서를 논리적으로 완벽하게 맞춤
-        public MenuElement(String id, String type, int x, int y, int width, int height,
+        public int focusOffsetX, focusOffsetY;
+        public float focusScale;
+
+        // 🚀 생성자에 parentId 파라미터를 추가합니다!
+        public MenuElement(String id, String type, String parentId, int x, int y, int width, int height,
                            String textNormal, String textFocused, String textRight,
                            String textRightColor, String textRightFocusedColor,
                            String iconNormal, String iconFocused, String previewImage, String action,
                            String gravity, int radius, int focusIndex, int textSize, int textSecondarySize,
                            String textPosition, String textAlign, String bgColor, int padding,int focusOffsetX, int focusOffsetY, float focusScale) {
-            this.id = id; this.type = type; this.x = x; this.y = y;
+            this.id = id; this.type = type; this.parentId = parentId; // 🚀 맵핑
+            this.x = x; this.y = y;
             this.width = width; this.height = height;
             this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight;
             this.textRightColor = textRightColor; this.textRightFocusedColor = textRightFocusedColor;
@@ -38,8 +40,8 @@ public class ThemeManager {
             this.focusIndex = focusIndex; this.textSize = textSize; this.textSecondarySize = textSecondarySize;
             this.textPosition = textPosition; this.textAlign = textAlign; this.bgColor = bgColor;
             this.padding = padding;
-            this.focusOffsetX = focusOffsetX; this.focusOffsetY = focusOffsetY; // 🚀 맵핑 추가
-            this.focusScale = focusScale; // 🚀 맵핑 추가
+            this.focusOffsetX = focusOffsetX; this.focusOffsetY = focusOffsetY;
+            this.focusScale = focusScale;
         }
     }
 
@@ -99,13 +101,12 @@ public class ThemeManager {
         ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
                 0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
 
-        // 🚀 [수정] icon_focused("") 와 action("OPEN_PLAYER") 사이에 previewImage용 빈칸("")을 하나씩 추가했습니다!
-        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", 0, 140, 250, 50, "Radio", "Radio", "", "", "", "icon_radio.png", "", "", "OPEN_RADIO", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-
+        // 🚀 [버그 해결] 세 번째 자리에 parentId 값인 빈칸("")을 추가하여 새 공장 규칙과 완벽하게 일치시켰습니다!
+        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", "", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", "", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", "", 0, 140, 250, 50, "Radio", "Radio", "", "", "", "icon_radio.png", "", "", "OPEN_RADIO", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", "", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", "", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
 
         availableThemes.add(defaultTheme);
 
@@ -207,6 +208,7 @@ public class ThemeManager {
                                     theme.menuElements.add(new MenuElement(
                                             el.optString("id", "item_" + i),
                                             el.optString("type", "button"),
+                                            el.optString("parent_id", ""),
                                             el.optInt("x", 0),
                                             el.optInt("y", i * 60),
                                             el.optInt("width", 200),
