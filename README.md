@@ -147,6 +147,39 @@ adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
 ```
 ---
 
+## 🎧 AirPods Fix (Pro 2 / Pro 3)
+
+AirPods pair and connect to the Y1 but play **no sound** — the player shows a
+track playing while the AirPods stay silent. This is a bug in the Y1's MediaTek
+Bluetooth firmware (not the launcher): the A2DP/SBC audio stream carries broken
+RTP timestamps, which most headphones ignore but modern AirPods reject by
+silently dropping the stream.
+
+The fix is a small proxy driver that replaces `/system/lib/libbluetoothdrv.so`,
+wraps the stock MediaTek driver, and rewrites the outgoing RTP timestamps so the
+AirPods accept the stream. It installs **live over adb** (this firmware has a
+root shell) — no SP Flash Tool or `system.img` patching needed — and preserves
+the stock driver so it's fully reversible.
+
+Everything needed to build, install, verify, and revert lives in
+[`scripts/airpods-rtpfix/`](scripts/airpods-rtpfix/):
+
+```bash
+cd scripts/airpods-rtpfix
+brew install --cask android-ndk && brew install lld android-platform-tools  # one-time
+./build.sh      # compile the proxy against the device's ABI
+./install.sh    # back up the stock driver, install the proxy, reboot
+./status.sh     # confirm it's active and tail the fix log while audio plays
+./revert.sh     # restore the stock driver if ever needed
+```
+
+See the [folder README](scripts/airpods-rtpfix/README.md) for how it works, why
+the live adb swap is safe on this firmware, and build variants (e.g. an optional
+SBC bitpool clamp). Credit for the timestamp-normalization approach:
+[Semy0nBu/y1-airpods-rtpfix](https://github.com/Semy0nBu/y1-airpods-rtpfix).
+
+---
+
 # 🎨 Y1 Theme Editor User Manual
 
 * You can easily design and customize your own themes using the web editor below:
