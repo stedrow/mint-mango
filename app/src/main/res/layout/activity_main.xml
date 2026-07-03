@@ -63,6 +63,11 @@
                 <Button android:id="@+id/btn_webserver" android:layout_width="match_parent" android:layout_height="48dp" android:text="PC Upload" android:textColor="#FFFFFF" android:background="#00000000" android:gravity="left|center_vertical" android:paddingLeft="15dp" android:textSize="18sp" android:focusable="true"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="48dp" android:text="〉" android:textColor="#888888" android:gravity="center_vertical" android:layout_gravity="right" android:paddingRight="15dp" android:textSize="16sp" android:focusable="false" android:clickable="false"/>
             </FrameLayout>
+
+            <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+                <Button android:id="@+id/btn_navidrome" android:layout_width="match_parent" android:layout_height="48dp" android:text="Navidrome" android:textColor="#FFFFFF" android:background="#00000000" android:gravity="left|center_vertical" android:paddingLeft="15dp" android:textSize="18sp" android:focusable="true"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="48dp" android:text="〉" android:textColor="#888888" android:gravity="center_vertical" android:layout_gravity="right" android:paddingRight="15dp" android:textSize="16sp" android:focusable="false" android:clickable="false"/>
+            </FrameLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -300,6 +305,55 @@
             <TextView android:id="@+id/tv_status_battery" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:shadowColor="#FF000000" android:shadowDx="1" android:shadowDy="1" android:shadowRadius="3"/>
         </LinearLayout>
     </RelativeLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_navidrome_mode"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#66000000"
+        android:orientation="vertical"
+        android:paddingLeft="10dp"
+        android:paddingTop="36dp"
+        android:paddingRight="10dp"
+        android:paddingBottom="10dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <TextView
+                android:id="@+id/tv_navidrome_path"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="NAVIDROME"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:singleLine="true" />
+            <TextView
+                android:id="@+id/tv_navidrome_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textColor="#888888"
+                android:textSize="14sp"
+                android:paddingRight="4dp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+            <LinearLayout
+                android:id="@+id/container_navidrome_items"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/layout_volume_overlay"

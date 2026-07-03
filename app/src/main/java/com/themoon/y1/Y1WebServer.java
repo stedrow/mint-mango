@@ -1,7 +1,9 @@
 package com.themoon.y1;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
+import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -148,6 +150,21 @@ public class Y1WebServer extends Thread {
                             "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#9E9E9E;'>" +
                             "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
                             "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
+                            "</div>" +
+
+                            // Navidrome 설정 박스
+                            "<div class='box'>" +
+                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>🎵 Navidrome Settings</div>" +
+                            "<div style='display:flex; flex-direction:column; gap:8px;'>" +
+                            "<input type='text' id='navUrl' placeholder='Server URL  e.g. http://192.168.1.100:4533' style='width:100%; box-sizing:border-box;'>" +
+                            "<input type='text' id='navUser' placeholder='Username'>" +
+                            "<input type='password' id='navPass' placeholder='Password'>" +
+                            "</div>" +
+                            "<div style='margin-top:10px; display:flex; gap:8px;'>" +
+                            "<button onclick='saveNavSettings()' style='flex:1;'>💾 Save</button>" +
+                            "<button class='action' onclick='loadNavSettings()' style='flex:1;'>📋 Load Current</button>" +
+                            "</div>" +
+                            "<div id='navStatus' style='margin-top:8px; color:#81C784; font-size:13px;'></div>" +
                             "</div>" +
 
                             // 파일 리스트 박스
@@ -314,7 +331,25 @@ public class Y1WebServer extends Thread {
                             "  } " +
                             "});" +
 
-                            "window.onload = loadList;" +
+                            "function loadNavSettings() {" +
+                            "  fetch('/api/navidrome-settings').then(r=>r.json()).then(d => {" +
+                            "    document.getElementById('navUrl').value = d.url || '';" +
+                            "    document.getElementById('navUser').value = d.user || '';" +
+                            "    document.getElementById('navPass').value = d.pass || '';" +
+                            "    document.getElementById('navStatus').innerText = d.url ? '✅ Settings loaded.' : 'ℹ️ Not configured yet.';" +
+                            "  }).catch(()=>{ document.getElementById('navStatus').innerText='⚠️ Could not load.'; });" +
+                            "}" +
+                            "async function saveNavSettings() {" +
+                            "  var url = document.getElementById('navUrl').value.trim();" +
+                            "  var user = document.getElementById('navUser').value.trim();" +
+                            "  var pass = document.getElementById('navPass').value;" +
+                            "  if(!url||!user){document.getElementById('navStatus').innerText='⚠️ URL and username are required.';return;}" +
+                            "  var body = JSON.stringify({url:url,user:user,pass:pass});" +
+                            "  await fetch('/api/navidrome-settings', {method:'POST', body:body});" +
+                            "  document.getElementById('navStatus').innerText='✅ Saved! Restart Navidrome browser on Y1 to connect.';" +
+                            "}" +
+
+                            "window.onload = function(){ loadList(); loadNavSettings(); };" +
                             "</script></body></html>";
 
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
@@ -391,6 +426,41 @@ public class Y1WebServer extends Thread {
                     if (oldFile.exists() && !newFile.exists()) {
                         oldFile.renameTo(newFile);
                     }
+                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
+                }
+
+                // [API] Navidrome settings – GET
+                else if (method.equals("GET") && path.equals("/api/navidrome-settings")) {
+                    android.content.SharedPreferences prefs = context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE);
+                    String navUrl = prefs.getString("navidrome_url", "");
+                    String navUser = prefs.getString("navidrome_user", "");
+                    String navPass = prefs.getString("navidrome_pass", "");
+                    String json = "{\"url\":\"" + navUrl.replace("\"","\\\"") + "\",\"user\":\"" + navUser.replace("\"","\\\"") + "\",\"pass\":\"" + navPass.replace("\"","\\\"") + "\"}";
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+                }
+
+                // [API] Navidrome settings – POST
+                else if (method.equals("POST") && path.equals("/api/navidrome-settings")) {
+                    byte[] bodyBytes = new byte[Math.min(contentLength, 4096)];
+                    int totalRead = 0;
+                    while (totalRead < bodyBytes.length) {
+                        int r = is.read(bodyBytes, totalRead, bodyBytes.length - totalRead);
+                        if (r == -1) break;
+                        totalRead += r;
+                    }
+                    String body = new String(bodyBytes, 0, totalRead, "UTF-8");
+                    try {
+                        org.json.JSONObject obj = new org.json.JSONObject(body);
+                        String navUrl = obj.optString("url", "").trim().replaceAll("/+$", "");
+                        String navUser = obj.optString("user", "").trim();
+                        String navPass = obj.optString("pass", "");
+                        context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE).edit()
+                                .putString("navidrome_url", navUrl)
+                                .putString("navidrome_user", navUser)
+                                .putString("navidrome_pass", navPass)
+                                .apply();
+                        com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
+                    } catch (Exception ignored) {}
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 

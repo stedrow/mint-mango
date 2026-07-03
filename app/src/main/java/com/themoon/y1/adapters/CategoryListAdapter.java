@@ -159,6 +159,19 @@ public class CategoryListAdapter extends BaseAdapter {
             btn.setCompoundDrawables(null, null, null, null);
         }
 
+        if (type.equals("ALBUM")) {
+            // 롱 클릭 = 앨범 전체 삭제 (테마 모달로 확인)
+            btn.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    MainActivity.instance.clickFeedback();
+                    MainActivity.instance.isLongPressConsumed = true;
+                    MainActivity.instance.showDeleteAlbumDialog(name);
+                    return true;
+                }
+            });
+        }
+
         btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
