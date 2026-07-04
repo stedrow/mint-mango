@@ -819,15 +819,17 @@ public class MainActivity extends Activity {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                 if (state == BluetoothAdapter.STATE_ON) {
                     ivStatusBluetooth.setVisibility(View.VISIBLE);
-                    ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
+                    updateBluetoothStatusIcon();
 
                     // 🚀 [추가] 블루투스가 켜지는 순간, A2DP 엔진을 잊지 않고 미리 세팅합니다!
                     BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
                             new android.bluetooth.BluetoothProfile.ServiceListener() {
                                 @Override
                                 public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                                    if (profile == BluetoothProfile.A2DP)
+                                    if (profile == BluetoothProfile.A2DP) {
                                         globalA2dp = proxy;
+                                        updateBluetoothStatusIcon();
+                                    }
                                 }
 
                                 @Override
@@ -906,6 +908,7 @@ public class MainActivity extends Activity {
                 // 🚀 블루투스 연결 상태가 바뀔 때마다 스피커 뮤트 여부 재평가 (이 브로드캐스트가
                 // 진실의 원천이므로 재조회 대신 지금 막 확인된 상태를 그대로 사용)
                 applySpeakerSetting(profileState == BluetoothProfile.STATE_CONNECTED);
+                updateBluetoothStatusIcon();
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
                         || profileState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -1199,6 +1202,7 @@ public class MainActivity extends Activity {
                     public void onServiceConnected(int profile, android.bluetooth.BluetoothProfile proxy) {
                         if (profile == android.bluetooth.BluetoothProfile.A2DP) {
                             globalA2dp = proxy; // 장전 완료!
+                            updateBluetoothStatusIcon();
                         }
                     }
 
@@ -1968,8 +1972,7 @@ public class MainActivity extends Activity {
             BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
             if (ba != null && ba.isEnabled()) {
                 ivStatusBluetooth.setVisibility(View.VISIBLE);
-                // 🚀 [수정] 여기도 파란색을 깔끔한 흰색으로 변경!
-                ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
+                updateBluetoothStatusIcon();
             }
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null && wm.isWifiEnabled()) {
@@ -8193,6 +8196,21 @@ public class MainActivity extends Activity {
     private void applySpeakerSetting(boolean externalAudioConnected) {
         boolean shouldMute = isSpeakerDisabled && !externalAudioConnected;
         com.themoon.y1.managers.AudioPlayerManager.getInstance().setSpeakerMuted(shouldMute);
+    }
+
+    // 💡 블루투스 상태바 아이콘 색상 갱신 — 폰들이 흔히 하듯, 그냥 켜져있을 때(흰색)와
+    // 실제로 기기(이어폰 등)에 연결되어 있을 때(파란색)를 다른 색으로 구분합니다.
+    private static final int BT_ICON_COLOR_ON = 0xFFFFFFFF;
+    private static final int BT_ICON_COLOR_CONNECTED = 0xFF2FA8FF;
+
+    private void updateBluetoothStatusIcon() {
+        if (ivStatusBluetooth == null) return;
+        boolean connected = false;
+        try {
+            connected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
+        } catch (Exception e) {
+        }
+        ivStatusBluetooth.setColorFilter(connected ? BT_ICON_COLOR_CONNECTED : BT_ICON_COLOR_ON);
     }
 
     // 💡 안드로이드 하드웨어 가속(RenderScript)을 이용한 고화질 가우시안 블러 함수!
