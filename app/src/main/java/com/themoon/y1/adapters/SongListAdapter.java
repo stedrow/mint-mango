@@ -107,7 +107,6 @@ public class SongListAdapter extends BaseAdapter {
                 if (hasFocus) {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    MainActivity.instance.showFastScrollLetter(title);
                 } else {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     btn.setTextColor(ThemeManager.getTextColorPrimary());

@@ -123,7 +123,6 @@ public class CategoryListAdapter extends BaseAdapter {
                 if (hasFocus) {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    MainActivity.instance.showFastScrollLetter(name);
                 } else {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     btn.setTextColor(ThemeManager.getTextColorPrimary());

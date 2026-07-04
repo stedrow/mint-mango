@@ -85,17 +85,6 @@ public class MainActivity extends Activity {
     private android.bluetooth.BluetoothProfile globalA2dp;
     private BluetoothDevice targetDeviceForAudio = null; // 🚀 [추가] 좀비처럼 물고 늘어질 타겟 기기
     private boolean isBtConnectingState = false;
-    // 💡 [추가] 퀵 스크롤 (알파벳 인덱스) 관련 변수들
-    private TextView tvFastScrollLetter;
-    private Handler fastScrollHandler = new Handler();
-    private Runnable hideFastScrollTask = new Runnable() {
-        @Override
-        public void run() {
-            if (tvFastScrollLetter != null) {
-                tvFastScrollLetter.setVisibility(View.GONE);
-            }
-        }
-    };
     // 🚀 [신규 추가] 가상 암전 화면 끄기 제어 스위치
     public boolean isFakeScreenOff = false;
 
@@ -1289,19 +1278,6 @@ public class MainActivity extends Activity {
         root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        tvFastScrollLetter = new TextView(this);
-        tvFastScrollLetter.setTextSize(50); // 글자 크기를 아주 큼직하게!
-        tvFastScrollLetter.setGravity(android.view.Gravity.CENTER);
-        tvFastScrollLetter.setVisibility(View.GONE);
-
-        android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(
-                (int) (80 * getResources().getDisplayMetrics().density), // 가로 80dp
-                (int) (80 * getResources().getDisplayMetrics().density) // 세로 80dp
-        );
-        flp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT; // 오른쪽 가운데 정렬
-        flp.rightMargin = (int) (30 * getResources().getDisplayMetrics().density); // 오른쪽에서 30dp 띄움
-        root.addView(tvFastScrollLetter, flp);
-
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         // 🚀 [시스템 공식 등록] 화면이 꺼져도 버튼 신호를 받을 수 있도록 수신기를 장착합니다!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
@@ -2317,47 +2293,6 @@ public class MainActivity extends Activity {
             }
         }
     }
-    // 💡 [추가] 문자열에서 첫 글자를 뽑아내어 화면에 띄워주는 함수
-    public void showFastScrollLetter(String rawText) {
-        // 브라우저 모드(리스트 화면)가 아니면 띄우지 않습니다.
-        if (tvFastScrollLetter == null || currentScreenState != STATE_BROWSER)
-            return;
-
-        // 버튼 텍스트 앞에 붙어있는 꾸밈용 이모지들을 싹 지우고 순수 제목만 남깁니다.
-        String clean = rawText.replace("📁 ", "").replace("👤 ", "")
-                .replace("💿 ", "").replace("🎵 ", "")
-                .replace("📦 [INSTALL] ", "").trim();
-
-        if (clean.isEmpty()) return;
-        // 첫 글자 1개만 추출 (무조건 대문자로 변환)
-        String firstChar = clean.substring(0, 1).toUpperCase();
-
-        // 🚀 [그래픽 과부하 방지] 이미 화면에 떠 있는 알파벳과 '똑같은' 알파벳이라면?
-        // 무거운 박스 그리기 작업을 생략하고 글자가 사라지는 타이머만 연장해 줍니다!
-        if (tvFastScrollLetter.getVisibility() == View.VISIBLE
-                && tvFastScrollLetter.getText().toString().equals(firstChar)) {
-            fastScrollHandler.removeCallbacks(hideFastScrollTask);
-            fastScrollHandler.postDelayed(hideFastScrollTask, 800);
-            return; // 여기서 함수를 멈춰버립니다.
-        }
-
-        tvFastScrollLetter.setText(firstChar);
-
-        // 🚀 현재 적용된 테마의 강조 색상으로 박스를 예쁘게 색칠합니다!
-        tvFastScrollLetter.setTextColor(ThemeManager.getTextColorPrimary());
-        tvFastScrollLetter.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        android.graphics.drawable.GradientDrawable letterBg = new android.graphics.drawable.GradientDrawable();
-        letterBg.setColor(ThemeManager.getListButtonFocusedBg() | 0xDD000000); // 살짝 반투명하게 덮기
-        letterBg.setCornerRadius(15 * getResources().getDisplayMetrics().density); // 둥근 모서리
-        tvFastScrollLetter.setBackground(letterBg);
-
-        tvFastScrollLetter.setVisibility(View.VISIBLE);
-
-        // 0.8초 동안 휠 조작이 없으면 글자가 자동으로 스르륵 사라지도록 타이머 리셋
-        fastScrollHandler.removeCallbacks(hideFastScrollTask);
-        fastScrollHandler.postDelayed(hideFastScrollTask, 800);
-    }
-
     // 💡 [수정 완료] 메인 화면 테마 적용기. 동적 렌더링 엔진 호출 추가!
     private void applyThemeToMainMenu() {
         try {
@@ -3554,7 +3489,6 @@ public class MainActivity extends Activity {
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     tvIcon.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     tvText.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(tvText.getText().toString());
                 } else {
                     // 🚀 [포커스 복구 버그 완전 해결] 포커스가 빠져나갈 때 흰색으로 리셋되지 않고, 처음에 칠했던 색상으로 정확히 복귀합니다!
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
@@ -3598,7 +3532,6 @@ public class MainActivity extends Activity {
                     // 🚀 포커스 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
                     btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(((Button) v).getText().toString());
 
                 } else {
                     // 🚀 일반 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
@@ -9712,7 +9645,6 @@ public class MainActivity extends Activity {
             public void onFocusChange(android.view.View v, boolean hasFocus) {
                 if (hasFocus) {
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(((android.widget.Button) v).getText().toString());
                     // 포커스가 닿았을 때의 색상으로 프로그레스 다시 그리기
                     applyProgressBackground(btn, pos, dur, true);
                 } else {
@@ -10314,7 +10246,6 @@ public class MainActivity extends Activity {
                     row.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     tvTitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     tvDuration.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(tvTitle.getText().toString());
                 } else {
                     row.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
