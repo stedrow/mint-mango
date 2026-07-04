@@ -804,6 +804,7 @@ public class MainActivity extends Activity {
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
                     globalA2dp = null; // 🚀 블루투스가 꺼지면 엔진도 같이 초기화
+                    AapService.deviceDisconnected(context);
                 }
                 // (이하 기존 코드 유지)
                 // 🚀 [버그 해결 1] 사용자가 메인 셋팅창(깊이 0)에 있을 때만 새로고침 하도록 방어막 전개!
@@ -854,6 +855,7 @@ public class MainActivity extends Activity {
                 // 🚀 [순정 이식: 좀비 로직 1] 에어팟이 오디오를 튕겨내면? 0.1초 만에 엔진 재호출!
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
+                    AapService.deviceDisconnected(context);
                     if (targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
                         connectBluetoothAudio(targetDeviceForAudio);
@@ -861,6 +863,7 @@ public class MainActivity extends Activity {
                 } else if (profileState == BluetoothProfile.STATE_CONNECTED) {
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
+                    if (currentDevice != null) AapService.deviceConnected(context, currentDevice);
                 }
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED

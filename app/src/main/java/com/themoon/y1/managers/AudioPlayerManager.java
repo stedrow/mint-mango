@@ -43,6 +43,10 @@ public class AudioPlayerManager {
 
     private float currentSpeed = 1.0f;
 
+    // Set when AapService auto-pauses on AirPods removal (see pauseForAirpods());
+    // only that path is allowed to auto-resume, so it never fights a real user pause.
+    private boolean pausedByAirpods = false;
+
     private AudioPlayerManager() {}
 
 
@@ -287,6 +291,7 @@ public class AudioPlayerManager {
     }
 
     public void playOrPauseMusic() {
+        pausedByAirpods = false; // any manual toggle cancels a pending AirPods auto-resume
         if (isUsingLegacyPlayer && legacyPlayer != null) {
             if (legacyPlayer.isPlaying()) {
                 saveAudiobookBookmarkIfNeeded();
@@ -305,6 +310,32 @@ public class AudioPlayerManager {
                 exoPlayer.setPlayWhenReady(true);
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = false;
             }
+        }
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+    }
+
+    /** Auto-pause on AirPods removal (AapService). Never overrides an already-paused state. */
+    public void pauseForAirpods() {
+        if (!isPlaying()) return;
+        saveAudiobookBookmarkIfNeeded();
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.pause();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(false);
+        }
+        pausedByAirpods = true;
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+    }
+
+    /** Resumes only if {@link #pauseForAirpods()} was the one that paused (never fights a user pause). */
+    public void resumeForAirpods() {
+        if (!pausedByAirpods) return;
+        pausedByAirpods = false;
+        if (isPlaying()) return;
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.start();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(true);
         }
         if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
     }
