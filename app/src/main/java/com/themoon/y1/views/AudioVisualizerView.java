@@ -18,9 +18,14 @@ public class AudioVisualizerView extends View {
     }
 
     public void updateVisualizer(byte[] fft, int color) {
+        // Android's Visualizer engine keeps delivering FFT callbacks on its capture-rate timer
+        // even while playback is paused, so guard here too rather than only stopping the old
+        // self-perpetuating onDraw loop.
+        if (!com.themoon.y1.managers.AudioPlayerManager.getInstance().isPlaying()) return;
         this.fftData = fft;
         paint.setColor(color);
-        // invalidate() 대신 onDraw 내부에서 무한 루프를 돌려 60fps를 방어합니다!
+        // 새 FFT 데이터가 들어올 때만 다시 그립니다 (호출 빈도는 Visualizer 캡처 레이트에 이미 제한되어 있음).
+        postInvalidate();
     }
 
     @Override
@@ -52,10 +57,6 @@ public class AudioVisualizerView extends View {
             canvas.drawLine(x, height, x, height - currentHeights[i], paint);
         }
 
-        // 🚀 3. 화면에 보일 때는 초당 60번(16ms) 강제 새로고침하여 버벅임을 없앱니다.
-        if (getVisibility() == View.VISIBLE) {
-            postInvalidateDelayed(16);
-        }
     }
 }
 

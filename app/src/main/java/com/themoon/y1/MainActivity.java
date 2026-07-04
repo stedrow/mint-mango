@@ -581,6 +581,7 @@ public class MainActivity extends Activity {
                         float alpha = 0.0f;
                         @Override
                         public void run() {
+                            if (isFinishing() || isDestroyed()) return;
                             alpha += 0.08f; // 💡 이 숫자를 낮추면 더 천천히 어두워집니다.
                             if (alpha >= 1.0f) {
                                 layoutLoadingOverlay.setAlpha(1.0f);
@@ -877,6 +878,7 @@ public class MainActivity extends Activity {
                 }
             } else if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device == null) return;
                 String deviceName = device.getName();
                 String deviceAddress = device.getAddress();
                 // 🚀 ⭕ [수정] 이름이 아직 안 뜬 기기(null)라도 절대 버리지 말고 'Unknown Device (맥주소)'로 목록에 띄웁니다!
@@ -2183,6 +2185,9 @@ public class MainActivity extends Activity {
             checker.post(new Runnable() {
                 @Override
                 public void run() {
+                    // Guard against this self-rescheduling loop outliving the Activity (e.g. a
+                    // scan stuck in isCustomScanning/isRadioScanning while the Activity is destroyed).
+                    if (isFinishing() || isDestroyed()) return;
                     // 🚀 [버그 수리 완료!] 음악 스캔이나 라디오 스캔 중 어느 하나라도 돌고 있으면 창을 닫지 않습니다!
                     if (!isCustomScanning && !isRadioScanning) {
                         layoutLoadingOverlay.setVisibility(View.GONE);
@@ -2581,11 +2586,12 @@ public class MainActivity extends Activity {
             }
 
             if (sourceBitmap != null) {
-                Bitmap blurredBitmap = applyGaussianBlur(sourceBitmap);
-                ivMainBg.setImageBitmap(blurredBitmap);
-                if (sourceBitmap != blurredBitmap) {
-                    sourceBitmap.recycle();
-                }
+                applyGaussianBlurAsync(sourceBitmap, (blurredBitmap, src) -> {
+                    ivMainBg.setImageBitmap(blurredBitmap);
+                    if (src != blurredBitmap) {
+                        src.recycle();
+                    }
+                });
             } else {
                 ivMainBg.setImageResource(R.drawable.default_back);
             }
@@ -2948,21 +2954,29 @@ public class MainActivity extends Activity {
     }
 
     private void connectToWifi() {
-        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        if (wm != null) {
-            WifiConfiguration conf = new WifiConfiguration();
-            conf.SSID = "\"" + targetWifiSsid + "\"";
-            if (isTargetWifiOpen)
-                conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-            else
-                conf.preSharedKey = "\"" + typedPassword + "\"";
-            int netId = wm.addNetwork(conf);
-            wm.disconnect();
-            wm.enableNetwork(netId, true);
-            wm.reconnect();
-            wm.saveConfiguration();
+        if (wm == null) {
+            Toast.makeText(this, t("Wi-Fi is unavailable."), Toast.LENGTH_SHORT).show();
+            return;
         }
+        WifiConfiguration conf = new WifiConfiguration();
+        conf.SSID = "\"" + targetWifiSsid + "\"";
+        if (isTargetWifiOpen)
+            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        else
+            conf.preSharedKey = "\"" + typedPassword + "\"";
+        int netId = wm.addNetwork(conf);
+        // addNetwork() returns -1 on failure (bad config, duplicate SSID, etc.) — this used to be
+        // ignored, so a bad password/config would silently show "Connecting..." with no error.
+        if (netId == -1) {
+            Toast.makeText(this, t("Failed to save this network. Please check the password and try again."), Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
+        wm.disconnect();
+        wm.enableNetwork(netId, true);
+        wm.reconnect();
+        wm.saveConfiguration();
         changeScreen(STATE_WIFI);
     }
 
@@ -4388,15 +4402,22 @@ public class MainActivity extends Activity {
                 if (fmManager.isPowerUp) {
                     fmManager.powerDown();
                     isRadioAdjustingFreq = false;
+                    updateGlobalStatusPlayIcon();
+                    buildRadioUI();
                 } else {
                     com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
                     if (am.isPlaying()) am.playOrPauseMusic();
-                    try { Thread.sleep(100); } catch(Exception e){}
-                    if (fmManager.powerUp(fmManager.currentFreq)) activePlayer = 1;
-                    else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
+                    // Give playback a moment to actually pause before the FM chip claims the audio
+                    // session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        fmManager.powerUpAsync(fmManager.currentFreq, success -> {
+                            if (success) activePlayer = 1;
+                            else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
+                            updateGlobalStatusPlayIcon();
+                            buildRadioUI();
+                        });
+                    }, 100);
                 }
-                updateGlobalStatusPlayIcon();
-                buildRadioUI();
             });
             containerSettingsItems.addView(btnPower);
 
@@ -7948,6 +7969,7 @@ public class MainActivity extends Activity {
                             float alpha = 1.0f;
                             @Override
                             public void run() {
+                                if (isFinishing() || isDestroyed()) return;
                                 alpha -= 0.08f;
                                 if (alpha <= 0.0f) {
                                     layoutLoadingOverlay.setAlpha(0.0f);
@@ -8053,10 +8075,19 @@ public class MainActivity extends Activity {
                         if (amInstance.isPlaying()) {
                             amInstance.playOrPauseMusic();
                         }
-                        try { Thread.sleep(50); } catch(Exception e){}
-                        if (!fm.powerUp(fm.currentFreq)) {
-                            android.widget.Toast.makeText(this, "Radio Error: " + fm.lastError, android.widget.Toast.LENGTH_SHORT).show();
-                        }
+                        // Give the music player a moment to actually pause before the FM chip claims the
+                        // audio session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            fm.powerUpAsync(fm.currentFreq, success -> {
+                                if (!success) {
+                                    android.widget.Toast.makeText(this, "Radio Error: " + fm.lastError, android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                                updateGlobalStatusPlayIcon();
+                                if (currentScreenState == STATE_SETTINGS) buildRadioUI();
+                            });
+                        }, 50);
+                        clickFeedback();
+                        return true;
                     }
                     if (currentScreenState == STATE_SETTINGS) buildRadioUI();
                 } else {
@@ -8236,6 +8267,25 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return original;
         }
+    }
+
+    private interface BlurResultCallback {
+        void onBlurred(Bitmap blurred, Bitmap source);
+    }
+
+    // The RenderScript blur pass itself (not just decode) is real work on this hardware — running
+    // it synchronously on every track change causes a visible hitch on skip/next/prev. Do the blur
+    // off the main thread and hand the result back via callback; the caller keeps the immediate
+    // (unblurred) foreground art update synchronous since that part is cheap.
+    private void applyGaussianBlurAsync(final Bitmap source, final BlurResultCallback callback) {
+        if (source == null) {
+            callback.onBlurred(null, null);
+            return;
+        }
+        new Thread(() -> {
+            final Bitmap blurred = applyGaussianBlur(source);
+            runOnUiThread(() -> callback.onBlurred(blurred, source));
+        }).start();
     }
 
     // 💡 1. 날짜/시간 설정 메인 화면 (시간 오류 및 포커스 락 버그 완벽 수정 버전)
@@ -8513,10 +8563,10 @@ public class MainActivity extends Activity {
             android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
             optsBg.inSampleSize = 4;
             android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeFile(imagePath, optsBg);
-            android.graphics.Bitmap blurredBg = applyGaussianBlur(sourceBg);
-            ivPlayerBgBlur.setImageBitmap(blurredBg);
-            if (sourceBg != blurredBg)
-                sourceBg.recycle();
+            applyGaussianBlurAsync(sourceBg, (blurredBg, src) -> {
+                ivPlayerBgBlur.setImageBitmap(blurredBg);
+                if (src != blurredBg) src.recycle();
+            });
 
             // 메인 메뉴 배경도 연동하기 위해 파일 데이터를 byte[]로 변환해서 lastAlbumArtBytes에 집어넣습니다!
             java.io.File file = new java.io.File(imagePath);

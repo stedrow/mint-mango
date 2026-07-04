@@ -26,6 +26,14 @@ public class CategoryListAdapter extends BaseAdapter {
     // 🚀 스크롤 할 때 버벅거리지 않도록 이미지를 기억해두는 '메모리 캐시 금고'입니다!
     private static LruCache<String, Drawable> coverCache;
 
+    // Album art lookup does file scans + MediaMetadataRetriever + bitmap decode, all real I/O.
+    // A single background thread keeps decode order roughly matching scroll order and avoids
+    // spawning one raw Thread per row on a CPU this weak.
+    private static final java.util.concurrent.ExecutorService albumArtExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    private static Drawable defaultAlbumDrawable;
+
     public CategoryListAdapter(List<String> items, String type) {
         this.items = items;
         this.type = type;
@@ -62,95 +70,32 @@ public class CategoryListAdapter extends BaseAdapter {
         // 🚀 [핵심 개조] 앨범 모드일 때만 왼쪽 아이콘(앨범 아트 썸네일)을 세팅합니다!
         if (type.equals("ALBUM")) {
             btn.setText(name); // 💿 이모티콘을 없애고 순수 앨범 이름만 넣습니다.
+            btn.setTag(name); // recycled-view guard: only apply an async result if the row still shows this album
 
             // 1. 메모리 금고에 이미 불러온 그림이 있는지 확인!
-            Drawable leftDrawable = coverCache.get(name);
+            Drawable cached = coverCache.get(name);
 
-            // 2. 금고에 그림이 없다면? 직접 찾아서 그립니다.
-            if (leftDrawable == null) {
-                String artPath = "";
-                byte[] embeddedPic = null;
+            if (cached != null) {
+                btn.setCompoundDrawables(cached, null, null, null);
+            } else {
+                // 2. 캐시 미스: 즉시 기본 아이콘을 보여주고, 실제 조회/디코딩은 백그라운드로 넘깁니다.
+                // (전체 라이브러리 스캔 + MediaMetadataRetriever + 비트맵 디코딩을 메인 스레드에서
+                // 하면 스크롤 중 버벅임이 심해서 별도 스레드로 뺐습니다.)
+                final int size = (int) (40 * MainActivity.instance.getResources().getDisplayMetrics().density);
+                btn.setCompoundDrawables(getDefaultAlbumDrawable(size), null, null, null);
 
-                // 🚀 [버그 대수술] 이 앨범에 속한 '모든 노래'를 전부 뒤집니다!
-                // 특정 곡(예: 3번 트랙)을 재생할 때 다운로드된 이미지가 저장되었더라도,
-                // 앨범 카테고리 전체 리스트에서 완벽하게 찾아내도록 조회 범위를 넓힙니다.
-                for (SongItem song : MainActivity.customLibrary) {
-                    if (song.album.equals(name)) {
-                        String trackPath = song.file.getAbsolutePath();
-
-                        // ① SharedPreferences 금고에 다운로드 경로가 등록되어 있는지 확인
-                        if (MainActivity.instance.prefs != null) {
-                            String savedPath = MainActivity.instance.prefs.getString("album_art_" + trackPath, "");
-                            if (!savedPath.isEmpty() && new File(savedPath).exists()) {
-                                artPath = savedPath;
-                                break; // 이미지를 찾았으면 즉시 탈출!
-                            }
+                albumArtExecutor.execute(() -> {
+                    final Drawable loaded = loadAlbumArtDrawable(name, size);
+                    coverCache.put(name, loaded);
+                    MainActivity.instance.runOnUiThread(() -> {
+                        if (name.equals(btn.getTag())) {
+                            btn.setCompoundDrawables(loaded, null, null, null);
                         }
-
-                        // ② 금고 등록 정보가 누락되었을 경우를 대비해, 파일 이름 매칭으로 폴더 직접 스캔 더블 체크!
-                        String safeFileName = song.file.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "").replace(".aac", "").replace(".ogg", "");
-                        File manualCoverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
-                        if (manualCoverFile.exists()) {
-                            artPath = manualCoverFile.getAbsolutePath();
-                            break; // 실제 파일이 존재하면 즉시 탈출!
-                        }
-
-                        // ③ 인터넷 이미지가 없다면 파일 내부 내장 아트(Embedded) 후보로 등록 (FLAC 제외)
-                        if (embeddedPic == null && !trackPath.toLowerCase().endsWith(".flac")) {
-                            android.media.MediaMetadataRetriever mmr = null;
-                            java.io.FileInputStream fis = null;
-                            try {
-                                mmr = new android.media.MediaMetadataRetriever();
-                                fis = new java.io.FileInputStream(trackPath);
-                                mmr.setDataSource(fis.getFD());
-                                byte[] pic = mmr.getEmbeddedPicture();
-                                if (pic != null && pic.length > 0) {
-                                    embeddedPic = pic;
-                                }
-                            } catch (Exception e) {
-                            } finally {
-                                try { if (fis != null) fis.close(); } catch (Exception e) {}
-                                try { if (mmr != null) mmr.release(); } catch (Exception e) {}
-                            }
-                        }
-                    }
-                }
-
-                int size = (int) (40 * MainActivity.instance.getResources().getDisplayMetrics().density);
-                Bitmap bmp = null;
-
-                // [선택 1] 인터넷 다운로드 커버가 있으면 최우선 로딩
-                if (!artPath.isEmpty()) {
-                    try {
-                        BitmapFactory.Options opts = new BitmapFactory.Options();
-                        opts.inSampleSize = 4;
-                        bmp = BitmapFactory.decodeFile(artPath, opts);
-                    } catch (Exception e) {}
-                }
-                // [선택 2] 인터넷 커버가 없으면 파일 내장 아트 로딩
-                else if (embeddedPic != null) {
-                    try {
-                        BitmapFactory.Options opts = new BitmapFactory.Options();
-                        opts.inSampleSize = 4;
-                        bmp = BitmapFactory.decodeByteArray(embeddedPic, 0, embeddedPic.length, opts);
-                    } catch (Exception e) {}
-                }
-
-                // [선택 3] 둘 다 없으면 기본 이미지
-                if (bmp == null) {
-                    bmp = BitmapFactory.decodeResource(MainActivity.instance.getResources(), R.drawable.default_album);
-                }
-
-                if (bmp != null) {
-                    Bitmap scaled = Bitmap.createScaledBitmap(bmp, size, size, true);
-                    leftDrawable = new BitmapDrawable(MainActivity.instance.getResources(), scaled);
-                    leftDrawable.setBounds(0, 0, size, size);
-                    coverCache.put(name, leftDrawable); // 다음번 고속 스크롤을 위해 메모리에 저장
-                }
+                    });
+                });
             }
 
             // 버튼 왼쪽에 이미지를 세팅하고, 글자와의 간격을 15dp 띄워줍니다.
-            btn.setCompoundDrawables(leftDrawable, null, null, null);
             btn.setCompoundDrawablePadding((int)(15 * MainActivity.instance.getResources().getDisplayMetrics().density));
 
         } else {
@@ -198,5 +143,96 @@ public class CategoryListAdapter extends BaseAdapter {
         });
 
         return btn;
+    }
+
+    private Drawable getDefaultAlbumDrawable(int size) {
+        if (defaultAlbumDrawable == null) {
+            Bitmap bmp = BitmapFactory.decodeResource(MainActivity.instance.getResources(), R.drawable.default_album);
+            Bitmap scaled = Bitmap.createScaledBitmap(bmp, size, size, true);
+            defaultAlbumDrawable = new BitmapDrawable(MainActivity.instance.getResources(), scaled);
+            defaultAlbumDrawable.setBounds(0, 0, size, size);
+        }
+        return defaultAlbumDrawable;
+    }
+
+    // Runs off the main thread: scans the library for this album's cover (saved download path,
+    // manually-dropped cover file, or embedded tag art) and decodes/scales a thumbnail.
+    private Drawable loadAlbumArtDrawable(String name, int size) {
+        String artPath = "";
+        byte[] embeddedPic = null;
+
+        // 🚀 [버그 대수술] 이 앨범에 속한 '모든 노래'를 전부 뒤집니다!
+        // 특정 곡(예: 3번 트랙)을 재생할 때 다운로드된 이미지가 저장되었더라도,
+        // 앨범 카테고리 전체 리스트에서 완벽하게 찾아내도록 조회 범위를 넓힙니다.
+        for (SongItem song : MainActivity.customLibrary) {
+            if (song.album.equals(name)) {
+                String trackPath = song.file.getAbsolutePath();
+
+                // ① SharedPreferences 금고에 다운로드 경로가 등록되어 있는지 확인
+                if (MainActivity.instance.prefs != null) {
+                    String savedPath = MainActivity.instance.prefs.getString("album_art_" + trackPath, "");
+                    if (!savedPath.isEmpty() && new File(savedPath).exists()) {
+                        artPath = savedPath;
+                        break; // 이미지를 찾았으면 즉시 탈출!
+                    }
+                }
+
+                // ② 금고 등록 정보가 누락되었을 경우를 대비해, 파일 이름 매칭으로 폴더 직접 스캔 더블 체크!
+                String safeFileName = song.file.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "").replace(".aac", "").replace(".ogg", "");
+                File manualCoverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
+                if (manualCoverFile.exists()) {
+                    artPath = manualCoverFile.getAbsolutePath();
+                    break; // 실제 파일이 존재하면 즉시 탈출!
+                }
+
+                // ③ 인터넷 이미지가 없다면 파일 내부 내장 아트(Embedded) 후보로 등록 (FLAC 제외)
+                if (embeddedPic == null && !trackPath.toLowerCase().endsWith(".flac")) {
+                    android.media.MediaMetadataRetriever mmr = null;
+                    java.io.FileInputStream fis = null;
+                    try {
+                        mmr = new android.media.MediaMetadataRetriever();
+                        fis = new java.io.FileInputStream(trackPath);
+                        mmr.setDataSource(fis.getFD());
+                        byte[] pic = mmr.getEmbeddedPicture();
+                        if (pic != null && pic.length > 0) {
+                            embeddedPic = pic;
+                        }
+                    } catch (Exception e) {
+                    } finally {
+                        try { if (fis != null) fis.close(); } catch (Exception e) {}
+                        try { if (mmr != null) mmr.release(); } catch (Exception e) {}
+                    }
+                }
+            }
+        }
+
+        Bitmap bmp = null;
+
+        // [선택 1] 인터넷 다운로드 커버가 있으면 최우선 로딩
+        if (!artPath.isEmpty()) {
+            try {
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = 4;
+                bmp = BitmapFactory.decodeFile(artPath, opts);
+            } catch (Exception e) {}
+        }
+        // [선택 2] 인터넷 커버가 없으면 파일 내장 아트 로딩
+        else if (embeddedPic != null) {
+            try {
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = 4;
+                bmp = BitmapFactory.decodeByteArray(embeddedPic, 0, embeddedPic.length, opts);
+            } catch (Exception e) {}
+        }
+
+        // [선택 3] 둘 다 없으면 기본 이미지
+        if (bmp == null) {
+            return getDefaultAlbumDrawable(size);
+        }
+
+        Bitmap scaled = Bitmap.createScaledBitmap(bmp, size, size, true);
+        Drawable drawable = new BitmapDrawable(MainActivity.instance.getResources(), scaled);
+        drawable.setBounds(0, 0, size, size);
+        return drawable;
     }
 }

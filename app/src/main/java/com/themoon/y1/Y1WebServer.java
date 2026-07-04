@@ -48,6 +48,19 @@ public class Y1WebServer extends Thread {
         } catch (Exception ex) { return "Unknown IP"; }
     }
 
+    // Resolves a client-supplied relative path against rootFolder and rejects
+    // anything that escapes it via ".." traversal (verified: Java's File(parent, child)
+    // does NOT discard an absolute child, but canonicalization still collapses "..").
+    private File resolveSafePath(String relativePath) throws java.io.IOException {
+        File target = (relativePath == null || relativePath.isEmpty()) ? rootFolder : new File(rootFolder, relativePath);
+        String rootCanonical = rootFolder.getCanonicalPath();
+        String targetCanonical = target.getCanonicalPath();
+        if (!targetCanonical.equals(rootCanonical) && !targetCanonical.startsWith(rootCanonical + File.separator)) {
+            throw new java.io.IOException("Path escapes root folder: " + relativePath);
+        }
+        return target;
+    }
+
     private void deleteFileOrFolder(File fileOrDirectory) {
         if (fileOrDirectory.isDirectory()) {
             File[] children = fileOrDirectory.listFiles();
@@ -367,7 +380,7 @@ public class Y1WebServer extends Thread {
                     String dirStr = "";
                     if (q.startsWith("dir=")) dirStr = URLDecoder.decode(q.substring(4), "UTF-8");
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
+                    File targetDir = resolveSafePath(dirStr);
                     StringBuilder json = new StringBuilder("[");
 
                     if (targetDir.exists() && targetDir.isDirectory()) {
@@ -397,8 +410,7 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
                         if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
                     }
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
-                    File newDir = new File(targetDir, name);
+                    File newDir = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
                     newDir.mkdirs();
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
@@ -407,7 +419,7 @@ public class Y1WebServer extends Thread {
                 else if (method.equals("POST") && path.startsWith("/api/delete")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
                     if (targetFile.exists()) {
                         deleteFileOrFolder(targetFile);
                     }
@@ -425,9 +437,8 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("new=")) newName = URLDecoder.decode(p.substring(4), "UTF-8");
                     }
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
-                    File oldFile = new File(targetDir, oldName);
-                    File newFile = new File(targetDir, newName);
+                    File oldFile = resolveSafePath(dirStr.isEmpty() ? oldName : dirStr + "/" + oldName);
+                    File newFile = resolveSafePath(dirStr.isEmpty() ? newName : dirStr + "/" + newName);
 
                     // 기존 파일이 존재하고 새 이름의 파일이 없을 때만 안전하게 이름 변경 실행
                     if (oldFile.exists() && !newFile.exists()) {
@@ -500,7 +511,7 @@ public class Y1WebServer extends Thread {
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
 
                     if (!targetFile.exists() || targetFile.isDirectory()) {
                         os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
@@ -544,9 +555,9 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
                     }
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
+                    File targetDir = resolveSafePath(dirStr);
                     if (!targetDir.exists()) targetDir.mkdirs();
-                    File outFile = new File(targetDir, name);
+                    File outFile = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
 
                     FileOutputStream fos = new FileOutputStream(outFile);
                     byte[] buffer = new byte[8192];
@@ -567,7 +578,7 @@ public class Y1WebServer extends Thread {
                 else if (method.equals("POST") && path.startsWith("/api/save")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
 
                     FileOutputStream fos = new FileOutputStream(targetFile);
                     byte[] buffer = new byte[8192];
