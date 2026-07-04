@@ -8421,8 +8421,18 @@ public class MainActivity extends Activity {
                 KeyEvent event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
 
                 if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
-                    // 설정에서 스크린 오프가 꺼져있으면 무시합니다.
-                    if (!MainActivity.instance.isScreenOffControlEnabled)
+                    // AirPods squeezes arrive as Bluetooth AVRCP passthrough events on a
+                    // virtual input device named "AVRCP" (verified via logcat), distinct
+                    // from the device's own physical wheel/button (device "mtk-tpd"). Those
+                    // always pass through regardless of the Screen-Off Control setting --
+                    // that setting exists to stop accidental in-pocket presses of the
+                    // physical wheel, not intentional AirPods gestures.
+                    android.view.InputDevice inputDevice = event.getDevice();
+                    boolean isFromAirpods = inputDevice != null
+                            && inputDevice.getName() != null
+                            && inputDevice.getName().contains("AVRCP");
+
+                    if (!isFromAirpods && !MainActivity.instance.isScreenOffControlEnabled)
                         return;
 
                     int keyCode = event.getKeyCode();
