@@ -117,6 +117,23 @@ public class FmRadioManager {
         }
     }
 
+    public interface PowerUpCallback {
+        void onResult(boolean success);
+    }
+
+    // powerUp() does Thread.sleep(300) plus several "su -c" process spawns and reflection calls,
+    // which is 350ms+ of blocking work — always run it off the main thread to avoid freezing the UI
+    // when the radio is turned on (this was previously called directly from onKeyDown/onClick).
+    public void powerUpAsync(final float freq, final PowerUpCallback callback) {
+        final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        new Thread(() -> {
+            final boolean result = powerUp(freq);
+            if (callback != null) {
+                mainHandler.post(() -> callback.onResult(result));
+            }
+        }).start();
+    }
+
     // 1. 하드웨어 전원 켜기
     public boolean powerUp(float freq) {
         if (fmNativeClass == null) {

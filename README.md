@@ -59,6 +59,79 @@ You can easily install the launcher using the **Innioasis Updater**.
 
 ---
 
+## 🎵 Navidrome / Subsonic Streaming
+
+The launcher includes a built-in Subsonic API client so you can browse and stream your [Navidrome](https://www.navidrome.org/) music library over Wi-Fi, and download albums locally for offline playback — no cable required.
+
+### Features
+- Browse your Navidrome library: **Artist → Album → Songs**
+- Stream songs directly on the Y1 over Wi-Fi (transcoded to 192 kbps MP3 by Navidrome)
+- Download individual songs or entire albums to `/storage/sdcard0/Navidrome/`
+- Downloaded files are organised as `Artist/Album/NN - Title.ext` and play back offline through the normal Music library
+
+> **Note on streaming and FLAC:** The Y1's connection speed cannot sustain lossless FLAC bitrates over the internet. The app requests Navidrome to transcode on the fly to 192 kbps MP3, which streams reliably. Downloaded files are saved in their original format (FLAC, ALAC, etc.) for full quality offline playback. Navidrome requires **ffmpeg** to be installed on the server for transcoding to work — see the [Navidrome transcoding docs](https://www.navidrome.org/docs/usage/transcoding/).
+
+### Usage
+- **Navidrome** button on the main menu → Artists list
+- Select an artist → album list
+- Select an album → song list
+  - **▶ Play Album** — streams the full album starting from track 1
+  - **⬇ Download Album** — downloads all tracks in the background
+  - Tap a song title to play from that track
+  - Long-press a song title to download that track only
+- Back button navigates up: Songs → Albums → Artists → Main Menu
+
+---
+
+## 🛠️ Building from Source
+
+### Prerequisites
+- [Android Studio](https://developer.android.com/studio) (provides the JDK)
+- ADB — install via Homebrew on macOS: `brew install android-platform-tools`
+
+### Build
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+bash gradlew assembleDebug
+# Output: app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Flash to device
+
+The launcher ships as a **system app** (`/system/app/com.themoon.y1.apk`), so a standard `adb install` won't work. Use the root shell instead:
+
+1. Connect the Y1 via USB (ADB is enabled by default on this firmware — just plug in)
+2. Run:
+
+```bash
+adb shell mount -o remount,rw /system
+adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk
+adb shell chmod 644 /system/app/com.themoon.y1.apk
+adb reboot
+```
+
+One-liner for subsequent builds:
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && \
+bash gradlew assembleDebug && \
+adb shell mount -o remount,rw /system && \
+adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk && \
+adb shell chmod 644 /system/app/com.themoon.y1.apk && \
+adb reboot
+```
+
+> **Note:** ADB shell runs as root on this device — no `su` required.
+
+### Useful ADB commands
+```bash
+adb devices                        # confirm device is connected
+adb logcat | grep com.themoon.y1   # live logs from the launcher
+adb shell pm path com.themoon.y1   # confirm install location
+adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS  # fix Bluetooth errors
+```
+
+---
+
 ## 🎧 Bluetooth Connection & Pairing
 
 Bluetooth headphone connection testing has been successfully completed, and it works perfectly!
@@ -72,6 +145,39 @@ Bluetooth headphone connection testing has been successfully completed, and it w
 ```bash
 adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
 ```
+---
+
+## 🎧 AirPods Fix (Pro 2 / Pro 3)
+
+AirPods pair and connect to the Y1 but play **no sound** — the player shows a
+track playing while the AirPods stay silent. This is a bug in the Y1's MediaTek
+Bluetooth firmware (not the launcher): the A2DP/SBC audio stream carries broken
+RTP timestamps, which most headphones ignore but modern AirPods reject by
+silently dropping the stream.
+
+The fix is a small proxy driver that replaces `/system/lib/libbluetoothdrv.so`,
+wraps the stock MediaTek driver, and rewrites the outgoing RTP timestamps so the
+AirPods accept the stream. It installs **live over adb** (this firmware has a
+root shell) — no SP Flash Tool or `system.img` patching needed — and preserves
+the stock driver so it's fully reversible.
+
+Everything needed to build, install, verify, and revert lives in
+[`scripts/airpods-rtpfix/`](scripts/airpods-rtpfix/):
+
+```bash
+cd scripts/airpods-rtpfix
+brew install --cask android-ndk && brew install lld android-platform-tools  # one-time
+./build.sh      # compile the proxy against the device's ABI
+./install.sh    # back up the stock driver, install the proxy, reboot
+./status.sh     # confirm it's active and tail the fix log while audio plays
+./revert.sh     # restore the stock driver if ever needed
+```
+
+See the [folder README](scripts/airpods-rtpfix/README.md) for how it works, why
+the live adb swap is safe on this firmware, and build variants (e.g. an optional
+SBC bitpool clamp). Credit for the timestamp-normalization approach:
+[Semy0nBu/y1-airpods-rtpfix](https://github.com/Semy0nBu/y1-airpods-rtpfix).
+
 ---
 
 # 🎨 Y1 Theme Editor User Manual

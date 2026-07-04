@@ -90,7 +90,7 @@ public class SongListAdapter extends BaseAdapter {
                 } else if (MainActivity.instance.currentBrowserMode == 7) { // BROWSER_M3U_SONGS
                     MainActivity.instance.showRemoveFromPlaylistDialog(song.file);
                 } else {
-                    MainActivity.instance.showAddToPlaylistDialog(song.file);
+                    MainActivity.instance.showSongOptionsDialog(song.file);
                 }
                 return true;
             }
@@ -107,7 +107,6 @@ public class SongListAdapter extends BaseAdapter {
                 if (hasFocus) {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    MainActivity.instance.showFastScrollLetter(title);
                 } else {
                     btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     btn.setTextColor(ThemeManager.getTextColorPrimary());

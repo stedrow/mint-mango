@@ -85,19 +85,17 @@ public class MainActivity extends Activity {
     private android.bluetooth.BluetoothProfile globalA2dp;
     private BluetoothDevice targetDeviceForAudio = null; // 🚀 [추가] 좀비처럼 물고 늘어질 타겟 기기
     private boolean isBtConnectingState = false;
-    // 💡 [추가] 퀵 스크롤 (알파벳 인덱스) 관련 변수들
-    private TextView tvFastScrollLetter;
-    private Handler fastScrollHandler = new Handler();
-    private Runnable hideFastScrollTask = new Runnable() {
-        @Override
-        public void run() {
-            if (tvFastScrollLetter != null) {
-                tvFastScrollLetter.setVisibility(View.GONE);
-            }
-        }
-    };
     // 🚀 [신규 추가] 가상 암전 화면 끄기 제어 스위치
     public boolean isFakeScreenOff = false;
+
+    // 🚀 [신규 추가] 주머니 오작동 방지용 "휠 잠금" — 화면이 켜지면(진짜 하드웨어 웨이크)
+    // 휠을 일정 클릭 수만큼 돌리기 전까지 모든 버튼 입력을 무시합니다.
+    private boolean isWheelLockEnabled = false; // 설정 토글 (기본 OFF)
+    private boolean isWheelLockActive = false; // 지금 잠겨서 대기 중인지
+    private int wheelUnlockProgress = 0;
+    private static final int WHEEL_UNLOCK_THRESHOLD = 8;
+    private LinearLayout layoutWheelLockOverlay;
+    private com.themoon.y1.views.WheelLockRingView wheelLockRing;
 
     // 🚀 [신규 추가] 다이렉트 숏컷 뒤로 가기 복귀 경로 추적기!
     private int backTargetForPlayer = STATE_BROWSER;
@@ -136,7 +134,7 @@ public class MainActivity extends Activity {
                             ivStatusPlay.setImageResource(android.R.drawable.ic_media_play);
                         } else {
                             // 둘 다 꺼져있을 때
-                            if (currentPlaylist.isEmpty() && activePlayer == 0) {
+                            if (currentPlaylist.isEmpty() && !am.isNavidromeMode && activePlayer == 0) {
                                 ivStatusPlay.setVisibility(View.GONE);
                             } else {
                                 ivStatusPlay.setVisibility(View.VISIBLE);
@@ -246,6 +244,7 @@ public class MainActivity extends Activity {
     private static final int STATE_BRIGHTNESS = 8;
     private static final int STATE_STORAGE = 9;
     private static final int STATE_WEBSERVER = 10;
+    private static final int STATE_NAVIDROME = 11;
     // 💡 미디어 라이브러리 브라우저 상태 관리 변수들
     private static final int BROWSER_ROOT = 0;
     private static final int BROWSER_FOLDER = 1;
@@ -313,6 +312,43 @@ public class MainActivity extends Activity {
     private View layoutBluetoothMode, layoutWifiMode, layoutWifiKeyboard;
     private View layoutPlayerMode, layoutVolumeOverlay;
     private View layoutBrightnessMode, layoutStorageMode, layoutWebServerMode;
+    private View layoutNavidromeMode;
+    private LinearLayout containerNavidromeItems;
+    private TextView tvNavidromePath, tvNavidromeStatus;
+
+    // Navidrome browse state
+    private static final int NAV_ARTISTS = 0;
+    private static final int NAV_ALBUMS  = 1;
+    private static final int NAV_SONGS   = 2;
+    private int navidromeBrowseDepth = NAV_ARTISTS;
+    private com.themoon.y1.subsonic.SubsonicArtist selectedNavidromeArtist;
+    private com.themoon.y1.subsonic.SubsonicAlbum  selectedNavidromeAlbum;
+    private java.util.List<com.themoon.y1.subsonic.SubsonicSong> lastNavidromeSongs = new java.util.ArrayList<>();
+    private java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
+    private boolean isNavidromeLoading = false;
+    private boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
+    private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the PC Upload web UI
+    private int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
+
+    // Navidrome download queue — one transfer at a time (the ~190kbps link can't
+    // share), with progress shown in tv_navidrome_status
+    private static class NavidromeDownloadItem {
+        final com.themoon.y1.subsonic.SubsonicSong song;
+        final boolean transcoded; // true = MP3 192kbps, false = original file
+        NavidromeDownloadItem(com.themoon.y1.subsonic.SubsonicSong song, boolean transcoded) {
+            this.song = song;
+            this.transcoded = transcoded;
+        }
+    }
+    private final java.util.ArrayDeque<NavidromeDownloadItem> navidromeDownloadQueue = new java.util.ArrayDeque<>();
+    private boolean isNavidromeDownloading = false;
+    private int navidromeQueueTotal = 0;
+    private int navidromeQueueDone = 0;
+    // Keep CPU + WiFi awake while the queue runs — otherwise transfers stall
+    // and time out as soon as the screen sleeps
+    private android.os.PowerManager.WakeLock navidromeDownloadWakeLock;
+    private android.net.wifi.WifiManager.WifiLock navidromeDownloadWifiLock;
+    private String currentNavidromeCoverArtId; // guards against stale async art landing on a newer track
 
     private LinearLayout containerBrowserItems, containerSettingsItems;
     private LinearLayout containerBtItems, containerWifiItems;
@@ -382,6 +418,7 @@ public class MainActivity extends Activity {
     private boolean isShuffleMode = false;
     private int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
     private boolean isSoundEffectEnabled = true;
+    private boolean isSpeakerDisabled = false;
     private boolean isVibrationEnabled = true;
     private boolean isPickingBackground = false;
 
@@ -486,6 +523,31 @@ public class MainActivity extends Activity {
         }
     }
     
+    // 🚀 [휠 잠금] 하드웨어 화면 웨이크(ACTION_SCREEN_ON) 직후 호출 — 휠을 충분히
+    // 돌리기 전까지 모든 키 입력을 dispatchKeyEvent에서 원천 차단합니다.
+    private void activateWheelLock() {
+        isWheelLockActive = true;
+        wheelUnlockProgress = 0;
+        if (layoutWheelLockOverlay != null) {
+            if (wheelLockRing != null) wheelLockRing.resetProgress();
+            layoutWheelLockOverlay.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void deactivateWheelLock() {
+        isWheelLockActive = false;
+        wheelUnlockProgress = 0;
+        if (layoutWheelLockOverlay != null) {
+            layoutWheelLockOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateWheelLockProgress() {
+        if (wheelLockRing != null) {
+            wheelLockRing.setProgress(wheelUnlockProgress);
+        }
+    }
+
     public void turnOffScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         if (fm.isPowerUp || activePlayer == 1) {
@@ -508,6 +570,7 @@ public class MainActivity extends Activity {
                         float alpha = 0.0f;
                         @Override
                         public void run() {
+                            if (isFinishing() || isDestroyed()) return;
                             alpha += 0.08f; // 💡 이 숫자를 낮추면 더 천천히 어두워집니다.
                             if (alpha >= 1.0f) {
                                 layoutLoadingOverlay.setAlpha(1.0f);
@@ -596,16 +659,20 @@ public class MainActivity extends Activity {
             return true; // 💡 true를 반환해야 버튼이 "아하, 롱클릭 처리했으니 일반 클릭은 취소해야지!" 하고 알아듣습니다.
         }
     };
-    private Handler progressHandler = new Handler();
+    public Handler progressHandler = new Handler();
     // ⭕ [아래 코드로 덮어쓰기]
-    private Runnable updateProgressTask = new Runnable() {
+    public Runnable updateProgressTask = new Runnable() {
         @Override
         public void run() {
             try {
                 com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                if (am.isPlaying()) {
+                if (am.isPlaying() || am.isNavidromeMode) {
                     int current = am.getCurrentPosition();
                     int duration = am.getDuration();
+                    // When ExoPlayer is buffering it returns 0 for duration; fall back to API metadata
+                    if (duration <= 0 && am.isNavidromeMode && !am.navidromePlaylist.isEmpty()) {
+                        duration = am.navidromePlaylist.get(am.navidromeIndex).durationSecs * 1000;
+                    }
                     int progress = duration > 0 ? (int) (((float) current / duration) * 100) : 0;
                     playerProgress.setProgress(progress);
                     tvPlayerTimeCurrent.setText(formatTime(current));
@@ -708,6 +775,7 @@ public class MainActivity extends Activity {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
                 autoManageWifiPower(false); // 🚀 [절전 모드 해제]
+                if (isWheelLockEnabled) activateWheelLock();
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -742,15 +810,17 @@ public class MainActivity extends Activity {
                 int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
                 if (state == BluetoothAdapter.STATE_ON) {
                     ivStatusBluetooth.setVisibility(View.VISIBLE);
-                    ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
+                    updateBluetoothStatusIcon();
 
                     // 🚀 [추가] 블루투스가 켜지는 순간, A2DP 엔진을 잊지 않고 미리 세팅합니다!
                     BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
                             new android.bluetooth.BluetoothProfile.ServiceListener() {
                                 @Override
                                 public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                                    if (profile == BluetoothProfile.A2DP)
+                                    if (profile == BluetoothProfile.A2DP) {
                                         globalA2dp = proxy;
+                                        updateBluetoothStatusIcon();
+                                    }
                                 }
 
                                 @Override
@@ -763,6 +833,8 @@ public class MainActivity extends Activity {
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
                     globalA2dp = null; // 🚀 블루투스가 꺼지면 엔진도 같이 초기화
+                    AapService.deviceDisconnected(context);
+                    applySpeakerSetting(); // 🚀 블루투스가 꺼졌으니 스피커 뮤트 여부 재평가
                 }
                 // (이하 기존 코드 유지)
                 // 🚀 [버그 해결 1] 사용자가 메인 셋팅창(깊이 0)에 있을 때만 새로고침 하도록 방어막 전개!
@@ -795,6 +867,7 @@ public class MainActivity extends Activity {
                 }
             } else if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device == null) return;
                 String deviceName = device.getName();
                 String deviceAddress = device.getAddress();
                 // 🚀 ⭕ [수정] 이름이 아직 안 뜬 기기(null)라도 절대 버리지 말고 'Unknown Device (맥주소)'로 목록에 띄웁니다!
@@ -813,14 +886,21 @@ public class MainActivity extends Activity {
                 // 🚀 [순정 이식: 좀비 로직 1] 에어팟이 오디오를 튕겨내면? 0.1초 만에 엔진 재호출!
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
-                    if (targetDeviceForAudio != null && currentDevice != null
+                    boolean stowed = AapService.isLikelyStowed();
+                    AapService.deviceDisconnected(context);
+                    if (!stowed && targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
                         connectBluetoothAudio(targetDeviceForAudio);
                     }
                 } else if (profileState == BluetoothProfile.STATE_CONNECTED) {
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
+                    if (currentDevice != null) AapService.deviceConnected(context, currentDevice);
                 }
+                // 🚀 블루투스 연결 상태가 바뀔 때마다 스피커 뮤트 여부 재평가 (이 브로드캐스트가
+                // 진실의 원천이므로 재조회 대신 지금 막 확인된 상태를 그대로 사용)
+                applySpeakerSetting(profileState == BluetoothProfile.STATE_CONNECTED);
+                updateBluetoothStatusIcon();
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
                         || profileState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -852,7 +932,7 @@ public class MainActivity extends Activity {
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 BluetoothDevice disconnectedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 // 🚀 [순정 이식: 좀비 로직 3] 기기 자체의 통신이 튕기면 즉시 엔진 재호출!
-                if (targetDeviceForAudio != null && disconnectedDevice != null
+                if (!AapService.isLikelyStowed() && targetDeviceForAudio != null && disconnectedDevice != null
                         && targetDeviceForAudio.getAddress().equals(disconnectedDevice.getAddress())) {
                     connectBluetoothAudio(targetDeviceForAudio);
                 }
@@ -1071,6 +1151,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        installTls12TrustAll();
+        com.themoon.y1.subsonic.NavidromeProxyServer.ensureStarted();
         // 🚀 앱이 켜지면 자기 자신을 변수에 등록합니다.
         instance = this;
         // 🚀 [초고속 캐시 엔진 가동] 기기 최대 메모리의 1/8을 앨범 아트 전용 금고로 할당합니다!
@@ -1112,6 +1194,7 @@ public class MainActivity extends Activity {
                     public void onServiceConnected(int profile, android.bluetooth.BluetoothProfile proxy) {
                         if (profile == android.bluetooth.BluetoothProfile.A2DP) {
                             globalA2dp = proxy; // 장전 완료!
+                            updateBluetoothStatusIcon();
                         }
                     }
 
@@ -1156,19 +1239,45 @@ public class MainActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         // 🚀 [여기까지 추가 끝!]
-        tvFastScrollLetter = new TextView(this);
-        tvFastScrollLetter.setTextSize(50); // 글자 크기를 아주 큼직하게!
-        tvFastScrollLetter.setGravity(android.view.Gravity.CENTER);
-        tvFastScrollLetter.setVisibility(View.GONE);
 
-        android.widget.FrameLayout.LayoutParams flp = new android.widget.FrameLayout.LayoutParams(
-                (int) (80 * getResources().getDisplayMetrics().density), // 가로 80dp
-                (int) (80 * getResources().getDisplayMetrics().density) // 세로 80dp
-        );
-        flp.gravity = android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT; // 오른쪽 가운데 정렬
-        flp.rightMargin = (int) (30 * getResources().getDisplayMetrics().density); // 오른쪽에서 30dp 띄움
-        root.addView(tvFastScrollLetter, flp);
+        // 🚀 [신규] 휠 잠금 오버레이 — 주머니 속에서 실수로 버튼이 눌려도 안전하게 무시!
+        layoutWheelLockOverlay = new LinearLayout(this);
+        layoutWheelLockOverlay.setOrientation(LinearLayout.VERTICAL);
+        layoutWheelLockOverlay.setGravity(android.view.Gravity.CENTER);
+        layoutWheelLockOverlay.setBackgroundColor(0xDD000000);
+        layoutWheelLockOverlay.setClickable(true);
+        layoutWheelLockOverlay.setFocusable(true);
+        layoutWheelLockOverlay.setVisibility(View.GONE);
 
+        float wheelLockDensity = getResources().getDisplayMetrics().density;
+        int ringSize = (int) (140 * wheelLockDensity);
+
+        android.widget.FrameLayout wheelLockRingFrame = new android.widget.FrameLayout(this);
+        wheelLockRing = new com.themoon.y1.views.WheelLockRingView(this);
+        wheelLockRing.setSegments(WHEEL_UNLOCK_THRESHOLD);
+        android.widget.FrameLayout.LayoutParams ringLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
+        wheelLockRingFrame.addView(wheelLockRing, ringLp);
+
+        TextView tvWheelLockIcon = new TextView(this);
+        tvWheelLockIcon.setText("🔒"); // 🔒
+        tvWheelLockIcon.setTextSize(40);
+        tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
+        android.widget.FrameLayout.LayoutParams iconLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
+        wheelLockRingFrame.addView(tvWheelLockIcon, iconLp);
+
+        layoutWheelLockOverlay.addView(wheelLockRingFrame, new LinearLayout.LayoutParams(ringSize, ringSize));
+
+        TextView tvWheelLockTitle = new TextView(this);
+        tvWheelLockTitle.setText(t("Rotate wheel to unlock"));
+        tvWheelLockTitle.setTextColor(0xFFFFFFFF);
+        tvWheelLockTitle.setTextSize(18);
+        tvWheelLockTitle.setGravity(android.view.Gravity.CENTER);
+        tvWheelLockTitle.setPadding(0, 30, 0, 0);
+        layoutWheelLockOverlay.addView(tvWheelLockTitle);
+
+        root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         // 🚀 [시스템 공식 등록] 화면이 꺼져도 버튼 신호를 받을 수 있도록 수신기를 장착합니다!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
@@ -1250,12 +1359,23 @@ public class MainActivity extends Activity {
         }
 
         try {
+            isSpeakerDisabled = prefs.getBoolean("speaker_disabled", false);
+            applySpeakerSetting();
+        } catch (Exception e) {
+        }
+
+        try {
             isVibrationEnabled = prefs.getBoolean("vibrate", true);
             vibrationStrengthLevel = prefs.getInt("vibrate_strength", 1);
         } catch (Exception e) {
         }
         try {
             isScreenOffControlEnabled = prefs.getBoolean("screen_off_control", false);
+        } catch (Exception e) {
+        }
+
+        try {
+            isWheelLockEnabled = prefs.getBoolean("wheel_lock_on_wake", false);
         } catch (Exception e) {
         }
 
@@ -1403,6 +1523,13 @@ public class MainActivity extends Activity {
         tvServerStatus = findViewById(R.id.tv_server_status);
         tvServerIp = findViewById(R.id.tv_server_ip);
         btnServerToggle = findViewById(R.id.btn_server_toggle);
+
+        layoutNavidromeMode = findViewById(R.id.layout_navidrome_mode);
+        containerNavidromeItems = findViewById(R.id.container_navidrome_items);
+        tvNavidromePath = findViewById(R.id.tv_navidrome_path);
+        tvNavidromeStatus = findViewById(R.id.tv_navidrome_status);
+
+        com.themoon.y1.subsonic.SubsonicClient.getInstance().loadSettings(this);
         try {
             // 1. Settings (세팅 메뉴)
             ((TextView) ((android.view.ViewGroup) layoutSettingsMode).getChildAt(0)).setText(t("Settings"));
@@ -1527,6 +1654,7 @@ public class MainActivity extends Activity {
         btnRadio = findViewById(R.id.btn_radio);
         ((android.view.View) btnRadio.getParent()).setVisibility(View.VISIBLE);
         Button btnWebServer = findViewById(R.id.btn_webserver);
+        Button btnNavidrome = findViewById(R.id.btn_navidrome);
         tvPlayerTitle = findViewById(R.id.tv_player_title);
         tvPlayerArtist = findViewById(R.id.tv_player_artist);
         tvPlayerTimeCurrent = findViewById(R.id.tv_player_time_current);
@@ -1698,21 +1826,39 @@ public class MainActivity extends Activity {
         setupMenuButton(btnSettings, R.drawable.setting_circle, "icon_setting.png");
         setupMenuButton(btnRadio, R.drawable.radio_circle, "icon_radio.png");
         setupMenuButton(btnWebServer, R.drawable.file_sync, "icon_server.png");
+        setupMenuButton(btnNavidrome, R.drawable.ic_wifi, "icon_navidrome.png");
 
         // [클릭 리스너 부분에 추가]
         btnWebServer.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                changeScreen(STATE_WEBSERVER); // 서버 화면으로 바로 이동!
+                changeScreen(STATE_WEBSERVER);
+            }
+        });
+        btnNavidrome.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                navidromeBrowseDepth = NAV_ARTISTS;
+                selectedNavidromeArtist = null;
+                selectedNavidromeAlbum = null;
+                isNavidromeLetterView = false;
+                navidromeBackTarget = STATE_MENU;
+                changeScreen(STATE_NAVIDROME);
             }
         });
         btnNowPlaying.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (currentPlaylist.isEmpty()) {
+                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                boolean navidromeActive = am.isNavidromeMode && !am.navidromePlaylist.isEmpty();
+                if (currentPlaylist.isEmpty() && !navidromeActive) {
                     Toast.makeText(MainActivity.this, t("No music is currently playing."), Toast.LENGTH_SHORT).show();
                 } else {
                     changeScreen(STATE_PLAYER);
+                    if (navidromeActive) {
+                        progressHandler.removeCallbacks(updateProgressTask);
+                        progressHandler.post(updateProgressTask);
+                    }
                 }
             }
         });
@@ -1805,8 +1951,7 @@ public class MainActivity extends Activity {
             BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
             if (ba != null && ba.isEnabled()) {
                 ivStatusBluetooth.setVisibility(View.VISIBLE);
-                // 🚀 [수정] 여기도 파란색을 깔끔한 흰색으로 변경!
-                ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
+                updateBluetoothStatusIcon();
             }
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null && wm.isWifiEnabled()) {
@@ -1881,6 +2026,9 @@ public class MainActivity extends Activity {
 
                         String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
                         String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                        // Prefer ALBUMARTIST for grouping — track-artist tags like
+                        // "Coldplay • Avicii" scatter one album across the Artists list
+                        String aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
                         String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
                         String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
                         String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE에 연도가 들어있습니다.
@@ -1888,7 +2036,8 @@ public class MainActivity extends Activity {
 
                         // 🚀 태그가 존재할 때만 "Unknown..." 기본값을 실제 데이터로 덮어씌웁니다!
                         if (t != null && !t.trim().isEmpty()) title = t;
-                        if (a != null && !a.trim().isEmpty()) artist = a;
+                        if (aa != null && !aa.trim().isEmpty()) artist = aa;
+                        else if (a != null && !a.trim().isEmpty()) artist = a;
                         if (al != null && !al.trim().isEmpty()) album = al;
                         if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 연도 덮어쓰기
                         if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 장르 덮어쓰기
@@ -2012,6 +2161,9 @@ public class MainActivity extends Activity {
             checker.post(new Runnable() {
                 @Override
                 public void run() {
+                    // Guard against this self-rescheduling loop outliving the Activity (e.g. a
+                    // scan stuck in isCustomScanning/isRadioScanning while the Activity is destroyed).
+                    if (isFinishing() || isDestroyed()) return;
                     // 🚀 [버그 수리 완료!] 음악 스캔이나 라디오 스캔 중 어느 하나라도 돌고 있으면 창을 닫지 않습니다!
                     if (!isCustomScanning && !isRadioScanning) {
                         layoutLoadingOverlay.setVisibility(View.GONE);
@@ -2141,47 +2293,6 @@ public class MainActivity extends Activity {
             }
         }
     }
-    // 💡 [추가] 문자열에서 첫 글자를 뽑아내어 화면에 띄워주는 함수
-    public void showFastScrollLetter(String rawText) {
-        // 브라우저 모드(리스트 화면)가 아니면 띄우지 않습니다.
-        if (tvFastScrollLetter == null || currentScreenState != STATE_BROWSER)
-            return;
-
-        // 버튼 텍스트 앞에 붙어있는 꾸밈용 이모지들을 싹 지우고 순수 제목만 남깁니다.
-        String clean = rawText.replace("📁 ", "").replace("👤 ", "")
-                .replace("💿 ", "").replace("🎵 ", "")
-                .replace("📦 [INSTALL] ", "").trim();
-
-        if (clean.isEmpty()) return;
-        // 첫 글자 1개만 추출 (무조건 대문자로 변환)
-        String firstChar = clean.substring(0, 1).toUpperCase();
-
-        // 🚀 [그래픽 과부하 방지] 이미 화면에 떠 있는 알파벳과 '똑같은' 알파벳이라면?
-        // 무거운 박스 그리기 작업을 생략하고 글자가 사라지는 타이머만 연장해 줍니다!
-        if (tvFastScrollLetter.getVisibility() == View.VISIBLE
-                && tvFastScrollLetter.getText().toString().equals(firstChar)) {
-            fastScrollHandler.removeCallbacks(hideFastScrollTask);
-            fastScrollHandler.postDelayed(hideFastScrollTask, 800);
-            return; // 여기서 함수를 멈춰버립니다.
-        }
-
-        tvFastScrollLetter.setText(firstChar);
-
-        // 🚀 현재 적용된 테마의 강조 색상으로 박스를 예쁘게 색칠합니다!
-        tvFastScrollLetter.setTextColor(ThemeManager.getTextColorPrimary());
-        tvFastScrollLetter.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        android.graphics.drawable.GradientDrawable letterBg = new android.graphics.drawable.GradientDrawable();
-        letterBg.setColor(ThemeManager.getListButtonFocusedBg() | 0xDD000000); // 살짝 반투명하게 덮기
-        letterBg.setCornerRadius(15 * getResources().getDisplayMetrics().density); // 둥근 모서리
-        tvFastScrollLetter.setBackground(letterBg);
-
-        tvFastScrollLetter.setVisibility(View.VISIBLE);
-
-        // 0.8초 동안 휠 조작이 없으면 글자가 자동으로 스르륵 사라지도록 타이머 리셋
-        fastScrollHandler.removeCallbacks(hideFastScrollTask);
-        fastScrollHandler.postDelayed(hideFastScrollTask, 800);
-    }
-
     // 💡 [수정 완료] 메인 화면 테마 적용기. 동적 렌더링 엔진 호출 추가!
     private void applyThemeToMainMenu() {
         try {
@@ -2410,11 +2521,12 @@ public class MainActivity extends Activity {
             }
 
             if (sourceBitmap != null) {
-                Bitmap blurredBitmap = applyGaussianBlur(sourceBitmap);
-                ivMainBg.setImageBitmap(blurredBitmap);
-                if (sourceBitmap != blurredBitmap) {
-                    sourceBitmap.recycle();
-                }
+                applyGaussianBlurAsync(sourceBitmap, (blurredBitmap, src) -> {
+                    ivMainBg.setImageBitmap(blurredBitmap);
+                    if (src != blurredBitmap) {
+                        src.recycle();
+                    }
+                });
             } else {
                 ivMainBg.setImageResource(R.drawable.default_back);
             }
@@ -2448,7 +2560,8 @@ public class MainActivity extends Activity {
                         if (btn.getId() == R.id.btn_now_playing) {
 
                             // 1. 노래가 아예 재생된 적이 없는 '초기 상태'일 때 -> 둥근 음표 아이콘(music_circle) 유지
-                            if (currentPlaylist.isEmpty()) {
+                            if (currentPlaylist.isEmpty()
+                                    && !com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeMode) {
                                 ivMenuPreview.setImageBitmap(
                                         ThemeManager.getCustomIcon(iconFileName, MainActivity.this, imageResId));
                                 ivMenuPreview.setImageResource(imageResId);
@@ -2537,6 +2650,7 @@ public class MainActivity extends Activity {
         layoutBrightnessMode.setVisibility(state == STATE_BRIGHTNESS ? View.VISIBLE : View.GONE);
         layoutStorageMode.setVisibility(state == STATE_STORAGE ? View.VISIBLE : View.GONE);
         layoutWebServerMode.setVisibility(state == STATE_WEBSERVER ? View.VISIBLE : View.GONE);
+        layoutNavidromeMode.setVisibility(state == STATE_NAVIDROME ? View.VISIBLE : View.GONE);
         layoutVolumeOverlay.setVisibility(View.GONE);
         View statusBar = findViewById(R.id.layout_status_bar);
         if (statusBar != null) {
@@ -2586,6 +2700,8 @@ public class MainActivity extends Activity {
                 buildSettingsUI();
             }
 
+        } else if (state == STATE_NAVIDROME) {
+            buildNavidromeUI();
         } else if (state == STATE_BLUETOOTH) {
             startBluetoothScan();
         } else if (state == STATE_WIFI) {
@@ -2773,21 +2889,29 @@ public class MainActivity extends Activity {
     }
 
     private void connectToWifi() {
-        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        if (wm != null) {
-            WifiConfiguration conf = new WifiConfiguration();
-            conf.SSID = "\"" + targetWifiSsid + "\"";
-            if (isTargetWifiOpen)
-                conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-            else
-                conf.preSharedKey = "\"" + typedPassword + "\"";
-            int netId = wm.addNetwork(conf);
-            wm.disconnect();
-            wm.enableNetwork(netId, true);
-            wm.reconnect();
-            wm.saveConfiguration();
+        if (wm == null) {
+            Toast.makeText(this, t("Wi-Fi is unavailable."), Toast.LENGTH_SHORT).show();
+            return;
         }
+        WifiConfiguration conf = new WifiConfiguration();
+        conf.SSID = "\"" + targetWifiSsid + "\"";
+        if (isTargetWifiOpen)
+            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        else
+            conf.preSharedKey = "\"" + typedPassword + "\"";
+        int netId = wm.addNetwork(conf);
+        // addNetwork() returns -1 on failure (bad config, duplicate SSID, etc.) — this used to be
+        // ignored, so a bad password/config would silently show "Connecting..." with no error.
+        if (netId == -1) {
+            Toast.makeText(this, t("Failed to save this network. Please check the password and try again."), Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
+        wm.disconnect();
+        wm.enableNetwork(netId, true);
+        wm.reconnect();
+        wm.saveConfiguration();
         changeScreen(STATE_WIFI);
     }
 
@@ -3365,7 +3489,6 @@ public class MainActivity extends Activity {
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     tvIcon.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     tvText.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(tvText.getText().toString());
                 } else {
                     // 🚀 [포커스 복구 버그 완전 해결] 포커스가 빠져나갈 때 흰색으로 리셋되지 않고, 처음에 칠했던 색상으로 정확히 복귀합니다!
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
@@ -3409,7 +3532,6 @@ public class MainActivity extends Activity {
                     // 🚀 포커스 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
                     btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(((Button) v).getText().toString());
 
                 } else {
                     // 🚀 일반 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
@@ -3554,6 +3676,23 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnSound);
 
+        final LinearLayout btnSpeakerDisable = createSettingRow("Disable Built-in Speaker", isSpeakerDisabled ? t("ON") : t("OFF"));
+        btnSpeakerDisable.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isSpeakerDisabled = !isSpeakerDisabled;
+                applySpeakerSetting();
+                clickFeedback();
+                TextView tvStatus = (TextView) btnSpeakerDisable.getChildAt(1);
+                tvStatus.setText(isSpeakerDisabled ? t("ON") : t("OFF"));
+                try {
+                    prefs.edit().putBoolean("speaker_disabled", isSpeakerDisabled).commit();
+                } catch (Exception e) {
+                }
+            }
+        });
+        containerSettingsItems.addView(btnSpeakerDisable);
+
         LinearLayout btnVibrateMenu = createSettingRow("Vibration", "〉 ");
         btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3580,6 +3719,22 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnScreenOffCtrl);
+
+        final LinearLayout btnWheelLock = createSettingRow("Lock Wheel on Wake", isWheelLockEnabled ? t("ON") : t("OFF"));
+        btnWheelLock.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isWheelLockEnabled = !isWheelLockEnabled;
+                TextView tvStatus = (TextView) btnWheelLock.getChildAt(1);
+                tvStatus.setText(isWheelLockEnabled ? t("ON") : t("OFF"));
+                try {
+                    prefs.edit().putBoolean("wheel_lock_on_wake", isWheelLockEnabled).commit();
+                } catch (Exception e) {
+                }
+            }
+        });
+        containerSettingsItems.addView(btnWheelLock);
         // 🚀 [수정된 테마 설정 버튼]
         final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
         btnTheme.setOnClickListener(new View.OnClickListener() {
@@ -4180,15 +4335,22 @@ public class MainActivity extends Activity {
                 if (fmManager.isPowerUp) {
                     fmManager.powerDown();
                     isRadioAdjustingFreq = false;
+                    updateGlobalStatusPlayIcon();
+                    buildRadioUI();
                 } else {
                     com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
                     if (am.isPlaying()) am.playOrPauseMusic();
-                    try { Thread.sleep(100); } catch(Exception e){}
-                    if (fmManager.powerUp(fmManager.currentFreq)) activePlayer = 1;
-                    else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
+                    // Give playback a moment to actually pause before the FM chip claims the audio
+                    // session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        fmManager.powerUpAsync(fmManager.currentFreq, success -> {
+                            if (success) activePlayer = 1;
+                            else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
+                            updateGlobalStatusPlayIcon();
+                            buildRadioUI();
+                        });
+                    }, 100);
                 }
-                updateGlobalStatusPlayIcon();
-                buildRadioUI();
             });
             containerSettingsItems.addView(btnPower);
 
@@ -4889,6 +5051,18 @@ public class MainActivity extends Activity {
             if (!isAudiobookLibraryMode) {
                 tvBrowserPath.setText(t("Library") + ": " + t("Music"));
 
+                // \u2601\uFE0F Navidrome \uC2A4\uD2B8\uB9AC\uBC0D \u2014 back returns here, not the main menu
+                android.view.View btnNavidromeLib = createListButtonWithIcon("\uE2BD", t("Navidrome"));
+                btnNavidromeLib.setOnClickListener(v -> {
+                    clickFeedback();
+                    navidromeBrowseDepth = NAV_ARTISTS;
+                    selectedNavidromeArtist = null;
+                    selectedNavidromeAlbum = null;
+                    isNavidromeLetterView = false;
+                    navidromeBackTarget = STATE_BROWSER;
+                    changeScreen(STATE_NAVIDROME);
+                });
+                containerBrowserItems.addView(btnNavidromeLib);
 
                 android.view.View btnCoverFlow = createListButtonWithIcon("\uE3B6", t("Cover Flow"));
 
@@ -6406,7 +6580,21 @@ public class MainActivity extends Activity {
                 public void onClick(View v) {
                     clickFeedback();
                     switch (el.action) {
-                        case "OPEN_PLAYER": if (currentPlaylist.isEmpty()) Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show(); else changeScreen(STATE_PLAYER); break;
+                        case "OPEN_PLAYER": {
+                            com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                            boolean navidromeActive = am.isNavidromeMode && !am.navidromePlaylist.isEmpty();
+                            if (currentPlaylist.isEmpty() && !navidromeActive) {
+                                Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show();
+                            } else {
+                                changeScreen(STATE_PLAYER);
+                                if (navidromeActive) {
+                                    // Restart the progress poller — it stops when the player screen is left
+                                    progressHandler.removeCallbacks(updateProgressTask);
+                                    progressHandler.post(updateProgressTask);
+                                }
+                            }
+                            break;
+                        }
 // 🎵 뮤직 라이브러리로 진입
                         case "OPEN_COVER_FLOW":
                             currentBrowserMode = BROWSER_COVER_FLOW;
@@ -6447,6 +6635,14 @@ public class MainActivity extends Activity {
                             changeScreen(STATE_BROWSER);
                             break;
                         case "OPEN_WIFI": changeScreen(STATE_WIFI); break;
+                        case "OPEN_NAVIDROME":
+                            navidromeBrowseDepth = NAV_ARTISTS;
+                            selectedNavidromeArtist = null;
+                            selectedNavidromeAlbum = null;
+                            isNavidromeLetterView = false;
+                            navidromeBackTarget = STATE_MENU;
+                            changeScreen(STATE_NAVIDROME);
+                            break;
                         case "OPEN_BRIGHTNESS": changeScreen(STATE_BRIGHTNESS); break;
                         case "OPEN_STORAGE_INFO": changeScreen(STATE_STORAGE); break;
                         case "OPEN_WIDGET_SETTINGS":
@@ -6815,7 +7011,8 @@ public class MainActivity extends Activity {
                 }
             }
             if (tvPlayerFavoriteStatus != null) {
-                if (!currentPlaylist.isEmpty() && favoritePaths.contains(currentPlaylist.get(currentIndex).getAbsolutePath())) {
+                String favPath = getCurrentTrackPathForFavorites();
+                if (favPath != null && favoritePaths.contains(favPath)) {
                     tvPlayerFavoriteStatus.setVisibility(View.VISIBLE);
                 } else {
                     tvPlayerFavoriteStatus.setVisibility(View.GONE);
@@ -6825,10 +7022,29 @@ public class MainActivity extends Activity {
         }
     }
     // 🚀 [신규 추가] 휠 버튼을 길게 누를 때 작동할 즐겨찾기 스위치 함수! (다른 함수들 사이에 넣으세요)
+    /**
+     * The path favorites should key on for whatever is actually playing.
+     * Navidrome streams map to their downloaded file (favorites are local paths);
+     * returns null for a stream that hasn't been downloaded.
+     */
+    private String getCurrentTrackPathForFavorites() {
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        if (am.isNavidromeMode) {
+            if (am.navidromePlaylist.isEmpty()) return null;
+            return am.navidromePlaylist.get(am.navidromeIndex).getExistingLocalPath();
+        }
+        if (currentPlaylist.isEmpty() || currentIndex < 0 || currentIndex >= currentPlaylist.size()) return null;
+        return currentPlaylist.get(currentIndex).getAbsolutePath();
+    }
+
     private void toggleFavorite() {
-        if (currentPlaylist.isEmpty()) return;
-        File currentSong = currentPlaylist.get(currentIndex);
-        String path = currentSong.getAbsolutePath();
+        String path = getCurrentTrackPathForFavorites();
+        if (path == null) {
+            if (com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeMode) {
+                Toast.makeText(this, "⬇ Download this track to add it to Favorites", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
 
         if (favoritePaths.contains(path)) {
             favoritePaths.remove(path);
@@ -6846,7 +7062,14 @@ public class MainActivity extends Activity {
     }
     public void updatePlayerUI() {
             try {
-                if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
+                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                if (am.isNavidromeMode) {
+                    // currentPlaylist still points at the last LOCAL track — its lyrics
+                    // and quality info don't belong to the stream we're playing.
+                    currentLyrics.clear();
+                    plainLyrics = null;
+                    updateNavidromeQualityInfo(am);
+                } else if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
                     File currentFile = currentPlaylist.get(currentIndex);
                     updateAudioQualityInfo(currentFile);
 
@@ -6854,7 +7077,6 @@ public class MainActivity extends Activity {
                     loadLyrics(currentFile);
                     refreshVisualizerState();
                 }
-                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
                 if (am.isPlaying()) {
                     ivAlbumArt.setAlpha(1.0f);
@@ -7143,6 +7365,27 @@ public class MainActivity extends Activity {
             return true;
         }
 
+        if (currentScreenState == STATE_NAVIDROME) {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
+                clickFeedback();
+                if (navidromeBrowseDepth == NAV_SONGS) {
+                    navidromeBrowseDepth = NAV_ALBUMS;
+                    buildNavidromeUI();
+                } else if (navidromeBrowseDepth == NAV_ALBUMS) {
+                    navidromeBrowseDepth = NAV_ARTISTS;
+                    selectedNavidromeArtist = null;
+                    buildNavidromeUI();
+                } else if (isNavidromeLetterView) {
+                    // Letter picker → back to the artist list without refetching
+                    tvNavidromePath.setText("NAVIDROME  ▸  Artists");
+                    buildNavidromeArtistsUI(lastNavidromeArtists);
+                } else {
+                    changeScreen(navidromeBackTarget);
+                }
+                return true;
+            }
+        }
+
         if (currentScreenState == STATE_WEBSERVER) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 clickFeedback();
@@ -7172,7 +7415,7 @@ public class MainActivity extends Activity {
 
         if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER
                 || currentScreenState == STATE_SETTINGS || currentScreenState == STATE_BLUETOOTH
-                || currentScreenState == STATE_WIFI) {
+                || currentScreenState == STATE_WIFI || currentScreenState == STATE_NAVIDROME) {
 
             // 🚀 [순정 커버 플로우 휠 조작 대개조 완료]
             if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_COVER_FLOW) {
@@ -7600,6 +7843,22 @@ public class MainActivity extends Activity {
     }
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isWheelLockActive) {
+            // 🚀 [휠 잠금] 휠(21/22)을 돌리는 것 말고는 그 무엇도 통과시키지 않습니다 —
+            // 주머니 속 원단이 어떤 버튼을 어떻게 누르든 여기서 전부 흡수됩니다.
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                int keyCode = event.getKeyCode();
+                if (keyCode == 21 || keyCode == 22) {
+                    wheelUnlockProgress++;
+                    updateWheelLockProgress();
+                    if (wheelUnlockProgress >= WHEEL_UNLOCK_THRESHOLD) {
+                        deactivateWheelLock();
+                        clickFeedback();
+                    }
+                }
+            }
+            return true;
+        }
         if (isFakeScreenOff) {
             int keyCode = event.getKeyCode();
 
@@ -7643,6 +7902,7 @@ public class MainActivity extends Activity {
                             float alpha = 1.0f;
                             @Override
                             public void run() {
+                                if (isFinishing() || isDestroyed()) return;
                                 alpha -= 0.08f;
                                 if (alpha <= 0.0f) {
                                     layoutLoadingOverlay.setAlpha(0.0f);
@@ -7748,10 +8008,19 @@ public class MainActivity extends Activity {
                         if (amInstance.isPlaying()) {
                             amInstance.playOrPauseMusic();
                         }
-                        try { Thread.sleep(50); } catch(Exception e){}
-                        if (!fm.powerUp(fm.currentFreq)) {
-                            android.widget.Toast.makeText(this, "Radio Error: " + fm.lastError, android.widget.Toast.LENGTH_SHORT).show();
-                        }
+                        // Give the music player a moment to actually pause before the FM chip claims the
+                        // audio session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            fm.powerUpAsync(fm.currentFreq, success -> {
+                                if (!success) {
+                                    android.widget.Toast.makeText(this, "Radio Error: " + fm.lastError, android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                                updateGlobalStatusPlayIcon();
+                                if (currentScreenState == STATE_SETTINGS) buildRadioUI();
+                            });
+                        }, 50);
+                        clickFeedback();
+                        return true;
                     }
                     if (currentScreenState == STATE_SETTINGS) buildRadioUI();
                 } else {
@@ -7871,6 +8140,44 @@ public class MainActivity extends Activity {
         }
     }
 
+    // 💡 내장 스피커 강제 차단. 두 가지 AudioManager 기반 시도가 모두 이 기기에서
+    // 실패해서 (1) AudioSystem.setForceUse(FORCE_HEADPHONES)는 유선 이어폰 잭
+    // 자체가 없는 기기라 라우팅할 곳이 없어 무음 효과 없음, (2) setStreamMute()는
+    // 레퍼런스 카운트 방식이라 mute(true)/mute(false) 호출 횟수가 안 맞으면 영원히
+    // 고착(dumpsys audio에서 Mute count: 166 확인함), (3) setStreamVolume()은
+    // 기기별로 별도 볼륨 인덱스를 갖고 있어서 그 순간 라우팅된 장치(스피커/블루투스)
+    // 중 엉뚱한 쪽을 0으로 만들어버림 — 결국 시스템 오디오 라우팅을 아예 건드리지
+    // 않고, 우리 앱 재생기 자체의 볼륨(AudioPlayerManager.setSpeakerMuted)만
+    // 조절합니다. 물리적 출력 장치가 무엇이든 상관없이 항상 예측 가능합니다.
+    private void applySpeakerSetting() {
+        boolean externalAudioConnected = false;
+        try {
+            externalAudioConnected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
+        } catch (Exception e) {
+        }
+        applySpeakerSetting(externalAudioConnected);
+    }
+
+    private void applySpeakerSetting(boolean externalAudioConnected) {
+        boolean shouldMute = isSpeakerDisabled && !externalAudioConnected;
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().setSpeakerMuted(shouldMute);
+    }
+
+    // 💡 블루투스 상태바 아이콘 색상 갱신 — 폰들이 흔히 하듯, 그냥 켜져있을 때(흰색)와
+    // 실제로 기기(이어폰 등)에 연결되어 있을 때(파란색)를 다른 색으로 구분합니다.
+    private static final int BT_ICON_COLOR_ON = 0xFFFFFFFF;
+    private static final int BT_ICON_COLOR_CONNECTED = 0xFF2FA8FF;
+
+    private void updateBluetoothStatusIcon() {
+        if (ivStatusBluetooth == null) return;
+        boolean connected = false;
+        try {
+            connected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
+        } catch (Exception e) {
+        }
+        ivStatusBluetooth.setColorFilter(connected ? BT_ICON_COLOR_CONNECTED : BT_ICON_COLOR_ON);
+    }
+
     // 💡 안드로이드 하드웨어 가속(RenderScript)을 이용한 고화질 가우시안 블러 함수!
     public Bitmap applyGaussianBlur(Bitmap original) {
         if (original == null)
@@ -7893,6 +8200,25 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return original;
         }
+    }
+
+    private interface BlurResultCallback {
+        void onBlurred(Bitmap blurred, Bitmap source);
+    }
+
+    // The RenderScript blur pass itself (not just decode) is real work on this hardware — running
+    // it synchronously on every track change causes a visible hitch on skip/next/prev. Do the blur
+    // off the main thread and hand the result back via callback; the caller keeps the immediate
+    // (unblurred) foreground art update synchronous since that part is cheap.
+    private void applyGaussianBlurAsync(final Bitmap source, final BlurResultCallback callback) {
+        if (source == null) {
+            callback.onBlurred(null, null);
+            return;
+        }
+        new Thread(() -> {
+            final Bitmap blurred = applyGaussianBlur(source);
+            runOnUiThread(() -> callback.onBlurred(blurred, source));
+        }).start();
     }
 
     // 💡 1. 날짜/시간 설정 메인 화면 (시간 오류 및 포커스 락 버그 완벽 수정 버전)
@@ -8170,10 +8496,10 @@ public class MainActivity extends Activity {
             android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
             optsBg.inSampleSize = 4;
             android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeFile(imagePath, optsBg);
-            android.graphics.Bitmap blurredBg = applyGaussianBlur(sourceBg);
-            ivPlayerBgBlur.setImageBitmap(blurredBg);
-            if (sourceBg != blurredBg)
-                sourceBg.recycle();
+            applyGaussianBlurAsync(sourceBg, (blurredBg, src) -> {
+                ivPlayerBgBlur.setImageBitmap(blurredBg);
+                if (src != blurredBg) src.recycle();
+            });
 
             // 메인 메뉴 배경도 연동하기 위해 파일 데이터를 byte[]로 변환해서 lastAlbumArtBytes에 집어넣습니다!
             java.io.File file = new java.io.File(imagePath);
@@ -9231,6 +9557,26 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [신규 엔진] 파일 확장자와 메타데이터를 뜯어내어 무손실 여부와 비트레이트(kbps)를 추출합니다.
+    private void updateNavidromeQualityInfo(com.themoon.y1.managers.AudioPlayerManager am) {
+        if (am.navidromePlaylist.isEmpty()) return;
+        com.themoon.y1.subsonic.SubsonicSong song = am.navidromePlaylist.get(am.navidromeIndex);
+        String localPath = song.getExistingLocalPath();
+        if (localPath != null) {
+            // Playing the downloaded file — show its real quality info
+            updateAudioQualityInfo(new File(localPath));
+            return;
+        }
+        if (layoutAudioQualityContainer == null) return;
+        // Streaming: Navidrome transcodes everything to MP3 at maxBitRate=192
+        tvQualityExt.setText("MP3");
+        tvQualityFormat.setText("STREAM");
+        tvQualityBitrate.setText("192 kbps");
+        tvQualityBitrate.setVisibility(View.VISIBLE);
+        layoutAudioQualityContainer.setVisibility(View.VISIBLE);
+        qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
+        qualityInfoHandler.postDelayed(hideQualityInfoTask, 3000);
+    }
+
     private void updateAudioQualityInfo(File audioFile) {
         if (layoutAudioQualityContainer == null || audioFile == null || !audioFile.exists()) {
             if (layoutAudioQualityContainer != null) layoutAudioQualityContainer.setVisibility(View.GONE);
@@ -9299,7 +9645,6 @@ public class MainActivity extends Activity {
             public void onFocusChange(android.view.View v, boolean hasFocus) {
                 if (hasFocus) {
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    showFastScrollLetter(((android.widget.Button) v).getText().toString());
                     // 포커스가 닿았을 때의 색상으로 프로그레스 다시 그리기
                     applyProgressBackground(btn, pos, dur, true);
                 } else {
@@ -9538,5 +9883,920 @@ public class MainActivity extends Activity {
 
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  NAVIDROME BROWSER
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void buildNavidromeUI() {
+        com.themoon.y1.subsonic.SubsonicClient client = com.themoon.y1.subsonic.SubsonicClient.getInstance();
+
+        if (client.getConfigVersion() != lastSeenNavidromeConfigVersion) {
+            // Server/user/pass changed via the PC Upload web UI since we last browsed —
+            // drop the old server's in-memory artist list so we don't show it as if
+            // the new settings never took effect.
+            lastSeenNavidromeConfigVersion = client.getConfigVersion();
+            lastNavidromeArtists = new java.util.ArrayList<>();
+            lastNavidromeSongs = new java.util.ArrayList<>();
+            navidromeBrowseDepth = NAV_ARTISTS;
+            selectedNavidromeArtist = null;
+            selectedNavidromeAlbum = null;
+            isNavidromeLetterView = false;
+        }
+
+        if (!client.isConfigured()) {
+            showNavidromeMessage("NOT CONFIGURED",
+                    "Open the PC Upload page from your computer browser,\nthen fill in the Navidrome settings section.");
+            return;
+        }
+
+        if (navidromeBrowseDepth == NAV_ARTISTS) {
+            tvNavidromePath.setText("NAVIDROME  ▸  Artists");
+            // Already have the list from this session? Show it instantly and only
+            // refresh silently in the background — no "Loading artists…" flash.
+            final boolean showedInstantly = !lastNavidromeArtists.isEmpty();
+            if (showedInstantly) {
+                tvNavidromeStatus.setTextColor(0xFF00FF88);
+                tvNavidromeStatus.setText("●");
+                buildNavidromeArtistsUI(lastNavidromeArtists);
+            } else {
+                tvNavidromeStatus.setTextColor(0xFFFFFF00);
+                tvNavidromeStatus.setText("●");
+                showNavidromeMessage("", "Loading artists…");
+                isNavidromeLoading = true;
+            }
+
+            client.getArtists(new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicArtist>>() {
+                @Override
+                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
+                    isNavidromeLoading = false;
+                    tvNavidromeStatus.setTextColor(0xFF00FF88);
+                    boolean changed = !navidromeArtistListsEqual(artists, lastNavidromeArtists);
+                    boolean stillOnArtists = currentScreenState == STATE_NAVIDROME
+                            && navidromeBrowseDepth == NAV_ARTISTS && !isNavidromeLetterView;
+                    lastNavidromeArtists = artists;
+                    // Rebuild only for the first load or a real library change, and
+                    // only while the artist list is still what's on screen.
+                    if (stillOnArtists && (changed || !showedInstantly)) {
+                        buildNavidromeArtistsUI(artists);
+                    }
+                }
+                @Override
+                public void onError(String message) {
+                    isNavidromeLoading = false;
+                    if (showedInstantly) return; // a stale list beats an error screen
+                    tvNavidromeStatus.setTextColor(0xFFFF5555);
+                    showNavidromeMessage("CONNECTION ERROR", message);
+                }
+            });
+
+        } else if (navidromeBrowseDepth == NAV_ALBUMS && selectedNavidromeArtist != null) {
+            tvNavidromePath.setText("NAVIDROME  ▸  " + selectedNavidromeArtist.name);
+            showNavidromeMessage("", "Loading albums…");
+
+            client.getArtist(selectedNavidromeArtist.id, new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicAlbum>>() {
+                @Override
+                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums) {
+                    buildNavidromeAlbumsUI(albums);
+                }
+                @Override
+                public void onError(String message) {
+                    showNavidromeMessage("ERROR", message);
+                }
+            });
+
+        } else if (navidromeBrowseDepth == NAV_SONGS && selectedNavidromeAlbum != null) {
+            tvNavidromePath.setText("NAVIDROME  ▸  " + selectedNavidromeAlbum.artistName + "  ▸  " + selectedNavidromeAlbum.name);
+            showNavidromeMessage("", "Loading songs…");
+
+            client.getAlbum(selectedNavidromeAlbum.id, new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicSong>>() {
+                @Override
+                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
+                    lastNavidromeSongs = songs;
+                    buildNavidromeSongsUI(songs);
+                }
+                @Override
+                public void onError(String message) {
+                    showNavidromeMessage("ERROR", message);
+                }
+            });
+        }
+    }
+
+    private boolean navidromeArtistListsEqual(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> a,
+                                              java.util.List<com.themoon.y1.subsonic.SubsonicArtist> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            com.themoon.y1.subsonic.SubsonicArtist x = a.get(i), y = b.get(i);
+            if (!x.id.equals(y.id) || !x.name.equals(y.name) || x.albumCount != y.albumCount) return false;
+        }
+        return true;
+    }
+
+    private void showNavidromeMessage(String title, String body) {
+        containerNavidromeItems.removeAllViews();
+        if (title != null && !title.isEmpty()) {
+            TextView tv = new TextView(this);
+            tv.setText(title);
+            tv.setTextColor(0xFFFF5555);
+            tv.setTextSize(16);
+            tv.setPadding(20, 20, 20, 6);
+            containerNavidromeItems.addView(tv);
+        }
+        TextView tv = new TextView(this);
+        tv.setText(body);
+        tv.setTextColor(0xFFAAAAAA);
+        tv.setTextSize(14);
+        tv.setPadding(20, 8, 20, 20);
+        containerNavidromeItems.addView(tv);
+    }
+
+    private void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
+        buildNavidromeArtistsUI(artists, null);
+    }
+
+    private void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists, String focusLetter) {
+        lastNavidromeArtists = artists;
+        isNavidromeLetterView = false;
+        containerNavidromeItems.removeAllViews();
+        if (artists.isEmpty()) {
+            showNavidromeMessage("", "No artists found on server.");
+            return;
+        }
+
+        Button btnJump = createListButton("A-Z  Jump to Letter");
+        btnJump.setTextColor(0xFF88CCFF);
+        btnJump.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { buildNavidromeLetterIndexUI(); }
+        });
+        containerNavidromeItems.addView(btnJump);
+
+        View focusTarget = null;
+        for (final com.themoon.y1.subsonic.SubsonicArtist artist : artists) {
+            String label = artist.name + "  (" + artist.albumCount + " albums)";
+            Button btn = createListButton(label);
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectedNavidromeArtist = artist;
+                    navidromeBrowseDepth = NAV_ALBUMS;
+                    buildNavidromeUI();
+                }
+            });
+            containerNavidromeItems.addView(btn);
+            if (focusTarget == null && focusLetter != null && focusLetter.equals(artist.indexLetter)) {
+                focusTarget = btn;
+            }
+        }
+        if (focusTarget != null) {
+            final View target = focusTarget;
+            // Focus after layout so the ScrollView can scroll to the letter
+            containerNavidromeItems.post(new Runnable() {
+                @Override public void run() { target.requestFocus(); }
+            });
+        } else {
+            focusFirstNavidromeItem();
+        }
+    }
+
+    private void buildNavidromeLetterIndexUI() {
+        isNavidromeLetterView = true;
+        containerNavidromeItems.removeAllViews();
+        tvNavidromePath.setText("NAVIDROME  ▸  Jump to Letter");
+
+        java.util.List<String> letters = new java.util.ArrayList<>();
+        final java.util.HashMap<String, Integer> counts = new java.util.HashMap<>();
+        for (com.themoon.y1.subsonic.SubsonicArtist artist : lastNavidromeArtists) {
+            String letter = artist.indexLetter != null ? artist.indexLetter : "#";
+            if (!letters.contains(letter)) letters.add(letter);
+            Integer c = counts.get(letter);
+            counts.put(letter, c == null ? 1 : c + 1);
+        }
+        for (final String letter : letters) {
+            Button btn = createListButton(letter + "   (" + counts.get(letter) + " artists)");
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    tvNavidromePath.setText("NAVIDROME  ▸  Artists");
+                    buildNavidromeArtistsUI(lastNavidromeArtists, letter);
+                }
+            });
+            containerNavidromeItems.addView(btn);
+        }
+        focusFirstNavidromeItem();
+    }
+
+    private void buildNavidromeAlbumsUI(java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums) {
+        containerNavidromeItems.removeAllViews();
+        if (albums.isEmpty()) {
+            showNavidromeMessage("", "No albums found for this artist.");
+            return;
+        }
+        for (final com.themoon.y1.subsonic.SubsonicAlbum album : albums) {
+            String yearStr = album.year > 0 ? " (" + album.year + ")" : "";
+            String label = album.name + yearStr + "  —  " + album.songCount + " songs";
+            Button btn = createListButton(label);
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectedNavidromeAlbum = album;
+                    navidromeBrowseDepth = NAV_SONGS;
+                    buildNavidromeUI();
+                }
+            });
+            containerNavidromeItems.addView(btn);
+        }
+        focusFirstNavidromeItem();
+    }
+
+    private void buildNavidromeSongsUI(final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
+        containerNavidromeItems.removeAllViews();
+        if (songs.isEmpty()) {
+            showNavidromeMessage("", "No songs found in this album.");
+            return;
+        }
+
+        // Play All button
+        Button btnPlayAll = createListButton("▶  Play Album");
+        btnPlayAll.setTextColor(0xFF00FF88);
+        btnPlayAll.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                playNavidromeAlbum(songs, 0);
+            }
+        });
+        containerNavidromeItems.addView(btnPlayAll);
+
+        // Download Album button — long-press deletes the album's downloads
+        Button btnDlAll = createListButton("⬇  Download Album");
+        btnDlAll.setTextColor(0xFF88CCFF);
+        btnDlAll.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                downloadNavidromeAlbum(songs);
+            }
+        });
+        btnDlAll.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View v) {
+                int downloaded = 0;
+                for (com.themoon.y1.subsonic.SubsonicSong s : songs) if (s.isDownloaded()) downloaded++;
+                if (downloaded == 0) {
+                    Toast.makeText(MainActivity.this, t("No downloads to delete"), Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                final int count = downloaded;
+                showThemedOptionsDialog(t("Delete Downloads"),
+                        count + " " + t("downloaded tracks"),
+                        new String[]{ "🗑  " + t("Delete"), t("Cancel") },
+                        new Runnable[]{
+                                new Runnable() {
+                                    @Override public void run() {
+                                        for (com.themoon.y1.subsonic.SubsonicSong s : songs) deleteNavidromeDownload(s);
+                                        refreshNavidromeSongLabels();
+                                        Toast.makeText(MainActivity.this, "🗑 " + t("Deleted") + " " + count, Toast.LENGTH_SHORT).show();
+                                    }
+                                },
+                                null
+                        });
+                return true;
+            }
+        });
+        containerNavidromeItems.addView(btnDlAll);
+
+        // Individual song rows — single focusable button per song
+        // Click = play from this track, long-press = download this track
+        for (int i = 0; i < songs.size(); i++) {
+            final com.themoon.y1.subsonic.SubsonicSong song = songs.get(i);
+            final int index = i;
+
+            int mins = song.durationSecs / 60, secs = song.durationSecs % 60;
+            android.view.View btn = createNavidromeSongRow(navidromeSongTitleLabel(song),
+                    String.format(Locale.US, "%d:%02d", mins, secs));
+            btn.setTag(song); // lets refreshNavidromeSongLabels() update the ✓ marker in place
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { playNavidromeAlbum(songs, index); }
+            });
+            btn.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override public boolean onLongClick(View v) {
+                    if (song.isDownloaded()) {
+                        showNavidromeDeleteDialog(song);
+                    } else {
+                        java.util.List<com.themoon.y1.subsonic.SubsonicSong> single =
+                                new java.util.ArrayList<com.themoon.y1.subsonic.SubsonicSong>();
+                        single.add(song);
+                        showNavidromeDownloadQualityDialog(single);
+                    }
+                    return true;
+                }
+            });
+            containerNavidromeItems.addView(btn);
+        }
+        focusFirstNavidromeItem();
+    }
+
+    private String navidromeSongTitleLabel(com.themoon.y1.subsonic.SubsonicSong song) {
+        String downloadedMark = song.isDownloaded() ? "✓ " : "";
+        String trackNum = song.track > 0 ? String.format(Locale.US, "%02d. ", song.track) : "";
+        return downloadedMark + trackNum + song.title;
+    }
+
+    /** Focusable song row styled like createListButton, but with the duration
+     *  pinned to the right edge. LinearLayout rows work with wheel nav as long
+     *  as the row itself is focusable (same pattern as createListButtonWithIcon). */
+    private android.view.View createNavidromeSongRow(String titleText, String durationText) {
+        float d = getResources().getDisplayMetrics().density;
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setFocusable(true);
+        row.setClickable(true);
+        row.setSoundEffectsEnabled(false);
+        row.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+        row.setPadding((int) (25 * d), (int) (12 * d), (int) (10 * d), (int) (12 * d));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 2, 0, 2);
+        row.setLayoutParams(lp);
+
+        final TextView tvTitle = new TextView(this);
+        tvTitle.setText(titleText);
+        tvTitle.setTextSize(18f);
+        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
+        tvTitle.setSingleLine(true);
+        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tvTitle.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(tvTitle);
+
+        final TextView tvDuration = new TextView(this);
+        tvDuration.setText(durationText);
+        tvDuration.setTextSize(15f);
+        tvDuration.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+        tvDuration.setTextColor(ThemeManager.getTextColorSecondary());
+        LinearLayout.LayoutParams durLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        durLp.leftMargin = (int) (8 * d);
+        tvDuration.setLayoutParams(durLp);
+        row.addView(tvDuration);
+
+        row.setOnLongClickListener(globalScreenOffLongClickListener);
+        row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    row.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
+                    tvTitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                    tvDuration.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                } else {
+                    row.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+                    tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
+                    tvDuration.setTextColor(ThemeManager.getTextColorSecondary());
+                }
+            }
+        });
+        return row;
+    }
+
+    /** Update ✓ markers on the visible song list without rebuilding (keeps wheel focus). */
+    private void refreshNavidromeSongLabels() {
+        if (currentScreenState != STATE_NAVIDROME || navidromeBrowseDepth != NAV_SONGS) return;
+        for (int i = 0; i < containerNavidromeItems.getChildCount(); i++) {
+            View child = containerNavidromeItems.getChildAt(i);
+            if (child instanceof LinearLayout && child.getTag() instanceof com.themoon.y1.subsonic.SubsonicSong) {
+                TextView tvTitle = (TextView) ((LinearLayout) child).getChildAt(0);
+                tvTitle.setText(navidromeSongTitleLabel((com.themoon.y1.subsonic.SubsonicSong) child.getTag()));
+            }
+        }
+    }
+
+    private void playNavidromeAlbum(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, int startIndex) {
+        if (songs == null || songs.isEmpty()) return;
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        am.navidromePlaylist.clear();
+        am.navidromePlaylist.addAll(songs);
+        am.navidromeIndex = startIndex;
+
+        com.themoon.y1.subsonic.SubsonicSong song = songs.get(startIndex);
+        String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
+        am.playNavidromeSong(this, song, url);
+        changeScreen(STATE_PLAYER);
+        progressHandler.removeCallbacks(updateProgressTask);
+        progressHandler.post(updateProgressTask);
+    }
+
+    private void downloadNavidromeAlbum(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
+        showNavidromeDownloadQualityDialog(songs);
+    }
+
+    private void showNavidromeDownloadQualityDialog(final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
+        if (songs == null || songs.isEmpty()) return;
+        String what = songs.size() == 1 ? songs.get(0).title : songs.size() + " " + t("tracks");
+        showThemedOptionsDialog(t("Download Quality"), what,
+                new String[]{ "⬇  " + t("Original Quality"), "⬇  " + t("MP3 192kbps"), t("Cancel") },
+                new Runnable[]{
+                        new Runnable() { @Override public void run() { enqueueNavidromeDownloads(songs, false); } },
+                        new Runnable() { @Override public void run() { enqueueNavidromeDownloads(songs, true); } },
+                        null
+                });
+    }
+
+    /** Long-press menu for library songs: playlist add or delete from device. */
+    public void showSongOptionsDialog(final java.io.File file) {
+        showThemedOptionsDialog(file.getName(), null,
+                new String[]{ "➕  " + t("Add to Playlist"), "🗑  " + t("Delete from Device"), t("Cancel") },
+                new Runnable[]{
+                        new Runnable() { @Override public void run() { showAddToPlaylistDialog(file); } },
+                        new Runnable() { @Override public void run() { showDeleteSongDialog(file); } },
+                        null
+                });
+    }
+
+    private void showDeleteSongDialog(final java.io.File file) {
+        showThemedOptionsDialog(t("Delete from Device"), file.getName(),
+                new String[]{ "🗑  " + t("Delete"), t("Cancel") },
+                new Runnable[]{
+                        new Runnable() {
+                            @Override public void run() {
+                                if (deleteLibrarySong(file)) {
+                                    Toast.makeText(MainActivity.this, "🗑 " + t("Deleted"), Toast.LENGTH_SHORT).show();
+                                    if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
+                                }
+                            }
+                        },
+                        null
+                });
+    }
+
+    /** Long-press on an album row — wipe the whole album from the device. */
+    public void showDeleteAlbumDialog(final String albumName) {
+        List<SongItem> active = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
+        final List<SongItem> targets = new ArrayList<>();
+        for (SongItem s : active) {
+            if (albumName.equals(s.album)) targets.add(s);
+        }
+        if (targets.isEmpty()) return;
+        showThemedOptionsDialog(t("Delete Album"), albumName + "  (" + targets.size() + " " + t("tracks") + ")",
+                new String[]{ "🗑  " + t("Delete"), t("Cancel") },
+                new Runnable[]{
+                        new Runnable() {
+                            @Override public void run() {
+                                int deleted = 0;
+                                for (SongItem s : targets) {
+                                    if (deleteLibrarySong(s.file)) deleted++;
+                                }
+                                Toast.makeText(MainActivity.this, "🗑 " + t("Deleted") + " " + deleted, Toast.LENGTH_SHORT).show();
+                                if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
+                            }
+                        },
+                        null
+                });
+    }
+
+    /** Delete a track from the SD card and scrub every launcher record of it:
+     *  libraries, favorites, per-track prefs, cover cache, empty folders. */
+    public boolean deleteLibrarySong(java.io.File f) {
+        String path = f.getAbsolutePath();
+        if (f.exists() && !f.delete()) return false;
+
+        java.util.Iterator<SongItem> it = customLibrary.iterator();
+        while (it.hasNext()) if (it.next().file.getAbsolutePath().equals(path)) it.remove();
+        it = audiobookLibrary.iterator();
+        while (it.hasNext()) if (it.next().file.getAbsolutePath().equals(path)) it.remove();
+        virtualSongList.remove(f);
+        trackNumberMap.remove(path);
+        if (favoritePaths.remove(path)) {
+            try { prefs.edit().putStringSet("favorites", favoritePaths).commit(); } catch (Exception ignored) {}
+        }
+        try {
+            prefs.edit()
+                    .remove("album_art_" + path)
+                    .remove("meta_title_" + path)
+                    .remove("meta_artist_" + path)
+                    .remove("book_pos_" + path)
+                    .remove("book_dur_" + path)
+                    .apply();
+        } catch (Exception ignored) {}
+        try {
+            String base = f.getName();
+            int dot = base.lastIndexOf('.');
+            if (dot > 0) base = base.substring(0, dot);
+            new java.io.File("/storage/sdcard0/Y1_Covers", base + ".jpg").delete();
+        } catch (Exception ignored) {}
+
+        // Prune up to two levels of newly-empty folders, but never the roots
+        java.io.File dir = f.getParentFile();
+        for (int i = 0; i < 2 && dir != null; i++) {
+            String dp = dir.getAbsolutePath();
+            if (dp.equals("/storage/sdcard0/Music") || dp.equals("/storage/sdcard0/Audiobooks")
+                    || dp.equals("/storage/sdcard0")) break;
+            if (!dir.delete()) break; // fails while non-empty — that's the stop signal
+            dir = dir.getParentFile();
+        }
+        return true;
+    }
+
+    /**
+     * List-style modal matching the launcher UI: themed rounded panel, custom
+     * font, and createListButton rows. Handles wheel rotation itself — dialogs
+     * swallow keys before MainActivity.onKeyDown, and the wheel's 21/22 codes
+     * only move focus between HORIZONTAL neighbours natively.
+     */
+    private void showThemedOptionsDialog(String title, String subtitle, String[] options, final Runnable[] actions) {
+        float d = getResources().getDisplayMetrics().density;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(createButtonBackground(0xF2151515));
+        root.setPadding((int) (18 * d), (int) (14 * d), (int) (18 * d), (int) (14 * d));
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText(title);
+        tvTitle.setTextSize(18f);
+        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
+        root.addView(tvTitle);
+
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView tvSub = new TextView(this);
+            tvSub.setText(subtitle);
+            tvSub.setTextSize(14f);
+            tvSub.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
+            tvSub.setTextColor(ThemeManager.getTextColorSecondary());
+            tvSub.setSingleLine(true);
+            tvSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvSub.setPadding(0, (int) (2 * d), 0, 0);
+            root.addView(tvSub);
+        }
+
+        android.view.View spacer = new android.view.View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(1, (int) (10 * d)));
+        root.addView(spacer);
+
+        for (int i = 0; i < options.length; i++) {
+            final Runnable action = actions[i];
+            Button btn = createListButton(options[i]);
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    dialog.dismiss();
+                    if (action != null) action.run();
+                }
+            });
+            root.addView(btn);
+        }
+
+        // Wheel rotation → focus walk over the option rows (same logic onKeyDown
+        // applies to LinearLayout lists, but scoped to this dialog)
+        dialog.setOnKeyListener(new DialogInterface.OnKeyListener() {
+            @Override
+            public boolean onKey(DialogInterface di, int keyCode, KeyEvent event) {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode != 21 && keyCode != 22) return false;
+                View cur = root.findFocus();
+                int index = cur != null ? root.indexOfChild(cur) : -1;
+                int dir = keyCode == 22 ? 1 : -1;
+                int i = index == -1 ? (dir == 1 ? 0 : root.getChildCount() - 1) : index + dir;
+                for (; i >= 0 && i < root.getChildCount(); i += dir) {
+                    View n = root.getChildAt(i);
+                    if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
+                        n.requestFocus();
+                        clickFeedback();
+                        break;
+                    }
+                }
+                return true;
+            }
+        });
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.88f),
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        dialog.show();
+        // Land focus on the first option so the wheel works immediately
+        root.post(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < root.getChildCount(); i++) {
+                    View n = root.getChildAt(i);
+                    if (n.isFocusable()) { n.requestFocus(); break; }
+                }
+            }
+        });
+    }
+
+    private void showNavidromeDeleteDialog(final com.themoon.y1.subsonic.SubsonicSong song) {
+        showThemedOptionsDialog(t("Delete Download"), song.title,
+                new String[]{ "🗑  " + t("Delete"), t("Cancel") },
+                new Runnable[]{
+                        new Runnable() {
+                            @Override public void run() {
+                                if (deleteNavidromeDownload(song)) {
+                                    refreshNavidromeSongLabels();
+                                    Toast.makeText(MainActivity.this, "🗑 " + t("Deleted") + ": " + song.title, Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        },
+                        null
+                });
+    }
+
+    /** Delete both downloaded variants of a track, keeping the launcher library,
+     *  favorites, and now-empty album/artist folders consistent. */
+    private boolean deleteNavidromeDownload(com.themoon.y1.subsonic.SubsonicSong song) {
+        boolean deleted = false;
+        String[] paths = { song.getLocalPath(), song.getLocalPathMp3() };
+        for (String p : paths) {
+            java.io.File f = new java.io.File(p);
+            if (!f.exists() || !f.delete()) continue;
+            deleted = true;
+            java.util.Iterator<SongItem> it = customLibrary.iterator();
+            while (it.hasNext()) {
+                if (it.next().file.getAbsolutePath().equals(p)) it.remove();
+            }
+            trackNumberMap.remove(p);
+            if (favoritePaths.remove(p)) {
+                try { prefs.edit().putStringSet("favorites", favoritePaths).commit(); } catch (Exception ignored) {}
+            }
+            // delete() only succeeds on empty dirs, so this safely prunes
+            // the album folder and then the artist folder when they empty out
+            java.io.File albumDir = f.getParentFile();
+            if (albumDir != null && albumDir.delete()) {
+                java.io.File artistDir = albumDir.getParentFile();
+                if (artistDir != null) artistDir.delete();
+            }
+        }
+        return deleted;
+    }
+
+    // Downloads run strictly one at a time — parallel transfers just divide the
+    // ~190kbps link and make every track take the full album's time.
+    private String currentNavidromeDownloadId;
+
+    private void enqueueNavidromeDownloads(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
+        if (songs == null || songs.isEmpty()) return;
+        java.util.List<NavidromeDownloadItem> toAdd = new java.util.ArrayList<NavidromeDownloadItem>();
+        long neededBytes = 0;
+        for (com.themoon.y1.subsonic.SubsonicSong song : songs) {
+            String target = transcoded ? song.getLocalPathMp3() : song.getLocalPath();
+            if (new java.io.File(target).exists() || isNavidromeDownloadQueued(song.id)) continue;
+            toAdd.add(new NavidromeDownloadItem(song, transcoded));
+            if (transcoded) {
+                neededBytes += (long) song.durationSecs * 24000L; // 192kbps ≈ 24KB/s
+            } else {
+                neededBytes += song.sizeBytes > 0 ? song.sizeBytes
+                        : (long) song.durationSecs * 130000L; // ~1Mbps FLAC fallback
+            }
+        }
+        if (toAdd.isEmpty()) {
+            Toast.makeText(this, "✅ Already downloaded", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Free-space check with a 50MB safety margin — a FLAC album on a full
+        // card would otherwise fail confusingly mid-queue
+        try {
+            android.os.StatFs sf = new android.os.StatFs("/storage/sdcard0");
+            long available = (long) sf.getAvailableBlocks() * sf.getBlockSize();
+            if (neededBytes + 50L * 1024 * 1024 > available) {
+                Toast.makeText(this, "❌ " + t("Not enough space") + ": ~" + (neededBytes / (1024 * 1024))
+                        + " MB " + t("needed") + ", " + (available / (1024 * 1024)) + " MB " + t("free"),
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+        } catch (Exception ignored) {}
+
+        navidromeDownloadQueue.addAll(toAdd);
+        navidromeQueueTotal += toAdd.size();
+        Toast.makeText(this, "⬇ Queued " + toAdd.size() + (toAdd.size() == 1 ? " track" : " tracks"), Toast.LENGTH_SHORT).show();
+        if (!isNavidromeDownloading) processNextNavidromeDownload();
+    }
+
+    private boolean isNavidromeDownloadQueued(String songId) {
+        if (songId.equals(currentNavidromeDownloadId)) return true;
+        for (NavidromeDownloadItem item : navidromeDownloadQueue) {
+            if (songId.equals(item.song.id)) return true;
+        }
+        return false;
+    }
+
+    private void acquireNavidromeDownloadLocks() {
+        try {
+            if (navidromeDownloadWakeLock == null) {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                navidromeDownloadWakeLock = pm.newWakeLock(
+                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "Y1NavidromeDownload");
+                navidromeDownloadWakeLock.setReferenceCounted(false);
+            }
+            if (!navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.acquire();
+
+            if (navidromeDownloadWifiLock == null) {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                        getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                navidromeDownloadWifiLock = wm.createWifiLock(
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1NavidromeDownload");
+                navidromeDownloadWifiLock.setReferenceCounted(false);
+            }
+            if (!navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.acquire();
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseNavidromeDownloadLocks() {
+        try { if (navidromeDownloadWakeLock != null && navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.release(); } catch (Exception ignored) {}
+        try { if (navidromeDownloadWifiLock != null && navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.release(); } catch (Exception ignored) {}
+    }
+
+    private void processNextNavidromeDownload() {
+        final NavidromeDownloadItem item = navidromeDownloadQueue.poll();
+        final com.themoon.y1.subsonic.SubsonicSong song = item != null ? item.song : null;
+        if (song == null) {
+            isNavidromeDownloading = false;
+            currentNavidromeDownloadId = null;
+            releaseNavidromeDownloadLocks();
+            if (navidromeQueueTotal > 0) {
+                Toast.makeText(this, "✅ Downloads finished (" + navidromeQueueDone + "/" + navidromeQueueTotal + ")",
+                        Toast.LENGTH_SHORT).show();
+            }
+            navidromeQueueTotal = 0;
+            navidromeQueueDone = 0;
+            updateNavidromeDownloadStatus(null);
+            refreshNavidromeSongLabels();
+            return;
+        }
+        isNavidromeDownloading = true;
+        currentNavidromeDownloadId = song.id;
+        acquireNavidromeDownloadLocks();
+        updateNavidromeDownloadStatus("⬇ " + (navidromeQueueDone + 1) + "/" + navidromeQueueTotal + "  0%");
+
+        String savePath = item.transcoded ? song.getLocalPathMp3() : song.getLocalPath();
+        com.themoon.y1.subsonic.SubsonicClient.getInstance().downloadSong(song.id, savePath, item.transcoded,
+                new com.themoon.y1.subsonic.SubsonicClient.DownloadCallback() {
+                    @Override
+                    public void onProgress(int percent, long bytesSoFar) {
+                        String p = percent >= 0 ? percent + "%"
+                                : String.format(Locale.US, "%.1f MB", bytesSoFar / 1048576f);
+                        updateNavidromeDownloadStatus("⬇ " + (navidromeQueueDone + 1) + "/" + navidromeQueueTotal
+                                + "  " + p);
+                    }
+                    @Override
+                    public void onComplete(String path) {
+                        navidromeQueueDone++;
+                        // Register in the launcher's own library right away (its scan is
+                        // manual/boot-time only) and in the system MediaStore
+                        registerDownloadedSongInLibrary(song, path);
+                        // Transcoded MP3s lose their embedded art (ffmpeg keeps audio
+                        // only), so stash the server's cover for Cover Flow / player
+                        cacheNavidromeCoverForDownloadedTrack(song, path);
+                        android.media.MediaScannerConnection.scanFile(
+                                getApplicationContext(), new String[]{path}, null, null);
+                        refreshNavidromeSongLabels();
+                        processNextNavidromeDownload();
+                    }
+                    @Override
+                    public void onError(String message) {
+                        navidromeQueueDone++;
+                        Toast.makeText(MainActivity.this, "❌ " + song.title + ": " + message, Toast.LENGTH_SHORT).show();
+                        processNextNavidromeDownload();
+                    }
+                });
+    }
+
+    /**
+     * Add a freshly downloaded track to the launcher's in-memory library so it
+     * shows up in Artists/Albums/All Songs immediately — the launcher's own scan
+     * only runs at boot or manually, and MediaStore isn't consulted at all.
+     * Metadata comes straight from the Subsonic API, no tag parsing needed.
+     */
+    private void registerDownloadedSongInLibrary(com.themoon.y1.subsonic.SubsonicSong song, String path) {
+        try {
+            java.io.File f = new java.io.File(path);
+            if (!f.exists()) return;
+            for (SongItem existing : customLibrary) {
+                if (existing.file.getAbsolutePath().equals(path)) return;
+            }
+            String title = song.title != null && !song.title.isEmpty() ? song.title : f.getName();
+            // Album artist first — same grouping rule as the tag scan
+            String artist = song.albumArtist != null && !song.albumArtist.isEmpty() ? song.albumArtist
+                    : (song.artist != null && !song.artist.isEmpty() ? song.artist : t("Unknown Artist"));
+            String album = song.album != null && !song.album.isEmpty() ? song.album : t("Unknown Album");
+            String year = song.year > 0 ? String.valueOf(song.year) : t("Unknown Year");
+            String genre = song.genre != null && !song.genre.isEmpty() ? song.genre : t("Unknown Genre");
+            customLibrary.add(new SongItem(f, title, artist, album, year, genre));
+            trackNumberMap.put(path, song.track);
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Save the album cover for a downloaded track in the launcher's own cover
+     * convention: Y1_Covers/<track filename>.jpg plus the "album_art_" pref —
+     * the same pair fetchTrackInfoFromInternet writes and Cover Flow reads.
+     */
+    private void cacheNavidromeCoverForDownloadedTrack(final com.themoon.y1.subsonic.SubsonicSong song,
+                                                       final String trackPath) {
+        if (song.coverArtId == null || song.coverArtId.isEmpty()) return;
+        java.io.File cacheFile = new java.io.File("/storage/sdcard0/Y1_Covers/Navidrome",
+                song.coverArtId.replaceAll("[^A-Za-z0-9._-]", "_") + ".jpg");
+        com.themoon.y1.subsonic.SubsonicClient.getInstance().fetchCoverArt(song.coverArtId, 320, cacheFile,
+                new com.themoon.y1.subsonic.SubsonicClient.Callback<String>() {
+                    @Override
+                    public void onSuccess(String coverPath) {
+                        try {
+                            String base = new java.io.File(trackPath).getName();
+                            int dot = base.lastIndexOf('.');
+                            if (dot > 0) base = base.substring(0, dot);
+                            java.io.File dest = new java.io.File("/storage/sdcard0/Y1_Covers", base + ".jpg");
+                            if (dest.getParentFile() != null) dest.getParentFile().mkdirs();
+                            if (!dest.exists()) {
+                                java.io.FileInputStream in = new java.io.FileInputStream(coverPath);
+                                java.io.FileOutputStream out = new java.io.FileOutputStream(dest);
+                                byte[] buf = new byte[8192];
+                                int r;
+                                while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
+                                out.close();
+                                in.close();
+                            }
+                            prefs.edit().putString("album_art_" + trackPath, dest.getAbsolutePath()).apply();
+                        } catch (Exception ignored) {}
+                    }
+                    @Override
+                    public void onError(String message) {}
+                });
+    }
+
+    private void updateNavidromeDownloadStatus(String status) {
+        if (status == null) {
+            tvNavidromeStatus.setText("●");
+        } else {
+            tvNavidromeStatus.setTextColor(0xFF88CCFF);
+            tvNavidromeStatus.setText(status);
+        }
+    }
+
+    /** Fetch (or reuse cached) Navidrome cover art and apply it to the player screen. */
+    public void loadNavidromeCoverArt(final com.themoon.y1.subsonic.SubsonicSong song) {
+        if (song == null || song.coverArtId == null || song.coverArtId.isEmpty()) return;
+        currentNavidromeCoverArtId = song.coverArtId;
+        java.io.File cacheFile = new java.io.File("/storage/sdcard0/Y1_Covers/Navidrome",
+                song.coverArtId.replaceAll("[^A-Za-z0-9._-]", "_") + ".jpg");
+        com.themoon.y1.subsonic.SubsonicClient.getInstance().fetchCoverArt(song.coverArtId, 320, cacheFile,
+                new com.themoon.y1.subsonic.SubsonicClient.Callback<String>() {
+                    @Override
+                    public void onSuccess(String path) {
+                        // Skip if the user already moved on to a track with different art
+                        if (song.coverArtId.equals(currentNavidromeCoverArtId)) applyCachedCoverArt(path);
+                    }
+                    @Override
+                    public void onError(String message) {}
+                });
+    }
+
+    private void focusFirstNavidromeItem() {
+        if (containerNavidromeItems.getChildCount() > 0) {
+            containerNavidromeItems.getChildAt(0).requestFocus();
+        }
+    }
+
+    private static void installTls12TrustAll() {
+        try {
+            javax.net.ssl.TrustManager[] trustAll = new javax.net.ssl.TrustManager[]{
+                new javax.net.ssl.X509TrustManager() {
+                    public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                    public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                        return new java.security.cert.X509Certificate[0];
+                    }
+                }
+            };
+            javax.net.ssl.SSLContext ctx = javax.net.ssl.SSLContext.getInstance("TLSv1.2");
+            ctx.init(null, trustAll, null);
+            final javax.net.ssl.SSLSocketFactory base = ctx.getSocketFactory();
+            // Wrap so every socket explicitly enables TLS 1.2 — Android 4.x defaults to TLS 1.0
+            javax.net.ssl.SSLSocketFactory tls12 = new javax.net.ssl.SSLSocketFactory() {
+                private java.net.Socket patch(java.net.Socket s) {
+                    if (s instanceof javax.net.ssl.SSLSocket)
+                        ((javax.net.ssl.SSLSocket) s).setEnabledProtocols(new String[]{"TLSv1.2","TLSv1.1","TLSv1"});
+                    return s;
+                }
+                public String[] getDefaultCipherSuites() { return base.getDefaultCipherSuites(); }
+                public String[] getSupportedCipherSuites() { return base.getSupportedCipherSuites(); }
+                public java.net.Socket createSocket(java.net.Socket s, String h, int p, boolean ac) throws java.io.IOException { return patch(base.createSocket(s,h,p,ac)); }
+                public java.net.Socket createSocket(String h, int p) throws java.io.IOException { return patch(base.createSocket(h,p)); }
+                public java.net.Socket createSocket(String h, int p, java.net.InetAddress la, int lp) throws java.io.IOException { return patch(base.createSocket(h,p,la,lp)); }
+                public java.net.Socket createSocket(java.net.InetAddress h, int p) throws java.io.IOException { return patch(base.createSocket(h,p)); }
+                public java.net.Socket createSocket(java.net.InetAddress a, int p, java.net.InetAddress la, int lp) throws java.io.IOException { return patch(base.createSocket(a,p,la,lp)); }
+            };
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(tls12);
+            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier(
+                new javax.net.ssl.HostnameVerifier() {
+                    public boolean verify(String h, javax.net.ssl.SSLSession s) { return true; }
+                });
+        } catch (Exception ignored) {}
+    }
+
 }
+
 

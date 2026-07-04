@@ -1,0 +1,125 @@
+07-03 20:20:21. === M0 L2CAP spike starting (mac extra: null) ===
+07-03 20:20:21. bonded: 74:77:86:77:FC:A4 'Scotty’s AirPods Pro 3 - Find My'
+07-03 20:20:21. target: 74:77:86:77:FC:A4 'Scotty’s AirPods Pro 3 - Find My'
+07-03 20:20:21. ctor: android.bluetooth.BluetoothSocket(int,int,boolean,boolean,android.bluetooth.BluetoothDevice,int,android.os.ParcelUuid) throws java.io.IOException
+07-03 20:20:21. ctor: private android.bluetooth.BluetoothSocket(int,int,boolean,boolean,java.lang.String,int) throws java.io.IOException
+07-03 20:20:21. ctor: private android.bluetooth.BluetoothSocket(android.os.Parcel)
+07-03 20:20:21. ctor: android.bluetooth.BluetoothSocket(android.os.Parcel,android.bluetooth.BluetoothSocket$1)
+07-03 20:20:21. field TYPE_RFCOMM=1
+07-03 20:20:21. field TYPE_SCO=2
+07-03 20:20:21. field TYPE_L2CAP=3
+07-03 20:20:21. TYPE_L2CAP=3 PSM=0x1001
+07-03 20:20:21. >>> attempt auth=false encrypt=false try#1
+07-03 20:20:21. [JSR82] type=3 fd=-1 auth=false encrypt=false port=4097
+07-03 20:20:21. [JSR82][JNI] type=3, auth=0, encrypt=0, port=4097
+07-03 20:20:21. socket constructed OK
+07-03 20:20:21. [JSR82][JBT] JBT jbt_session_connect_req
+07-03 20:20:21. [JSR82][JBT] JBT ps_type:01
+07-03 20:20:21. [JSR82][JBT] JBT psm_channel:1001
+07-03 20:20:21. [JSR82][JBT] JBT security_value:00
+07-03 20:20:21. [JSR82][ASHM] btmtk_jsr82_malloc_ashm: size=1024, index=255, type=1
+07-03 20:20:22. [JSR82][JBT] JBT MSG_ID_BT_JSR82_CONNECT_CNF
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.ps_type:01
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf msg->result:02
+07-03 20:20:22. [JSR82][ASHM] btmtk_jsr82_free_ashm(index=255, type=1)
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.transaction_id:00008000
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.con_id:00
+07-03 20:20:22. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.l2cap_id:0000
+07-03 20:20:22. [JSR82][JNI] Event: EVENT_JSR82_MMI_CONNECT_CNF
+07-03 20:20:22. [JSR82][JNI] index=0, ps_type=1, l2cap_id=0, channel=4097, identify=32768, result=2
+07-03 20:20:22. [JSR82][JNI] Connection_CNF failed for identify (32768).
+07-03 20:20:22. connect() FAILED
+07-03 20:20:22. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
+07-03 20:20:22. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
+07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:22. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:22. 	at java.lang.Thread.run(Thread.java:838)
+07-03 20:20:25. >>> attempt auth=false encrypt=false try#2
+07-03 20:20:25. [JSR82] type=3 fd=-1 auth=false encrypt=false port=4097
+07-03 20:20:25. [JSR82][JNI] type=3, auth=0, encrypt=0, port=4097
+07-03 20:20:25. socket constructed OK
+07-03 20:20:25. [JSR82][JBT] JBT jbt_session_connect_req
+07-03 20:20:25. [JSR82][JBT] JBT ps_type:01
+07-03 20:20:25. [JSR82][JBT] JBT psm_channel:1001
+07-03 20:20:25. [JSR82][JBT] JBT security_value:00
+07-03 20:20:25. [JSR82][ASHM] btmtk_jsr82_malloc_ashm: size=1024, index=255, type=1
+07-03 20:20:26. [JSR82][JBT] JBT MSG_ID_BT_JSR82_CONNECT_CNF
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.ps_type:01
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf msg->result:02
+07-03 20:20:26. [JSR82][ASHM] btmtk_jsr82_free_ashm(index=255, type=1)
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.transaction_id:00008000
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.con_id:00
+07-03 20:20:26. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.l2cap_id:0000
+07-03 20:20:26. [JSR82][JNI] Event: EVENT_JSR82_MMI_CONNECT_CNF
+07-03 20:20:26. [JSR82][JNI] index=0, ps_type=1, l2cap_id=0, channel=4097, identify=32768, result=2
+07-03 20:20:26. [JSR82][JNI] Connection_CNF failed for identify (32768).
+07-03 20:20:26. connect() FAILED
+07-03 20:20:26. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
+07-03 20:20:26. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
+07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:26. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:26. 	at java.lang.Thread.run(Thread.java:838)
+07-03 20:20:29. >>> attempt auth=true encrypt=true try#1
+07-03 20:20:29. [JSR82] type=3 fd=-1 auth=true encrypt=true port=4097
+07-03 20:20:29. [JSR82][JNI] type=3, auth=1, encrypt=1, port=4097
+07-03 20:20:29. socket constructed OK
+07-03 20:20:29. [JSR82][JBT] JBT jbt_session_connect_req
+07-03 20:20:29. [JSR82][JBT] JBT ps_type:01
+07-03 20:20:29. [JSR82][JBT] JBT psm_channel:1001
+07-03 20:20:29. [JSR82][JBT] JBT security_value:01
+07-03 20:20:29. [JSR82][ASHM] btmtk_jsr82_malloc_ashm: size=1024, index=255, type=1
+07-03 20:20:30. [JSR82][JBT] JBT MSG_ID_BT_JSR82_CONNECT_CNF
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.ps_type:01
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf msg->result:02
+07-03 20:20:30. [JSR82][ASHM] btmtk_jsr82_free_ashm(index=255, type=1)
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.transaction_id:00008000
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.con_id:00
+07-03 20:20:30. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.l2cap_id:0000
+07-03 20:20:30. [JSR82][JNI] Event: EVENT_JSR82_MMI_CONNECT_CNF
+07-03 20:20:30. [JSR82][JNI] index=0, ps_type=1, l2cap_id=0, channel=4097, identify=32768, result=2
+07-03 20:20:30. [JSR82][JNI] Connection_CNF failed for identify (32768).
+07-03 20:20:30. connect() FAILED
+07-03 20:20:30. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
+07-03 20:20:30. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
+07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:30. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:30. 	at java.lang.Thread.run(Thread.java:838)
+07-03 20:20:33. >>> attempt auth=true encrypt=true try#2
+07-03 20:20:33. [JSR82] type=3 fd=-1 auth=true encrypt=true port=4097
+07-03 20:20:33. [JSR82][JNI] type=3, auth=1, encrypt=1, port=4097
+07-03 20:20:33. socket constructed OK
+07-03 20:20:33. [JSR82][JBT] JBT jbt_session_connect_req
+07-03 20:20:33. [JSR82][JBT] JBT ps_type:01
+07-03 20:20:33. [JSR82][JBT] JBT psm_channel:1001
+07-03 20:20:33. [JSR82][JBT] JBT security_value:01
+07-03 20:20:33. [JSR82][ASHM] btmtk_jsr82_malloc_ashm: size=1024, index=255, type=1
+07-03 20:20:34. [JSR82][JBT] JBT MSG_ID_BT_JSR82_CONNECT_CNF
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.ps_type:01
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf msg->result:02
+07-03 20:20:34. [JSR82][ASHM] btmtk_jsr82_free_ashm(index=255, type=1)
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.transaction_id:00008000
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.con_id:00
+07-03 20:20:34. [JSR82][JBT] JBT bt_handle_session_connect_req_cnf parms.l2cap_id:0000
+07-03 20:20:34. [JSR82][JNI] Event: EVENT_JSR82_MMI_CONNECT_CNF
+07-03 20:20:34. [JSR82][JNI] index=0, ps_type=1, l2cap_id=0, channel=4097, identify=32768, result=2
+07-03 20:20:34. [JSR82][JNI] Connection_CNF failed for identify (32768).
+07-03 20:20:34. connect() FAILED
+07-03 20:20:34. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
+07-03 20:20:34. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
+07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:34. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:34. 	at java.lang.Thread.run(Thread.java:838)
+07-03 20:20:37. RESULT: all L2CAP connect variants FAILED
+07-03 20:20:37. === M0 spike finished ===

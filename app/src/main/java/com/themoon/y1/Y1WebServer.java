@@ -1,7 +1,9 @@
 package com.themoon.y1;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
+import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -44,6 +46,19 @@ public class Y1WebServer extends Thread {
             int ipAddress = wm.getConnectionInfo().getIpAddress();
             return String.format(Locale.US, "%d.%d.%d.%d", (ipAddress & 0xff), (ipAddress >> 8 & 0xff), (ipAddress >> 16 & 0xff), (ipAddress >> 24 & 0xff));
         } catch (Exception ex) { return "Unknown IP"; }
+    }
+
+    // Resolves a client-supplied relative path against rootFolder and rejects
+    // anything that escapes it via ".." traversal (verified: Java's File(parent, child)
+    // does NOT discard an absolute child, but canonicalization still collapses "..").
+    private File resolveSafePath(String relativePath) throws java.io.IOException {
+        File target = (relativePath == null || relativePath.isEmpty()) ? rootFolder : new File(rootFolder, relativePath);
+        String rootCanonical = rootFolder.getCanonicalPath();
+        String targetCanonical = target.getCanonicalPath();
+        if (!targetCanonical.equals(rootCanonical) && !targetCanonical.startsWith(rootCanonical + File.separator)) {
+            throw new java.io.IOException("Path escapes root folder: " + relativePath);
+        }
+        return target;
     }
 
     private void deleteFileOrFolder(File fileOrDirectory) {
@@ -148,6 +163,21 @@ public class Y1WebServer extends Thread {
                             "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#9E9E9E;'>" +
                             "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
                             "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
+                            "</div>" +
+
+                            // Navidrome 설정 박스
+                            "<div class='box'>" +
+                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>🎵 Navidrome Settings</div>" +
+                            "<div style='display:flex; flex-direction:column; gap:8px;'>" +
+                            "<input type='text' id='navUrl' placeholder='Server URL  e.g. http://192.168.1.100:4533' style='width:100%; box-sizing:border-box;'>" +
+                            "<input type='text' id='navUser' placeholder='Username'>" +
+                            "<input type='password' id='navPass' placeholder='Password'>" +
+                            "</div>" +
+                            "<div style='margin-top:10px; display:flex; gap:8px;'>" +
+                            "<button onclick='saveNavSettings()' style='flex:1;'>💾 Save</button>" +
+                            "<button class='action' onclick='loadNavSettings()' style='flex:1;'>📋 Load Current</button>" +
+                            "</div>" +
+                            "<div id='navStatus' style='margin-top:8px; color:#81C784; font-size:13px;'></div>" +
                             "</div>" +
 
                             // 파일 리스트 박스
@@ -314,7 +344,32 @@ public class Y1WebServer extends Thread {
                             "  } " +
                             "});" +
 
-                            "window.onload = loadList;" +
+                            "function loadNavSettings() {" +
+                            "  fetch('/api/navidrome-settings').then(r=>r.json()).then(d => {" +
+                            "    document.getElementById('navUrl').value = d.url || '';" +
+                            "    document.getElementById('navUser').value = d.user || '';" +
+                            "    document.getElementById('navPass').value = d.pass || '';" +
+                            "    document.getElementById('navStatus').innerText = d.url ? '✅ Settings loaded.' : 'ℹ️ Not configured yet.';" +
+                            "  }).catch(()=>{ document.getElementById('navStatus').innerText='⚠️ Could not load.'; });" +
+                            "}" +
+                            "async function saveNavSettings() {" +
+                            "  var url = document.getElementById('navUrl').value.trim();" +
+                            "  var user = document.getElementById('navUser').value.trim();" +
+                            "  var pass = document.getElementById('navPass').value;" +
+                            "  if(!url||!user){document.getElementById('navStatus').innerText='⚠️ URL and username are required.';return;}" +
+                            "  document.getElementById('navStatus').innerText='⏳ Saving & testing connection...';" +
+                            "  var body = JSON.stringify({url:url,user:user,pass:pass});" +
+                            "  try {" +
+                            "    let r = await fetch('/api/navidrome-settings', {method:'POST', body:body});" +
+                            "    let d = await r.json();" +
+                            "    if (d.ok) { document.getElementById('navStatus').innerText='✅ Saved and connected! Open Navidrome on the Y1.'; }" +
+                            "    else { document.getElementById('navStatus').innerText='⚠️ Saved, but could not connect: ' + (d.error || 'unknown error'); }" +
+                            "  } catch(e) {" +
+                            "    document.getElementById('navStatus').innerText='❌ Save request failed: ' + e;" +
+                            "  }" +
+                            "}" +
+
+                            "window.onload = function(){ loadList(); loadNavSettings(); };" +
                             "</script></body></html>";
 
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
@@ -325,7 +380,7 @@ public class Y1WebServer extends Thread {
                     String dirStr = "";
                     if (q.startsWith("dir=")) dirStr = URLDecoder.decode(q.substring(4), "UTF-8");
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
+                    File targetDir = resolveSafePath(dirStr);
                     StringBuilder json = new StringBuilder("[");
 
                     if (targetDir.exists() && targetDir.isDirectory()) {
@@ -355,8 +410,7 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
                         if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
                     }
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
-                    File newDir = new File(targetDir, name);
+                    File newDir = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
                     newDir.mkdirs();
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
@@ -365,7 +419,7 @@ public class Y1WebServer extends Thread {
                 else if (method.equals("POST") && path.startsWith("/api/delete")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
                     if (targetFile.exists()) {
                         deleteFileOrFolder(targetFile);
                     }
@@ -383,9 +437,8 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("new=")) newName = URLDecoder.decode(p.substring(4), "UTF-8");
                     }
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
-                    File oldFile = new File(targetDir, oldName);
-                    File newFile = new File(targetDir, newName);
+                    File oldFile = resolveSafePath(dirStr.isEmpty() ? oldName : dirStr + "/" + oldName);
+                    File newFile = resolveSafePath(dirStr.isEmpty() ? newName : dirStr + "/" + newName);
 
                     // 기존 파일이 존재하고 새 이름의 파일이 없을 때만 안전하게 이름 변경 실행
                     if (oldFile.exists() && !newFile.exists()) {
@@ -394,13 +447,71 @@ public class Y1WebServer extends Thread {
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 
+                // [API] Navidrome settings – GET
+                else if (method.equals("GET") && path.equals("/api/navidrome-settings")) {
+                    android.content.SharedPreferences prefs = context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE);
+                    String navUrl = prefs.getString("navidrome_url", "");
+                    String navUser = prefs.getString("navidrome_user", "");
+                    String navPass = prefs.getString("navidrome_pass", "");
+                    String json = "{\"url\":\"" + navUrl.replace("\"","\\\"") + "\",\"user\":\"" + navUser.replace("\"","\\\"") + "\",\"pass\":\"" + navPass.replace("\"","\\\"") + "\"}";
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+                }
+
+                // [API] Navidrome settings – POST
+                else if (method.equals("POST") && path.equals("/api/navidrome-settings")) {
+                    byte[] bodyBytes = new byte[Math.min(contentLength, 4096)];
+                    int totalRead = 0;
+                    while (totalRead < bodyBytes.length) {
+                        int r = is.read(bodyBytes, totalRead, bodyBytes.length - totalRead);
+                        if (r == -1) break;
+                        totalRead += r;
+                    }
+                    String body = new String(bodyBytes, 0, totalRead, "UTF-8");
+                    boolean pingOk = false;
+                    String pingError = "Invalid request";
+                    try {
+                        org.json.JSONObject obj = new org.json.JSONObject(body);
+                        String navUrl = obj.optString("url", "").trim().replaceAll("/+$", "");
+                        String navUser = obj.optString("user", "").trim();
+                        String navPass = obj.optString("pass", "");
+                        context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE).edit()
+                                .putString("navidrome_url", navUrl)
+                                .putString("navidrome_user", navUser)
+                                .putString("navidrome_pass", navPass)
+                                .apply();
+                        com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
+
+                        // Actually test the new settings against the server rather than just
+                        // trusting the save — this is what was silently failing before: the
+                        // Y1 kept showing the previous server's cached artist list with no
+                        // indication the new URL/login didn't work.
+                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                        final boolean[] okHolder = {false};
+                        final String[] errHolder = {"Timed out waiting for server"};
+                        com.themoon.y1.subsonic.SubsonicClient.getInstance().ping(
+                                new com.themoon.y1.subsonic.SubsonicClient.Callback<Boolean>() {
+                                    @Override public void onSuccess(Boolean result) { okHolder[0] = true; latch.countDown(); }
+                                    @Override public void onError(String message) { errHolder[0] = message; latch.countDown(); }
+                                });
+                        latch.await(8, java.util.concurrent.TimeUnit.SECONDS);
+                        pingOk = okHolder[0];
+                        pingError = errHolder[0];
+                    } catch (Exception e) {
+                        pingError = e.getMessage() != null ? e.getMessage() : "Save failed";
+                    }
+                    String json = pingOk
+                            ? "{\"ok\":true}"
+                            : "{\"ok\":false,\"error\":\"" + (pingError == null ? "Unknown error" : pingError.replace("\\", "\\\\").replace("\"", "\\\"")) + "\"}";
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+                }
+
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
 
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
 
                     if (!targetFile.exists() || targetFile.isDirectory()) {
                         os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
@@ -444,9 +555,9 @@ public class Y1WebServer extends Thread {
                         if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
                     }
 
-                    File targetDir = dirStr.isEmpty() ? rootFolder : new File(rootFolder, dirStr);
+                    File targetDir = resolveSafePath(dirStr);
                     if (!targetDir.exists()) targetDir.mkdirs();
-                    File outFile = new File(targetDir, name);
+                    File outFile = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
 
                     FileOutputStream fos = new FileOutputStream(outFile);
                     byte[] buffer = new byte[8192];
@@ -467,7 +578,7 @@ public class Y1WebServer extends Thread {
                 else if (method.equals("POST") && path.startsWith("/api/save")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = new File(rootFolder, targetPath);
+                    File targetFile = resolveSafePath(targetPath);
 
                     FileOutputStream fos = new FileOutputStream(targetFile);
                     byte[] buffer = new byte[8192];

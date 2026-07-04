@@ -13,6 +13,7 @@ import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
+import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.upstream.DataSource;
@@ -34,7 +35,38 @@ public class AudioPlayerManager {
     public boolean isUsingLegacyPlayer = false;
     private java.io.FileInputStream currentFileInputStream;
 
+    // Navidrome streaming state
+    public boolean isNavidromeMode = false;
+    public java.util.List<com.themoon.y1.subsonic.SubsonicSong> navidromePlaylist = new java.util.ArrayList<>();
+    public int navidromeIndex = 0;
+    private int navidromeErrorCount = 0; // consecutive stream failures — stops the skip loop when WiFi dies
+
     private float currentSpeed = 1.0f;
+
+    // Set when AapService auto-pauses on AirPods removal (see pauseForAirpods());
+    // only that path is allowed to auto-resume, so it never fights a real user pause.
+    private boolean pausedByAirpods = false;
+
+    // "Disable Built-in Speaker" setting. Deliberately done at the player level
+    // (ExoPlayer/MediaPlayer's own volume) rather than via AudioManager: this
+    // device's AudioService keeps separate per-output-device volume indices, so
+    // AudioManager.setStreamVolume()/setStreamMute() silently hit whichever
+    // device happens to be routed at that instant -- sometimes the Bluetooth
+    // device's index instead of the speaker's, corrupting it (confirmed via
+    // dumpsys audio while chasing this bug). Muting our own player's output
+    // is entirely internal to the app and immune to that.
+    private boolean speakerMuted = false;
+
+    public void setSpeakerMuted(boolean muted) {
+        speakerMuted = muted;
+        applyPlayerVolumeState();
+    }
+
+    private void applyPlayerVolumeState() {
+        float vol = speakerMuted ? 0f : 1f;
+        if (exoPlayer != null) exoPlayer.setVolume(vol);
+        if (legacyPlayer != null) legacyPlayer.setVolume(vol, vol);
+    }
 
     private AudioPlayerManager() {}
 
@@ -47,11 +79,25 @@ public class AudioPlayerManager {
 
     public void initPlayer(Context context) {
         if (exoPlayer == null) {
-            exoPlayer = new SimpleExoPlayer.Builder(context.getApplicationContext()).build();
+            DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                            15000,  // minBufferMs
+                            50000,  // maxBufferMs
+                            1500,   // bufferForPlaybackMs (down from 2500ms default)
+                            2500)   // bufferForPlaybackAfterRebufferMs (down from 5000ms default)
+                    .build();
+            exoPlayer = new SimpleExoPlayer.Builder(context.getApplicationContext())
+                    .setLoadControl(loadControl)
+                    .build();
+            // Hold CPU + WiFi awake while playing — without this, Navidrome streams
+            // stall when the screen sleeps and the device dozes.
+            exoPlayer.setWakeMode(com.google.android.exoplayer2.C.WAKE_MODE_NETWORK);
             exoPlayer.addListener(new Player.EventListener() {
                 @Override
                 public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+                    android.util.Log.d("NaviStream", "onPlayerStateChanged playWhenReady=" + playWhenReady + " state=" + playbackState);
                     if (playbackState == Player.STATE_READY && !isUsingLegacyPlayer) {
+                        navidromeErrorCount = 0; // playback actually started
                         if (MainActivity.instance != null) {
                             MainActivity.instance.runOnUiThread(new Runnable() {
                                 @Override
@@ -83,9 +129,11 @@ public class AudioPlayerManager {
 
                 @Override
                 public void onPlayerError(com.google.android.exoplayer2.ExoPlaybackException error) {
+                    android.util.Log.e("NaviStream", "ExoPlayer error: " + error.getMessage(), error);
                     if (!isUsingLegacyPlayer) handleTrackError("Cannot play this file.");
                 }
             });
+            applyPlayerVolumeState(); // 💡 새로 만든 ExoPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
         }
     }
 
@@ -107,6 +155,30 @@ public class AudioPlayerManager {
     private void handleTrackCompletion() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
+        if (isNavidromeMode) {
+            main.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    int repeatMode = main.prefs.getInt("repeat_mode", 0);
+                    if (repeatMode == 1) { // repeat one
+                        if (isUsingLegacyPlayer && legacyPlayer != null) {
+                            legacyPlayer.seekTo(0); legacyPlayer.start();
+                        } else if (exoPlayer != null) {
+                            exoPlayer.seekTo(0); exoPlayer.setPlayWhenReady(true);
+                        }
+                    } else if (repeatMode == 0 && navidromeIndex >= navidromePlaylist.size() - 1) {
+                        // End of album, repeat off — stop instead of looping forever
+                        // (don't restart a stream just to sit paused on track 1)
+                        main.isPausedByHand = true;
+                        if (!isUsingLegacyPlayer && exoPlayer != null) exoPlayer.setPlayWhenReady(false);
+                        main.updatePlayerUI();
+                    } else {
+                        nextNavidromeSong();
+                    }
+                }
+            });
+            return;
+        }
         main.runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -141,6 +213,19 @@ public class AudioPlayerManager {
         main.runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                if (isNavidromeMode) {
+                    // Without this cap, a dead connection makes every track fail in
+                    // turn and the album skips in an endless toast loop.
+                    navidromeErrorCount++;
+                    if (navidromeErrorCount >= Math.max(1, Math.min(navidromePlaylist.size(), 3))) {
+                        navidromeErrorCount = 0;
+                        Toast.makeText(main, "⚠️ Streaming failed — check WiFi / server. Stopped.", Toast.LENGTH_LONG).show();
+                        main.isPausedByHand = true;
+                        if (!isUsingLegacyPlayer && exoPlayer != null) exoPlayer.setPlayWhenReady(false);
+                        main.updatePlayerUI();
+                        return;
+                    }
+                }
                 Toast.makeText(main, "⚠️ " + errorMsg + " Skipping...", Toast.LENGTH_SHORT).show();
                 nextTrack();
             }
@@ -148,6 +233,7 @@ public class AudioPlayerManager {
     }
 
     public void playTrackList(List<File> list, int index) {
+        isNavidromeMode = false;
         saveAudiobookBookmarkIfNeeded();
 
         final MainActivity main = MainActivity.instance;
@@ -227,6 +313,7 @@ public class AudioPlayerManager {
     }
 
     public void playOrPauseMusic() {
+        pausedByAirpods = false; // any manual toggle cancels a pending AirPods auto-resume
         if (isUsingLegacyPlayer && legacyPlayer != null) {
             if (legacyPlayer.isPlaying()) {
                 saveAudiobookBookmarkIfNeeded();
@@ -249,7 +336,34 @@ public class AudioPlayerManager {
         if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
     }
 
+    /** Auto-pause on AirPods removal (AapService). Never overrides an already-paused state. */
+    public void pauseForAirpods() {
+        if (!isPlaying()) return;
+        saveAudiobookBookmarkIfNeeded();
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.pause();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(false);
+        }
+        pausedByAirpods = true;
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+    }
+
+    /** Resumes only if {@link #pauseForAirpods()} was the one that paused (never fights a user pause). */
+    public void resumeForAirpods() {
+        if (!pausedByAirpods) return;
+        pausedByAirpods = false;
+        if (isPlaying()) return;
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.start();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(true);
+        }
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+    }
+
     public void nextTrack() {
+        if (isNavidromeMode) { nextNavidromeSong(); return; }
         saveAudiobookBookmarkIfNeeded();
         MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
@@ -260,6 +374,7 @@ public class AudioPlayerManager {
     }
 
     public void prevTrack() {
+        if (isNavidromeMode) { prevNavidromeSong(); return; }
         saveAudiobookBookmarkIfNeeded();
         MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
@@ -419,6 +534,7 @@ public class AudioPlayerManager {
                 currentFileInputStream = new java.io.FileInputStream(track);
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
                 legacyPlayer.prepare(); // 💡 장전 완료!
+                applyPlayerVolumeState(); // 💡 새 MediaPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
 
                 // 🚀 [핵심 로직 1] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
                 int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
@@ -490,6 +606,10 @@ public class AudioPlayerManager {
 
     private void saveAudiobookBookmarkIfNeeded() {
         try {
+            // In Navidrome mode currentPlaylist/currentIndex still point at the last
+            // LOCAL track — saving here would write the stream's position into that
+            // file's bookmark and corrupt audiobook resume points.
+            if (isNavidromeMode) return;
             MainActivity main = MainActivity.instance;
             if (main != null && main.currentPlaylist != null && !main.currentPlaylist.isEmpty()) {
                 if (main.currentIndex >= 0 && main.currentIndex < main.currentPlaylist.size()) {
@@ -538,6 +658,145 @@ public class AudioPlayerManager {
         if (isUsingLegacyPlayer && legacyPlayer != null) return legacyPlayer.getAudioSessionId();
         if (!isUsingLegacyPlayer && exoPlayer != null) return exoPlayer.getAudioSessionId();
         return 0;
+    }
+
+    public void playNavidromeSong(Context context, com.themoon.y1.subsonic.SubsonicSong song, String streamUrl) {
+        saveAudiobookBookmarkIfNeeded();
+        isNavidromeMode = true;
+        isUsingLegacyPlayer = false;
+
+        final MainActivity main = MainActivity.instance;
+        if (main == null) return;
+
+        if (legacyPlayer != null) { try { legacyPlayer.stop(); legacyPlayer.reset(); } catch (Exception ignored) {} }
+        initPlayer(context);
+        if (exoPlayer != null) exoPlayer.stop();
+
+        main.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                main.tvPlayerTitle.setText(song.title != null ? song.title : "Unknown");
+                main.tvPlayerArtist.setText(song.artist != null ? song.artist : "Unknown");
+                main.ivAlbumArt.setImageResource(com.themoon.y1.R.drawable.default_album);
+                main.ivPlayerBgBlur.setImageResource(0);
+                main.playerProgress.setProgress(0);
+                main.tvPlayerTimeCurrent.setText("00:00");
+                int totalSec = song.durationSecs;
+                int m = totalSec / 60, s = totalSec % 60;
+                main.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                String countCurrent = String.format(Locale.US, "%02d", navidromeIndex + 1);
+                String countTotal = String.format(Locale.US, "%02d", navidromePlaylist.size());
+                main.tvPlayerTrackCount.setText(countCurrent + " / " + countTotal);
+                main.loadNavidromeCoverArt(song);
+            }
+        });
+
+        // Already downloaded (either quality variant)? Play the local file — zero
+        // bandwidth, works offline. playLocalFile handles the FLAC/legacy split.
+        final String existingPath = song.getExistingLocalPath();
+        if (existingPath != null) {
+            playLocalFile(context, new java.io.File(existingPath));
+            main.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    main.isPausedByHand = false;
+                    main.consecutiveErrorCount = 0;
+                    main.updatePlayerUI();
+                }
+            });
+            return;
+        }
+
+        // Stream via local HTTP proxy (port 8081) — ExoPlayer uses plain HTTP to localhost;
+        // the proxy fetches from Navidrome over HTTPS using our SSL-fixed HttpURLConnection.
+        String proxyUrl = "http://127.0.0.1:8081/stream?id=" + song.id;
+
+        try {
+            com.google.android.exoplayer2.MediaItem mediaItem =
+                    com.google.android.exoplayer2.MediaItem.fromUri(android.net.Uri.parse(proxyUrl));
+            DataSource.Factory dsf = new DefaultDataSourceFactory(context.getApplicationContext(),
+                    com.google.android.exoplayer2.util.Util.getUserAgent(context, "Y1Player"));
+            MediaSource src = new ProgressiveMediaSource.Factory(dsf, new DefaultExtractorsFactory()
+                    .setConstantBitrateSeekingEnabled(true))
+                    .createMediaSource(mediaItem);
+            exoPlayer.setMediaSource(src);
+            exoPlayer.prepare();
+            exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
+            exoPlayer.setPlayWhenReady(true);
+
+            main.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    main.isPausedByHand = false;
+                    main.consecutiveErrorCount = 0;
+                    main.updatePlayerUI();
+                }
+            });
+        } catch (Throwable e) {
+            main.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    android.widget.Toast.makeText(main, "Stream error: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+    }
+
+    private void playLocalFile(Context context, java.io.File file) {
+        String ext = file.getName().toLowerCase();
+        boolean useExo = !ext.endsWith(".flac");
+        isUsingLegacyPlayer = !useExo;
+        initPlayer(context);
+
+        if (useExo) {
+            if (exoPlayer != null) exoPlayer.stop();
+            com.google.android.exoplayer2.MediaItem mediaItem =
+                    com.google.android.exoplayer2.MediaItem.fromUri(android.net.Uri.fromFile(file));
+            DataSource.Factory dsf = new DefaultDataSourceFactory(context.getApplicationContext(),
+                    com.google.android.exoplayer2.util.Util.getUserAgent(context, "Y1Player"));
+            MediaSource src = new ProgressiveMediaSource.Factory(dsf, new DefaultExtractorsFactory())
+                    .createMediaSource(mediaItem);
+            exoPlayer.setMediaSource(src);
+            exoPlayer.prepare();
+            exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
+            exoPlayer.setPlayWhenReady(true);
+        } else {
+            try {
+                if (legacyPlayer == null) {
+                    legacyPlayer = new android.media.MediaPlayer();
+                    legacyPlayer.setWakeMode(context.getApplicationContext(), android.os.PowerManager.PARTIAL_WAKE_LOCK);
+                    legacyPlayer.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+                    legacyPlayer.setOnCompletionListener(mp -> handleTrackCompletion());
+                    legacyPlayer.setOnErrorListener((mp, what, extra) -> {
+                        handleTrackError("Cannot play this file.");
+                        return true;
+                    });
+                } else {
+                    legacyPlayer.reset();
+                }
+                legacyPlayer.setDataSource(file.getAbsolutePath());
+                legacyPlayer.prepare();
+                legacyPlayer.start();
+            } catch (Exception e) {
+                handleTrackError("Cannot play: " + e.getMessage());
+            }
+        }
+    }
+
+    public void nextNavidromeSong() {
+        if (navidromePlaylist.isEmpty()) return;
+        navidromeIndex = (navidromeIndex + 1) % navidromePlaylist.size();
+        com.themoon.y1.subsonic.SubsonicSong song = navidromePlaylist.get(navidromeIndex);
+        String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
+        MainActivity main = MainActivity.instance;
+        if (main != null) playNavidromeSong(main, song, url);
+    }
+
+    public void prevNavidromeSong() {
+        if (navidromePlaylist.isEmpty()) return;
+        navidromeIndex--;
+        if (navidromeIndex < 0) navidromeIndex = navidromePlaylist.size() - 1;
+        com.themoon.y1.subsonic.SubsonicSong song = navidromePlaylist.get(navidromeIndex);
+        String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
+        MainActivity main = MainActivity.instance;
+        if (main != null) playNavidromeSong(main, song, url);
     }
 
     public void releasePlayer() {

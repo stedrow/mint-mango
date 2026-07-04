@@ -56,7 +56,13 @@ public class LanguageManager {
             if (f.exists()) {
                 FileInputStream fis = new FileInputStream(f);
                 byte[] data = new byte[(int) f.length()];
-                fis.read(data);
+                // A single read() call isn't guaranteed to fill the buffer for larger files,
+                // which would silently truncate the language pack.
+                int totalRead = 0;
+                int r;
+                while (totalRead < data.length && (r = fis.read(data, totalRead, data.length - totalRead)) != -1) {
+                    totalRead += r;
+                }
                 fis.close();
 
                 String jsonStr = new String(data, "UTF-8");

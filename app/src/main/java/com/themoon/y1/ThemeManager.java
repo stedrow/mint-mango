@@ -165,8 +165,17 @@ public class ThemeManager {
                         java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(fis));
                         java.util.zip.ZipEntry ze;
 
+                        String extractDirCanonical = extractDir.getCanonicalPath();
                         while ((ze = zis.getNextEntry()) != null) {
                             File extractFile = new File(extractDir, ze.getName());
+                            // Zip Slip guard: reject entries whose name (e.g. "../../foo") would
+                            // resolve outside extractDir. Theme zips are user-supplied files dropped
+                            // onto the SD card, so this can't be trusted.
+                            String extractFileCanonical = extractFile.getCanonicalPath();
+                            if (!extractFileCanonical.equals(extractDirCanonical) && !extractFileCanonical.startsWith(extractDirCanonical + File.separator)) {
+                                zis.closeEntry();
+                                continue;
+                            }
                             if (ze.isDirectory()) {
                                 extractFile.mkdirs();
                             } else {
@@ -202,7 +211,13 @@ public class ThemeManager {
                         try {
                             FileInputStream fis = new FileInputStream(configFile);
                             byte[] data = new byte[(int) configFile.length()];
-                            fis.read(data);
+                            // A single read() call isn't guaranteed to fill the buffer for larger
+                            // files, which would silently truncate config.json into invalid JSON.
+                            int totalRead = 0;
+                            int r;
+                            while (totalRead < data.length && (r = fis.read(data, totalRead, data.length - totalRead)) != -1) {
+                                totalRead += r;
+                            }
                             fis.close();
 
                             String jsonStr = new String(data, "UTF-8").replace("\uFEFF", "");
