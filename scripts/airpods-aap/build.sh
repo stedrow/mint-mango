@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HERE/build"
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-[ "$(adb shell 'id -u' | tr -d '\r')" = "0" ] || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
+adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
 
 echo ">> Pulling live /system/lib/libextjsr82.so"
 adb pull /system/lib/libextjsr82.so "$HERE/build/libextjsr82_stock.so" >/dev/null

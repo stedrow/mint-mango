@@ -214,6 +214,44 @@ collapse also happens inside `libextjsr82.so` (plausible — this lib exports
 its own JNI-facing entry points, see `btmtk_jsr82_setExtSockAddress` /
 `setSockFd` above), the whole fix can stay inside this one leaf library.
 
+#### M0.5 — patch built and validated on-device (2026-07-03): ✅ SUCCESS — Path A is ALIVE
+
+Built the patch exactly as scoped above: `scripts/airpods-aap/` (build/install/
+revert/status scripts + `src/build_patch.py`). Mechanically it's a code-cave
+binary patch — a new PT_LOAD segment holding the extra branch logic, plus a
+6-byte hook (`b.w` to the cave) overwriting the original `cmp r5,#1` /
+`str r4,[sp,#0x1c]` / `bne` at `0x7b3e`, built with `keystone` (Thumb2
+assembler) + `LIEF` (ELF segment injection), and **verified by disassembling
+the actual output bytes with capstone** before ever touching the device (not
+just trusting the assembler).
+
+Installed on Scott's Y1 (backup preserved as `libextjsr82_real.so`, revertible
+via `revert.sh`). Device rebooted clean — `system_server` and `mtkbt` both
+came up normally, audio (rtpfix) kept working, no bootloop. Ran the
+`AapSpikeService` from M0 unchanged (same `TYPE_L2CAP`/PSM `0x1001` reflection
+call) against the same AirPods Pro 3. Result, full trace at
+[`../airpods-aap/M0.5_patch_success_trace.txt`](../airpods-aap/M0.5_patch_success_trace.txt):
+
+- `RESULT: L2CAP CONNECTED in 75ms` — where M0 failed every time in ~1.1s with
+  `IOException: connect: Connection is not created`, it now connects cleanly.
+- AAP handshake sent, and the AirPods immediately responded with real AAP
+  packets: a device-info packet decoding in plaintext (`Scotty's AirPods Pro
+  3`, model `A3064`, `Apple Inc.`, serial numbers, firmware `1.0.0`), a stream
+  of component/status update packets, and continued sending packets for the
+  full 90s listen window after "enable notifications" was sent — a stable,
+  ongoing AAP session, not a one-shot fluke.
+
+**Conclusion: Path A (app-level, no HCI injection) is the way forward.**
+Path B is no longer needed. The `ps_type` fix in `libextjsr82.so` is the only
+system patch required — everything else (parsing packets, sending the
+noise-control set-command, wiring into playback/UI) is pure app-level Java,
+same as any other Android feature.
+
+**Left in place on the device**: patched `libextjsr82.so` (needed for M1+),
+and the `spike/m0-aap-l2cap` branch's launcher build (a normal launcher plus
+the one inert `AapSpikeService`, per the M0 note). Move to M1 to replace the
+spike service with a real always-on `AapService` before this needs revisiting.
+
 ### M1 — AAP client service (Path A)
 
 - Promote the spike into a proper `AapService` (foreground/bound service):

@@ -19,7 +19,7 @@ BACKUP="/system/lib/libextjsr82_real.so"
 [ -f "$PATCHED" ] || { echo ">> No build found, running build.sh"; "$HERE/build.sh"; }
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-[ "$(adb shell 'id -u' | tr -d '\r')" = "0" ] || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
+adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
 
 echo ">> Remounting /system read-write"
 adb shell 'mount -o remount,rw /system'

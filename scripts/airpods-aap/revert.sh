@@ -10,7 +10,7 @@ TARGET="/system/lib/libextjsr82.so"
 BACKUP="/system/lib/libextjsr82_real.so"
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-[ "$(adb shell 'id -u' | tr -d '\r')" = "0" ] || { echo "ERROR: adb shell is not root." >&2; exit 1; }
+adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root." >&2; exit 1; }
 
 if [ "$(adb shell "[ -f $BACKUP ] && echo yes" | tr -d '\r')" != "yes" ]; then
   echo "Nothing to revert: no $BACKUP on device (patch was never installed)."
