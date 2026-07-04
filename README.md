@@ -47,6 +47,12 @@ If you find any bugs or have suggestions, please **open an Issue** in this repos
    * Type Wi-Fi passwords and connect directly using a specialized keyboard tailored for wheel-input devices.
 9. **Wireless PC File Upload**
    * Host a local Wi-Fi Web Server to wirelessly upload music files directly from your PC browser without cables.
+10. **Navidrome / Subsonic Streaming**
+    * Browse and stream your Navidrome library over Wi-Fi, or download albums for offline playback. See [below](#-navidrome--subsonic-streaming) for details.
+11. **AirPods Pro 2/3 Support**
+    * Real audio (not just pairing), ear-detection auto-pause/resume, and squeeze controls that keep working with the screen off. See [below](#-airpods-support-pro-2--pro-3) for details.
+12. **Pocket-Press Protection**
+    * A wheel-rotation unlock gesture (with an animated ring) prevents the wheel from accidentally controlling playback while the device is in your pocket.
 
 ---
 
@@ -147,7 +153,9 @@ adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
 ```
 ---
 
-## 🎧 AirPods Fix (Pro 2 / Pro 3)
+## 🎧 AirPods Support (Pro 2 / Pro 3)
+
+### Audio Fix
 
 AirPods pair and connect to the Y1 but play **no sound** — the player shows a
 track playing while the AirPods stay silent. This is a bug in the Y1's MediaTek
@@ -177,6 +185,56 @@ See the [folder README](scripts/airpods-rtpfix/README.md) for how it works, why
 the live adb swap is safe on this firmware, and build variants (e.g. an optional
 SBC bitpool clamp). Credit for the timestamp-normalization approach:
 [Semy0nBu/y1-airpods-rtpfix](https://github.com/Semy0nBu/y1-airpods-rtpfix).
+
+### Ear-Detection Auto-Pause/Resume
+
+Once audio works, the launcher also speaks Apple's AAP (Apple Accessory
+Protocol) directly to the AirPods over a separate L2CAP channel (a background
+`AapService`, distinct from the A2DP audio connection). This enables real
+"AirPods-native" behavior: playback automatically pauses the moment an AirPod
+is removed, and resumes when both are reinserted — without the AirPods needing
+to be connected to a phone at all.
+
+This required a small binary patch to the stock `libextjsr82.so` (the closed
+JSR82/L2CAP socket layer) since the stock MediaTek stack otherwise rejects the
+kind of raw-PSM L2CAP connection AAP requires. See
+[`scripts/airpods-rtpfix/PHASE2_PLAN.md`](scripts/airpods-rtpfix/PHASE2_PLAN.md)
+for the full investigation, protocol notes, and the patch's scope/safety
+rationale.
+
+### Squeeze Controls (Play/Pause/Skip), Even With the Screen Off
+
+Squeezing an AirPod stem to play/pause or skip tracks works from any screen in
+the launcher, including with the screen off. AirPods squeezes are recognized as
+Bluetooth AVRCP passthrough events (identified via a distinct virtual input
+device named `AVRCP`) and always pass through, independent of the
+**Screen-Off Control** setting — that setting only gates the device's own
+physical wheel/button, so it can stay off (preventing accidental in-pocket
+presses) while AirPods gestures still work.
+
+---
+
+## ⚙️ Other Settings & Fixes in This Fork
+
+A few additional settings and fixes added on top of the upstream launcher,
+found in the Settings menu unless noted:
+
+- **Lock Wheel on Wake** — after the screen wakes, the wheel is locked until
+  you rotate it far enough to intentionally unlock (shown as an animated
+  ring), preventing accidental playback/volume changes from pocket presses.
+- **Disable Built-in Speaker** — force audio to Bluetooth/output-only setups
+  by disabling the device's own speaker.
+- **Screen-Off Control** — governs whether the device's own physical
+  wheel/buttons do anything with the screen off (default off, to prevent
+  in-pocket presses). Does not affect AirPods squeeze controls, which always
+  work — see [AirPods Support](#-airpods-support-pro-2--pro-3) above.
+- **Bluetooth status icon** now distinguishes Bluetooth being merely "on" from
+  actually "connected" to a device, instead of showing one ambiguous icon for
+  both.
+- **Security & reliability fixes**: a path-traversal fix in file handling, an
+  audit of hot paths that were blocking on background threads, and fixes for
+  a few silent failures — including the Navidrome web-UI settings screen no
+  longer masking real connection failures as a generic error.
 
 ---
 
