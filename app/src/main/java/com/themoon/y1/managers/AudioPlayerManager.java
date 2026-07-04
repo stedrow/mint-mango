@@ -47,6 +47,27 @@ public class AudioPlayerManager {
     // only that path is allowed to auto-resume, so it never fights a real user pause.
     private boolean pausedByAirpods = false;
 
+    // "Disable Built-in Speaker" setting. Deliberately done at the player level
+    // (ExoPlayer/MediaPlayer's own volume) rather than via AudioManager: this
+    // device's AudioService keeps separate per-output-device volume indices, so
+    // AudioManager.setStreamVolume()/setStreamMute() silently hit whichever
+    // device happens to be routed at that instant -- sometimes the Bluetooth
+    // device's index instead of the speaker's, corrupting it (confirmed via
+    // dumpsys audio while chasing this bug). Muting our own player's output
+    // is entirely internal to the app and immune to that.
+    private boolean speakerMuted = false;
+
+    public void setSpeakerMuted(boolean muted) {
+        speakerMuted = muted;
+        applyPlayerVolumeState();
+    }
+
+    private void applyPlayerVolumeState() {
+        float vol = speakerMuted ? 0f : 1f;
+        if (exoPlayer != null) exoPlayer.setVolume(vol);
+        if (legacyPlayer != null) legacyPlayer.setVolume(vol, vol);
+    }
+
     private AudioPlayerManager() {}
 
 
@@ -112,6 +133,7 @@ public class AudioPlayerManager {
                     if (!isUsingLegacyPlayer) handleTrackError("Cannot play this file.");
                 }
             });
+            applyPlayerVolumeState(); // 💡 새로 만든 ExoPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
         }
     }
 
@@ -512,6 +534,7 @@ public class AudioPlayerManager {
                 currentFileInputStream = new java.io.FileInputStream(track);
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
                 legacyPlayer.prepare(); // 💡 장전 완료!
+                applyPlayerVolumeState(); // 💡 새 MediaPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
 
                 // 🚀 [핵심 로직 1] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
                 int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);

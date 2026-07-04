@@ -419,6 +419,7 @@ public class MainActivity extends Activity {
     private boolean isShuffleMode = false;
     private int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
     private boolean isSoundEffectEnabled = true;
+    private boolean isSpeakerDisabled = false;
     private boolean isVibrationEnabled = true;
     private boolean isPickingBackground = false;
 
@@ -805,6 +806,7 @@ public class MainActivity extends Activity {
                     ivStatusBluetooth.setVisibility(View.GONE);
                     globalA2dp = null; // 🚀 블루투스가 꺼지면 엔진도 같이 초기화
                     AapService.deviceDisconnected(context);
+                    applySpeakerSetting(); // 🚀 블루투스가 꺼졌으니 스피커 뮤트 여부 재평가
                 }
                 // (이하 기존 코드 유지)
                 // 🚀 [버그 해결 1] 사용자가 메인 셋팅창(깊이 0)에 있을 때만 새로고침 하도록 방어막 전개!
@@ -866,6 +868,9 @@ public class MainActivity extends Activity {
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
                     if (currentDevice != null) AapService.deviceConnected(context, currentDevice);
                 }
+                // 🚀 블루투스 연결 상태가 바뀔 때마다 스피커 뮤트 여부 재평가 (이 브로드캐스트가
+                // 진실의 원천이므로 재조회 대신 지금 막 확인된 상태를 그대로 사용)
+                applySpeakerSetting(profileState == BluetoothProfile.STATE_CONNECTED);
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
                         || profileState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -1293,6 +1298,12 @@ public class MainActivity extends Activity {
         try {
             isSoundEffectEnabled = prefs.getBoolean("sound", true);
             applySoundSetting();
+        } catch (Exception e) {
+        }
+
+        try {
+            isSpeakerDisabled = prefs.getBoolean("speaker_disabled", false);
+            applySpeakerSetting();
         } catch (Exception e) {
         }
 
@@ -3634,6 +3645,23 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnSound);
+
+        final LinearLayout btnSpeakerDisable = createSettingRow("Disable Built-in Speaker", isSpeakerDisabled ? t("ON") : t("OFF"));
+        btnSpeakerDisable.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isSpeakerDisabled = !isSpeakerDisabled;
+                applySpeakerSetting();
+                clickFeedback();
+                TextView tvStatus = (TextView) btnSpeakerDisable.getChildAt(1);
+                tvStatus.setText(isSpeakerDisabled ? t("ON") : t("OFF"));
+                try {
+                    prefs.edit().putBoolean("speaker_disabled", isSpeakerDisabled).commit();
+                } catch (Exception e) {
+                }
+            }
+        });
+        containerSettingsItems.addView(btnSpeakerDisable);
 
         LinearLayout btnVibrateMenu = createSettingRow("Vibration", "〉 ");
         btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
@@ -8031,6 +8059,29 @@ public class MainActivity extends Activity {
                     isSoundEffectEnabled ? 1 : 0);
         } catch (Exception e) {
         }
+    }
+
+    // 💡 내장 스피커 강제 차단. 두 가지 AudioManager 기반 시도가 모두 이 기기에서
+    // 실패해서 (1) AudioSystem.setForceUse(FORCE_HEADPHONES)는 유선 이어폰 잭
+    // 자체가 없는 기기라 라우팅할 곳이 없어 무음 효과 없음, (2) setStreamMute()는
+    // 레퍼런스 카운트 방식이라 mute(true)/mute(false) 호출 횟수가 안 맞으면 영원히
+    // 고착(dumpsys audio에서 Mute count: 166 확인함), (3) setStreamVolume()은
+    // 기기별로 별도 볼륨 인덱스를 갖고 있어서 그 순간 라우팅된 장치(스피커/블루투스)
+    // 중 엉뚱한 쪽을 0으로 만들어버림 — 결국 시스템 오디오 라우팅을 아예 건드리지
+    // 않고, 우리 앱 재생기 자체의 볼륨(AudioPlayerManager.setSpeakerMuted)만
+    // 조절합니다. 물리적 출력 장치가 무엇이든 상관없이 항상 예측 가능합니다.
+    private void applySpeakerSetting() {
+        boolean externalAudioConnected = false;
+        try {
+            externalAudioConnected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
+        } catch (Exception e) {
+        }
+        applySpeakerSetting(externalAudioConnected);
+    }
+
+    private void applySpeakerSetting(boolean externalAudioConnected) {
+        boolean shouldMute = isSpeakerDisabled && !externalAudioConnected;
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().setSpeakerMuted(shouldMute);
     }
 
     // 💡 안드로이드 하드웨어 가속(RenderScript)을 이용한 고화질 가우시안 블러 함수!
