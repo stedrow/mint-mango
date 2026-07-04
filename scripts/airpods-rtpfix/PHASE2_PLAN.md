@@ -347,7 +347,7 @@ spike service with a real always-on `AapService` before this needs revisiting.
 
 ---
 
-## 9. Kickoff prompt for the next session
+## 9. Kickoff prompt used for M0 (superseded — kept for history)
 
 > We shipped Phase 1 of AirPods support on the Y1 launcher — the
 > `libbluetoothdrv.so` RTP-timestamp proxy in `scripts/airpods-rtpfix/` that got
@@ -365,3 +365,61 @@ spike service with a real always-on `AapService` before this needs revisiting.
 > it, and report whether the L2CAP channel opens and what comes back — that
 > result decides whether we continue on the app-level path (Path A) or fall back
 > to the firmware-proxy path (Path B). Don't start Path B unless M0 fails.
+
+## 10. Kickoff prompt for M1 (current)
+
+> Continuing AirPods support on the Y1 launcher. Phase 1 (audio,
+> `scripts/airpods-rtpfix/`) and Phase 2's M0/M0.5 (AAP feasibility,
+> `scripts/airpods-rtpfix/PHASE2_PLAN.md`) are both done — read that plan doc in
+> full plus the `project-y1-airpods` memory before starting, they have the
+> complete history.
+>
+> **Where things stand:** the stock JSR82 socket layer on this MTK 4.2.2 stack
+> tags every client L2CAP connect `ps_type=1` (an RFCOMM path), which the
+> AirPods reject. `scripts/airpods-aap/` binary-patches the closed
+> `libextjsr82.so` so a connect to a PSM-looking channel value (>= 0x100) is
+> tagged `ps_type=2` instead — the genuine raw-PSM client-connect path — while
+> every other JSR82 caller (RFCOMM channels 1-30: headset, OBEX, SPP) is
+> untouched. This patch is **already built, flashed to my Y1, and validated**:
+> the M0 `AapSpikeService` (still on branch `spike/m0-aap-l2cap`,
+> `app/src/main/java/com/themoon/y1/AapSpikeService.java`) connects in 75ms and
+> receives a live stream of real AAP packets (device info, battery/status
+> updates) for the full 90s listen window. Full trace at
+> `scripts/airpods-aap/M0.5_patch_success_trace.txt`. **Path A (pure app-level
+> AAP client) is confirmed viable — Path B is dead, don't build it.**
+>
+> My Y1 is connected over USB (root adb). Confirm current device state before
+> assuming anything: `scripts/airpods-aap/status.sh` shows whether the patched
+> `libextjsr82.so` is still active (it should be — it survives reboots but not
+> a factory restore/re-flash of `/system`), and `adb shell pm path
+> com.themoon.y1` / a logcat check shows whether the spike-branch launcher (with
+> the inert `AapSpikeService`) is still installed. If the patched lib isn't
+> active, re-run `scripts/airpods-aap/build.sh && ./install.sh` before doing
+> anything else — nothing below works without it.
+>
+> **Do M1**: promote the `AapSpikeService` spike into a real, permanent
+> `AapService` (see PHASE2_PLAN.md's M1 section for the shape: connect when
+> AirPods connect via the existing A2DP profile-proxy plumbing in
+> `MainActivity.java`, `TYPE_L2CAP`/PSM `0x1001`, send the handshake then
+> enable-notifications — same bytes the spike already uses and already proved
+> work — keep the socket open alongside A2DP audio, auto-reconnect on drop).
+> Parse the incoming packet stream into a small state object (ear L/R,
+> battery case/left/right + charging, noise-control mode) and expose it to the
+> rest of the app (LocalBroadcast or a listener interface) — you have real
+> captured packets in `M0.5_patch_success_trace.txt` to reverse-engineer the
+> exact byte layout against LibrePods' `docs/AAP Definitions.md` if the mapping
+> isn't 1:1 obvious.
+>
+> Once `AapService` is solid, wire up **M2 first** (ear-detection auto-pause —
+> highest daily value): pause on AirPod-removed, resume only if *we* auto-paused
+> (never fight an explicit user pause), via `playOrPauseMusic()`/`isPlaying()`
+> in `managers/AudioPlayerManager.java`. Battery display (M3) and the
+> noise-control toggle (M4, needs the set-command bytes confirmed from
+> LibrePods' `control_commands.md`/`opcodes.md` first) come after — see
+> PHASE2_PLAN.md for those milestones' integration points.
+>
+> Work on a new branch off `spike/m0-aap-l2cap` (it already has the working
+> spike code and this plan doc) rather than off `master`. Build/flash the
+> launcher as a system app per the main README's "Building from Source"
+> section; watch logcat for the `AAPSPIKE`-style tags (rename for the real
+> service) while exercising the AirPods.
