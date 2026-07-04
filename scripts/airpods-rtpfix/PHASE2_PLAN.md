@@ -143,20 +143,76 @@ Conclusion: the stock socket API cannot open an L2CAP CoC to PSM 0x1001 on this
 pre-Fluoride MTK stack. **Path A (pure-app) is dead.** Proceed to evaluate
 Path B, or the middle option noted below.
 
-#### Middle option discovered during M0 (evaluate before committing to full Path B)
+#### Middle option: static-analysis result (2026-07-03) — CONFIRMED, and lower-risk than scoped
 
-Because the connect **does** traverse the MTK stack and only the `ps_type`
-tag is wrong, a smaller intervention than full HCI injection may exist: patch
-the closed lib so a TYPE_L2CAP socket emits `ps_type=2`. Candidates:
-`libextjsr82.so` (`btmtk_jsr82_session_connect_req`) or the JNI in
-`libandroid_runtime.so` that sets `ps_type` from the socket type. **Unproven**
-and carries real risk (both run inside `system_server`; a bad patch = boot-loop
-of the system process, worse than the isolated `mtkbt`/`libbluetoothdrv` swap
-Phase 1 used). It also may not work if `ps_type=2` turns out to be the JSR82
-"registered service" path rather than a raw-PSM CoC client. Worth a bounded
-static-analysis spike (disassemble the ps_type assignment, confirm the
-`ps_type=2` path does a client L2CAP connect to an arbitrary PSM) **before**
-choosing between this and Path B.
+Disassembled `libextjsr82.so` (pulled live from the device, ARM/Thumb2, `objdump`
++ `capstone` w/ pyelftools since it's Thumb code) to answer the two open
+questions from the M0 write-up:
+
+**1. Does `ps_type=2` do a genuine client L2CAP connect to an arbitrary PSM, or
+is it the JSR82 "registered service" path?** Confirmed genuine client connect.
+In `btmtk_jsr82_session_connect_req` (`0x7aac`), `ps_type` is simply the
+function's 3rd argument (`r5`), written byte-for-byte into the outbound JBT
+wire message (`strb r5, [sp, #0x46]`) — it's a passthrough, not something the
+function derives. `psm_channel` (the PSM, `sl`/4th arg = `0x1001` in our trace)
+is written into the same message **unconditionally, regardless of `ps_type`**,
+so `ps_type=2` does not swap in some other "channel number" semantic — it's
+the same arbitrary-PSM connect, just tagged differently on the wire.
+
+The only difference between `ps_type==1` and `ps_type==2` is which guard runs
+before the shared send path:
+- `ps_type==1` → `jbt_check_already_connect_chnl_and_addr(addr, 1, psm)` (an
+  anti-duplicate check against the RFCOMM-side table) — this is what actually
+  runs today and is *why* our real connect got as far as the wire before
+  being rejected.
+- `ps_type==2` → `jbt_allocate_one_available_entry(table+8, 2)` — disassembled
+  this too: it just scans a fixed-size table (10 slots) for a free entry
+  (`byte[8] == 0`) and marks it used. **No pre-registration check, no lookup
+  against `btmtk_jsr82_session_service_registration` state** — it's a generic
+  slot allocator, symmetric with the type-1 path. This rules out the
+  "registered service only" concern; `ps_type=2` is unconditionally available
+  to any caller, capped only by the 10-slot table.
+
+**2. Where does `ps_type` get set to 1, and what's the real blast radius of
+patching it?** Traced the caller: `btmtk_jsr82_session_connect_req` is called
+via PLT from `libandroid_runtime.so` (confirmed by relocation-table lookup —
+reloc index 1742 → PLT slot `0x443a0`), the library that hosts the
+`BluetoothSocket`/`BluetoothSocketService` JNI. **This changes the risk
+picture from what this doc said above.** `libandroid_runtime.so` is not
+scoped to `system_server` — it's the core native-methods library loaded by
+**every** Dalvik process via zygote. A bad patch there risks crashing zygote
+itself (unrecoverable boot-loop, worse than a `system_server`-only crash).
+I was not able to pin down the exact instruction that collapses the app's
+`TYPE_L2CAP` request down to `ps_type=1` inside that library in the time
+spent (it's Thumb2 with no symbol/mapping-symbol table, so disassembly
+requires manual mode-tracking through ~800KB of code — tractable but not
+"bounded spike" tractable).
+
+**Revised recommendation:** don't patch `libandroid_runtime.so`. Patch
+`libextjsr82.so` instead, right at `btmtk_jsr82_session_connect_req`
+(`0x7aac`), before the `cmp r5, #1` branch at `0x7b3e`: override `r5` (the
+`ps_type` arg) to `2` whenever `sl` (the PSM/channel arg) looks like an L2CAP
+PSM rather than an RFCOMM channel number (RFCOMM channels are 1–30; L2CAP CoC
+PSMs are ≥ `0x1000` in practice, and ours is `0x1001`) — e.g. `if (sl >=
+0x100) r5 = 2`. This is a small, local patch to a leaf Bluetooth-extension
+library that is **not** zygote-loaded — same risk class as the Phase 1
+`libbluetoothdrv.so` swap (isolated to whichever process opens the JSR82
+socket), not the `system_server`/zygote-wide risk this doc previously
+assumed for both candidates. Full disassembly excerpts are worth re-deriving
+from a fresh `adb pull` of `/system/lib/libextjsr82.so` +
+`/system/lib/libandroid_runtime.so` if the next session wants to re-verify
+before patching (not committed here — binaries, and this analysis is
+reproducible in ~10 minutes with `objdump`/`capstone`+`pyelftools`).
+
+**Still open before writing the patch:** locating and neutralizing whatever
+in the JSR82 JNI (or possibly `libextjsr82.so` itself, unseen in the reachable
+code above — check for other entry points besides
+`btmtk_jsr82_session_connect_req`) currently forces the value to 1 in the
+first place, since the Java-level call sends `TYPE_L2CAP=3` and something
+between the JNI and this function already collapses it to `1` today. If that
+collapse also happens inside `libextjsr82.so` (plausible — this lib exports
+its own JNI-facing entry points, see `btmtk_jsr82_setExtSockAddress` /
+`setSockFd` above), the whole fix can stay inside this one leaf library.
 
 ### M1 — AAP client service (Path A)
 
