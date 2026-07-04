@@ -480,6 +480,9 @@ public class Y1WebServer extends Thread {
                                 .putString("navidrome_pass", navPass)
                                 .apply();
                         com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
+                        if (com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) {
+                            com.themoon.y1.subsonic.NavidromeProxyServer.ensureStarted();
+                        }
 
                         // Actually test the new settings against the server rather than just
                         // trusting the save — this is what was silently failing before: the

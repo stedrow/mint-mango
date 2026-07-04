@@ -79,16 +79,29 @@ public class ThemeManager {
         return defaultColor;
     }
 
+    // Icon files get re-decoded from disk/resources on every call otherwise, and this is invoked
+    // from the menu wheel's onFocusChange handler — i.e. once per scroll step. Cache the decoded
+    // bitmap keyed by theme folder + filename so scrolling back and forth over the same items
+    // doesn't keep hitting disk/resource decode.
+    private static android.util.LruCache<String, android.graphics.Bitmap> iconCache = new android.util.LruCache<>(80);
+
     // 🚀 [디폴트 테마 대혁신] 내장 리소스와 외부 폴더를 양방향으로 완벽 지원하는 하이브리드 비트맵 채굴기
     public static android.graphics.Bitmap getCustomIcon(String iconFileName, android.content.Context context, int defaultResId) {
         if (!availableThemes.isEmpty() && iconFileName != null && !iconFileName.isEmpty()) {
             String folder = getCurrentTheme().folderPath;
+            String cacheKey = folder + "|" + iconFileName + "|" + defaultResId;
+            android.graphics.Bitmap cached = iconCache.get(cacheKey);
+            if (cached != null) return cached;
 
             // 💡 Case 1: 외부 SD카드 다운로드 테마일 경우 물리 파일 경로 추적
             if (!folder.equals("default")) {
                 File iconFile = new File(folder, iconFileName);
                 if (iconFile.exists()) {
-                    try { return android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath()); } catch (Exception e) {}
+                    try {
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath());
+                        if (bmp != null) iconCache.put(cacheKey, bmp);
+                        return bmp;
+                    } catch (Exception e) {}
                 }
             }
             // 💡 Case 2: 앱 순정 디폴트 테마일 경우 res/drawable 폴더에서 유니크 네임으로 역추적 추출!
@@ -101,7 +114,9 @@ public class ThemeManager {
                     // 런타임에 drawable 폴더 안에서 텍스트 파일명과 일치하는 고유 리소스 ID(int)를 동적 획득합니다!
                     int resId = context.getResources().getIdentifier(resName, "drawable", context.getPackageName());
                     if (resId != 0) {
-                        return android.graphics.BitmapFactory.decodeResource(context.getResources(), resId);
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeResource(context.getResources(), resId);
+                        if (bmp != null) iconCache.put(cacheKey, bmp);
+                        return bmp;
                     }
                 } catch (Exception e) {}
             }
@@ -135,7 +150,7 @@ public class ThemeManager {
         defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Radio", "Radio", "〉", "", "", "", "", "radio_circle.png", "OPEN_RADIO", "top|left", -1, 2, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_audiobook", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Audiobooks", "Audiobooks", "〉", "", "", "", "", "music_list.png", "OPEN_AUDIOBOOKS", "top|left", -1, 3, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Bluetooth", "Bluetooth", "〉", "", "", "", "", "bluetooth_circle.png", "OPEN_BLUETOOTH", "top|left", -1, 4, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_wifi", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Wi-Fi", "Wi-Fi", "〉", "", "", "", "", "icon_wifi.png", "OPEN_WIFI", "top|left", -1, 5, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_wifi", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Wi-Fi", "Wi-Fi", "〉", "", "", "", "", "wifi_circle.png", "OPEN_WIFI", "top|left", -1, 5, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_set", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Settings", "Settings", "〉", "", "", "", "", "setting_circle.png", "OPEN_SETTINGS", "top|left", -1, 6, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
         defaultTheme.menuElements.add(new MenuElement("btn_web", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "PC Upload", "PC Upload", "〉", "", "", "", "", "file_sync.png", "OPEN_WEBSERVER", "top|left", -1, 7, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
 

@@ -70,7 +70,7 @@ public class AudioEffectManager {
                 if (pIdx < main.equalizer.getNumberOfPresets()) {
                     main.equalizer.usePreset((short) pIdx);
                     main.currentEqPresetIndex = pIdx;
-                    main.prefs.edit().putInt("eq_preset", main.currentEqPresetIndex).putString("eq_profile_id", main.currentEqProfile).commit();
+                    main.prefs.edit().putInt("eq_preset", main.currentEqPresetIndex).putString("eq_profile_id", main.currentEqProfile).apply();
                 }
             } else {
                 String name = main.currentEqProfile.replace("custom_", "");
@@ -80,7 +80,7 @@ public class AudioEffectManager {
                     main.customBandLevels[i] = level;
                     main.equalizer.setBandLevel(i, (short) level);
                 }
-                main.prefs.edit().putString("eq_profile_id", main.currentEqProfile).commit();
+                main.prefs.edit().putString("eq_profile_id", main.currentEqProfile).apply();
             }
         } catch (Exception e) {}
     }
@@ -94,7 +94,7 @@ public class AudioEffectManager {
         for (short i = 0; i < bands; i++) {
             editor.putInt("eq_custom_" + name + "_band_" + i, main.customBandLevels[i]);
         }
-        editor.commit();
+        editor.apply();
     }
 
     // 🎧 5. 내부 금고 및 외부 JSON 백업 물리 소멸 삭제
@@ -126,7 +126,7 @@ public class AudioEffectManager {
         for (int i = 0; i < 32; i++) {
             editor.remove("eq_custom_" + name + "_band_" + i);
         }
-        editor.commit();
+        editor.apply();
 
         Toast.makeText(main, "Profile Deleted Completely.", Toast.LENGTH_SHORT).show();
     }
@@ -207,7 +207,7 @@ public class AudioEffectManager {
                     sb.append(validCustomList.get(i));
                 }
                 editor.putString("custom_eq_list", sb.toString());
-                editor.commit();
+                editor.apply();
             }
         } catch (Exception e) { e.printStackTrace(); }
     }
