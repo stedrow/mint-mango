@@ -5,7 +5,9 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.Log;
 
@@ -100,6 +102,17 @@ public class AapService extends Service {
 
     public static boolean isConnected() {
         return lastConnected;
+    }
+
+    /**
+     * True when the last known ear-detection state has both AirPods in the
+     * case. Used by MainActivity to tell "deliberately stowed" apart from a
+     * genuine A2DP dropout so the zombie audio-reconnect logic doesn't spam
+     * retries at an unreachable device.
+     */
+    public static boolean isLikelyStowed() {
+        AapState s = lastState;
+        return s.earLeft == EAR_IN_CASE && s.earRight == EAR_IN_CASE;
     }
 
     public static void deviceConnected(android.content.Context ctx, BluetoothDevice device) {
@@ -347,12 +360,26 @@ public class AapService extends Service {
         }
     }
 
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private void handleEarDetectionForAutoPause(AapState s) {
         boolean nowBothInEar = s.earLeft == EAR_IN_EAR && s.earRight == EAR_IN_EAR;
         if (bothInEar && !nowBothInEar) {
-            com.themoon.y1.managers.AudioPlayerManager.getInstance().pauseForAirpods();
+            // ExoPlayer must only be touched from the main thread -- this callback
+            // runs on the AapService read-loop thread, so hop over first.
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().pauseForAirpods();
+                }
+            });
         } else if (!bothInEar && nowBothInEar) {
-            com.themoon.y1.managers.AudioPlayerManager.getInstance().resumeForAirpods();
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().resumeForAirpods();
+                }
+            });
         }
         bothInEar = nowBothInEar;
     }

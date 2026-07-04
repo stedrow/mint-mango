@@ -855,8 +855,9 @@ public class MainActivity extends Activity {
                 // 🚀 [순정 이식: 좀비 로직 1] 에어팟이 오디오를 튕겨내면? 0.1초 만에 엔진 재호출!
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
+                    boolean stowed = AapService.isLikelyStowed();
                     AapService.deviceDisconnected(context);
-                    if (targetDeviceForAudio != null && currentDevice != null
+                    if (!stowed && targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
                         connectBluetoothAudio(targetDeviceForAudio);
                     }
@@ -896,7 +897,7 @@ public class MainActivity extends Activity {
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 BluetoothDevice disconnectedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 // 🚀 [순정 이식: 좀비 로직 3] 기기 자체의 통신이 튕기면 즉시 엔진 재호출!
-                if (targetDeviceForAudio != null && disconnectedDevice != null
+                if (!AapService.isLikelyStowed() && targetDeviceForAudio != null && disconnectedDevice != null
                         && targetDeviceForAudio.getAddress().equals(disconnectedDevice.getAddress())) {
                     connectBluetoothAudio(targetDeviceForAudio);
                 }
