@@ -252,27 +252,68 @@ and the `spike/m0-aap-l2cap` branch's launcher build (a normal launcher plus
 the one inert `AapSpikeService`, per the M0 note). Move to M1 to replace the
 spike service with a real always-on `AapService` before this needs revisiting.
 
-### M1 — AAP client service (Path A)
+### M1 — AAP client service (Path A) ✅ DONE (2026-07-03, branch `feature/aap-service-m1-m2`)
 
-- Promote the spike into a proper `AapService` (foreground/bound service):
-  connect on AirPods connect, send handshake + enable-notifications, keep the
-  socket open alongside A2DP, auto-reconnect on drop.
-- Parse incoming packets into a small state object: `{ earLeft, earRight,
-  batteryCase, batteryLeft, batteryRight, charging..., ncMode }`.
-- Emit state to the rest of the app (LocalBroadcast, or a listener interface).
-- Tie lifecycle to the existing BT plumbing in `MainActivity` (it already
-  tracks the connected device via the A2DP profile proxy and
-  `targetDeviceForAudio`).
+Implemented `app/src/main/java/com/themoon/y1/AapService.java`, replacing
+`AapSpikeService` entirely (removed from the manifest and repo). It's a plain
+(non-foreground) `Service` started/stopped by `MainActivity`'s A2DP
+`CONNECTION_STATE_CHANGED` handler (`AapService.deviceConnected(ctx, device)` /
+`AapService.deviceDisconnected(ctx)`), and also stopped when Bluetooth itself
+turns off. Not gated to AirPods specifically — any device fails the AAP
+connect a few times (`MAX_BOOTSTRAP_ATTEMPTS = 3`) and the service quietly
+gives up, assuming non-Apple hardware.
 
-### M2 — Ear-detection auto-pause/resume (do first, highest value)
+Connect/handshake bytes are unchanged from the M0 spike (same reflected
+`TYPE_L2CAP`/PSM `0x1001` ctor, same handshake + enable-notifications frames).
+Once connected it stays open indefinitely with auto-reconnect on drop
+(distinct from the A2DP audio connection, which can stay up while the AAP
+L2CAP channel drops independently).
 
-- On "an AirPod removed" → if playing, pause. On "both back in ear" → resume if
-  we auto-paused (track that we were the one who paused, so we don't fight the
-  user).
-- Wire into `AudioPlayerManager`: use `isPlaying()` and `playOrPauseMusic()`
-  (`app/src/main/java/com/themoon/y1/managers/AudioPlayerManager.java`). Consider
-  adding explicit `pauseForAirpods()` / `resumeForAirpods()` helpers so the
-  auto-pause state is separate from user intent.
+**Packet parsing**: incoming bytes accumulate in a buffer and are peeled off
+packet-by-packet. Every real AAP packet observed on the wire is prefixed with
+`04 00 04 00` followed by a 2-byte LE opcode (verified against the M0.5 trace
+— e.g. opcode `0x1D` device-info, `0x2B` paired-devices, `0x53` EQ data, `0x09`
+generic control-command-carrying notifications, all matched this framing
+exactly). Two opcodes have deterministic length and are fully parsed:
+- `0x0006` ear detection — fixed 8 bytes, payload = `[left][right]` raw state
+  bytes (`00`=in-ear, `01`=out-of-ear, `02`=in-case).
+- `0x0004` battery — `[count]` byte then `count` × 5-byte records
+  `[component][0x01][level][status][0x01]` (component `0x04`=left,
+  `0x02`=right, `0x08`=case; status `0x01`=charging).
+
+Every other opcode's length is unknown, so the parser resyncs by scanning
+forward for the *next* `04 00 04 00` marker and treats everything up to there
+as that packet's payload (skipped, not parsed) — the same trick community AAP
+clients use since there's no universal length prefix. This means battery/ear
+packets parse deterministically and correctly regardless of what other packet
+types are interleaved around them.
+
+State is exposed via `AapService.Listener` (`onAapStateChanged` /
+`onAapConnectionChanged`, register with `AapService.addListener`) plus static
+`AapService.getLastState()` / `isConnected()` for polling — ready for M3
+(battery UI) to consume without further plumbing.
+
+**Verified live on Scott's Y1**: rebuilt, flashed, rebooted; AirPods Pro 3
+auto-connected and logcat showed `AAP L2CAP connected to 74:77:86:77:FC:A4`
+from the real `AapService` (not the spike).
+
+### M2 — Ear-detection auto-pause/resume ✅ DONE (2026-07-03, same branch)
+
+Wired directly into `AapService`'s ear-detection packet handler
+(`handleEarDetectionForAutoPause`): tracks a `bothInEar` transition — pauses
+on the *first* transition away from both-in-ear (removing one AirPod already
+pauses, matching real AirPods behavior), resumes only when transitioning back
+to both-in-ear **and** only if the auto-pause was the one that fired.
+
+Added `pauseForAirpods()` / `resumeForAirpods()` to `AudioPlayerManager`
+(`app/src/main/java/com/themoon/y1/managers/AudioPlayerManager.java`) as
+planned, backed by a private `pausedByAirpods` flag — separate from
+`isPausedByHand`. `playOrPauseMusic()` (any real user tap) now resets
+`pausedByAirpods = false` at entry, so an explicit user pause or resume always
+wins and a stale auto-pause never fires an unwanted resume later.
+
+**Verified live**: played a track, removed one AirPod — playback paused;
+reinserted it — playback resumed. Confirmed by the user directly on-device.
 
 ### M3 — Battery display
 
@@ -366,7 +407,7 @@ spike service with a real always-on `AapService` before this needs revisiting.
 > result decides whether we continue on the app-level path (Path A) or fall back
 > to the firmware-proxy path (Path B). Don't start Path B unless M0 fails.
 
-## 10. Kickoff prompt for M1 (current)
+## 10. Kickoff prompt for M1 (superseded — kept for history; M1+M2 done, see sections above)
 
 > Continuing AirPods support on the Y1 launcher. Phase 1 (audio,
 > `scripts/airpods-rtpfix/`) and Phase 2's M0/M0.5 (AAP feasibility,
