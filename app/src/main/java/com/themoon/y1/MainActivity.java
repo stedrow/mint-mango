@@ -106,7 +106,7 @@ public class MainActivity extends Activity {
     private int wheelUnlockProgress = 0;
     private static final int WHEEL_UNLOCK_THRESHOLD = 8;
     private LinearLayout layoutWheelLockOverlay;
-    private TextView tvWheelLockProgress;
+    private com.themoon.y1.views.WheelLockRingView wheelLockRing;
 
     // 🚀 [신규 추가] 다이렉트 숏컷 뒤로 가기 복귀 경로 추적기!
     private int backTargetForPlayer = STATE_BROWSER;
@@ -539,7 +539,7 @@ public class MainActivity extends Activity {
         isWheelLockActive = true;
         wheelUnlockProgress = 0;
         if (layoutWheelLockOverlay != null) {
-            updateWheelLockProgressText();
+            if (wheelLockRing != null) wheelLockRing.resetProgress();
             layoutWheelLockOverlay.setVisibility(View.VISIBLE);
         }
     }
@@ -552,9 +552,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void updateWheelLockProgressText() {
-        if (tvWheelLockProgress != null) {
-            tvWheelLockProgress.setText(wheelUnlockProgress + " / " + WHEEL_UNLOCK_THRESHOLD);
+    private void updateWheelLockProgress() {
+        if (wheelLockRing != null) {
+            wheelLockRing.setProgress(wheelUnlockProgress);
         }
     }
 
@@ -1253,25 +1253,31 @@ public class MainActivity extends Activity {
         layoutWheelLockOverlay.setFocusable(true);
         layoutWheelLockOverlay.setVisibility(View.GONE);
 
+        float wheelLockDensity = getResources().getDisplayMetrics().density;
+        int ringSize = (int) (140 * wheelLockDensity);
+
+        android.widget.FrameLayout wheelLockRingFrame = new android.widget.FrameLayout(this);
+        wheelLockRing = new com.themoon.y1.views.WheelLockRingView(this);
+        wheelLockRing.setSegments(WHEEL_UNLOCK_THRESHOLD);
+        android.widget.FrameLayout.LayoutParams ringLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
+        wheelLockRingFrame.addView(wheelLockRing, ringLp);
+
         TextView tvWheelLockIcon = new TextView(this);
         tvWheelLockIcon.setText("🔒"); // 🔒
-        tvWheelLockIcon.setTextSize(48);
+        tvWheelLockIcon.setTextSize(40);
         tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
-        layoutWheelLockOverlay.addView(tvWheelLockIcon);
+        android.widget.FrameLayout.LayoutParams iconLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
+        wheelLockRingFrame.addView(tvWheelLockIcon, iconLp);
+
+        layoutWheelLockOverlay.addView(wheelLockRingFrame, new LinearLayout.LayoutParams(ringSize, ringSize));
 
         TextView tvWheelLockTitle = new TextView(this);
         tvWheelLockTitle.setText(t("Rotate wheel to unlock"));
         tvWheelLockTitle.setTextColor(0xFFFFFFFF);
         tvWheelLockTitle.setTextSize(18);
         tvWheelLockTitle.setGravity(android.view.Gravity.CENTER);
-        tvWheelLockTitle.setPadding(0, 30, 0, 10);
+        tvWheelLockTitle.setPadding(0, 30, 0, 0);
         layoutWheelLockOverlay.addView(tvWheelLockTitle);
-
-        tvWheelLockProgress = new TextView(this);
-        tvWheelLockProgress.setTextColor(0xFFAAAAAA);
-        tvWheelLockProgress.setTextSize(16);
-        tvWheelLockProgress.setGravity(android.view.Gravity.CENTER);
-        layoutWheelLockOverlay.addView(tvWheelLockProgress);
 
         root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -7886,7 +7892,7 @@ public class MainActivity extends Activity {
                 int keyCode = event.getKeyCode();
                 if (keyCode == 21 || keyCode == 22) {
                     wheelUnlockProgress++;
-                    updateWheelLockProgressText();
+                    updateWheelLockProgress();
                     if (wheelUnlockProgress >= WHEEL_UNLOCK_THRESHOLD) {
                         deactivateWheelLock();
                         clickFeedback();
