@@ -99,6 +99,15 @@ public class MainActivity extends Activity {
     // 🚀 [신규 추가] 가상 암전 화면 끄기 제어 스위치
     public boolean isFakeScreenOff = false;
 
+    // 🚀 [신규 추가] 주머니 오작동 방지용 "휠 잠금" — 화면이 켜지면(진짜 하드웨어 웨이크)
+    // 휠을 일정 클릭 수만큼 돌리기 전까지 모든 버튼 입력을 무시합니다.
+    private boolean isWheelLockEnabled = false; // 설정 토글 (기본 OFF)
+    private boolean isWheelLockActive = false; // 지금 잠겨서 대기 중인지
+    private int wheelUnlockProgress = 0;
+    private static final int WHEEL_UNLOCK_THRESHOLD = 8;
+    private LinearLayout layoutWheelLockOverlay;
+    private TextView tvWheelLockProgress;
+
     // 🚀 [신규 추가] 다이렉트 숏컷 뒤로 가기 복귀 경로 추적기!
     private int backTargetForPlayer = STATE_BROWSER;
     private int backTargetForUtility = STATE_SETTINGS;
@@ -524,6 +533,31 @@ public class MainActivity extends Activity {
         }
     }
     
+    // 🚀 [휠 잠금] 하드웨어 화면 웨이크(ACTION_SCREEN_ON) 직후 호출 — 휠을 충분히
+    // 돌리기 전까지 모든 키 입력을 dispatchKeyEvent에서 원천 차단합니다.
+    private void activateWheelLock() {
+        isWheelLockActive = true;
+        wheelUnlockProgress = 0;
+        if (layoutWheelLockOverlay != null) {
+            updateWheelLockProgressText();
+            layoutWheelLockOverlay.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void deactivateWheelLock() {
+        isWheelLockActive = false;
+        wheelUnlockProgress = 0;
+        if (layoutWheelLockOverlay != null) {
+            layoutWheelLockOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateWheelLockProgressText() {
+        if (tvWheelLockProgress != null) {
+            tvWheelLockProgress.setText(wheelUnlockProgress + " / " + WHEEL_UNLOCK_THRESHOLD);
+        }
+    }
+
     public void turnOffScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         if (fm.isPowerUp || activePlayer == 1) {
@@ -750,6 +784,7 @@ public class MainActivity extends Activity {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
                 autoManageWifiPower(false); // 🚀 [절전 모드 해제]
+                if (isWheelLockEnabled) activateWheelLock();
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -1208,6 +1243,39 @@ public class MainActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         // 🚀 [여기까지 추가 끝!]
+
+        // 🚀 [신규] 휠 잠금 오버레이 — 주머니 속에서 실수로 버튼이 눌려도 안전하게 무시!
+        layoutWheelLockOverlay = new LinearLayout(this);
+        layoutWheelLockOverlay.setOrientation(LinearLayout.VERTICAL);
+        layoutWheelLockOverlay.setGravity(android.view.Gravity.CENTER);
+        layoutWheelLockOverlay.setBackgroundColor(0xDD000000);
+        layoutWheelLockOverlay.setClickable(true);
+        layoutWheelLockOverlay.setFocusable(true);
+        layoutWheelLockOverlay.setVisibility(View.GONE);
+
+        TextView tvWheelLockIcon = new TextView(this);
+        tvWheelLockIcon.setText("🔒"); // 🔒
+        tvWheelLockIcon.setTextSize(48);
+        tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
+        layoutWheelLockOverlay.addView(tvWheelLockIcon);
+
+        TextView tvWheelLockTitle = new TextView(this);
+        tvWheelLockTitle.setText(t("Rotate wheel to unlock"));
+        tvWheelLockTitle.setTextColor(0xFFFFFFFF);
+        tvWheelLockTitle.setTextSize(18);
+        tvWheelLockTitle.setGravity(android.view.Gravity.CENTER);
+        tvWheelLockTitle.setPadding(0, 30, 0, 10);
+        layoutWheelLockOverlay.addView(tvWheelLockTitle);
+
+        tvWheelLockProgress = new TextView(this);
+        tvWheelLockProgress.setTextColor(0xFFAAAAAA);
+        tvWheelLockProgress.setTextSize(16);
+        tvWheelLockProgress.setGravity(android.view.Gravity.CENTER);
+        layoutWheelLockOverlay.addView(tvWheelLockProgress);
+
+        root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         tvFastScrollLetter = new TextView(this);
         tvFastScrollLetter.setTextSize(50); // 글자 크기를 아주 큼직하게!
         tvFastScrollLetter.setGravity(android.view.Gravity.CENTER);
@@ -1314,6 +1382,11 @@ public class MainActivity extends Activity {
         }
         try {
             isScreenOffControlEnabled = prefs.getBoolean("screen_off_control", false);
+        } catch (Exception e) {
+        }
+
+        try {
+            isWheelLockEnabled = prefs.getBoolean("wheel_lock_on_wake", false);
         } catch (Exception e) {
         }
 
@@ -3689,6 +3762,22 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnScreenOffCtrl);
+
+        final LinearLayout btnWheelLock = createSettingRow("Lock Wheel on Wake", isWheelLockEnabled ? t("ON") : t("OFF"));
+        btnWheelLock.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isWheelLockEnabled = !isWheelLockEnabled;
+                TextView tvStatus = (TextView) btnWheelLock.getChildAt(1);
+                tvStatus.setText(isWheelLockEnabled ? t("ON") : t("OFF"));
+                try {
+                    prefs.edit().putBoolean("wheel_lock_on_wake", isWheelLockEnabled).commit();
+                } catch (Exception e) {
+                }
+            }
+        });
+        containerSettingsItems.addView(btnWheelLock);
         // 🚀 [수정된 테마 설정 버튼]
         final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
         btnTheme.setOnClickListener(new View.OnClickListener() {
@@ -7790,6 +7879,22 @@ public class MainActivity extends Activity {
     }
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isWheelLockActive) {
+            // 🚀 [휠 잠금] 휠(21/22)을 돌리는 것 말고는 그 무엇도 통과시키지 않습니다 —
+            // 주머니 속 원단이 어떤 버튼을 어떻게 누르든 여기서 전부 흡수됩니다.
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                int keyCode = event.getKeyCode();
+                if (keyCode == 21 || keyCode == 22) {
+                    wheelUnlockProgress++;
+                    updateWheelLockProgressText();
+                    if (wheelUnlockProgress >= WHEEL_UNLOCK_THRESHOLD) {
+                        deactivateWheelLock();
+                        clickFeedback();
+                    }
+                }
+            }
+            return true;
+        }
         if (isFakeScreenOff) {
             int keyCode = event.getKeyCode();
 
