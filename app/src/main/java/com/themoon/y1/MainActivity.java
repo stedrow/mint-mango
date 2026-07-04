@@ -338,6 +338,7 @@ public class MainActivity extends Activity {
     private java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
     private boolean isNavidromeLoading = false;
     private boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
+    private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the PC Upload web UI
     private int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
 
     // Navidrome download queue — one transfer at a time (the ~190kbps link can't
@@ -9906,6 +9907,19 @@ public class MainActivity extends Activity {
 
     private void buildNavidromeUI() {
         com.themoon.y1.subsonic.SubsonicClient client = com.themoon.y1.subsonic.SubsonicClient.getInstance();
+
+        if (client.getConfigVersion() != lastSeenNavidromeConfigVersion) {
+            // Server/user/pass changed via the PC Upload web UI since we last browsed —
+            // drop the old server's in-memory artist list so we don't show it as if
+            // the new settings never took effect.
+            lastSeenNavidromeConfigVersion = client.getConfigVersion();
+            lastNavidromeArtists = new java.util.ArrayList<>();
+            lastNavidromeSongs = new java.util.ArrayList<>();
+            navidromeBrowseDepth = NAV_ARTISTS;
+            selectedNavidromeArtist = null;
+            selectedNavidromeAlbum = null;
+            isNavidromeLetterView = false;
+        }
 
         if (!client.isConfigured()) {
             showNavidromeMessage("NOT CONFIGURED",

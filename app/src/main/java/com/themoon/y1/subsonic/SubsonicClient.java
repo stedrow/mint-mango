@@ -58,28 +58,42 @@ public class SubsonicClient {
         return instance;
     }
 
-    private static final String DEFAULT_URL  = "https://redacted.example.com";
-    private static final String DEFAULT_USER = "REDACTED_USER";
-    private static final String DEFAULT_PASS = "REDACTED_PASS";
-
     public void loadSettings(Context ctx) {
         appContext = ctx.getApplicationContext();
         SharedPreferences prefs = ctx.getSharedPreferences("Y1Prefs", Context.MODE_PRIVATE);
-        serverUrl = prefs.getString("navidrome_url", DEFAULT_URL).trim().replaceAll("/+$", "");
-        username  = prefs.getString("navidrome_user", DEFAULT_USER).trim();
-        password  = prefs.getString("navidrome_pass", DEFAULT_PASS).trim();
+        serverUrl = prefs.getString("navidrome_url", "").trim().replaceAll("/+$", "");
+        username  = prefs.getString("navidrome_user", "").trim();
+        password  = prefs.getString("navidrome_pass", "").trim();
     }
 
     public void saveSettings(Context ctx, String url, String user, String pass) {
-        serverUrl = url.trim().replaceAll("/+$", "");
-        username = user.trim();
-        password = pass.trim();
+        String newUrl = url.trim().replaceAll("/+$", "");
+        String newUser = user.trim();
+        String newPass = pass.trim();
+        boolean changed = !newUrl.equals(serverUrl) || !newUser.equals(username) || !newPass.equals(password);
+        serverUrl = newUrl;
+        username = newUser;
+        password = newPass;
         ctx.getSharedPreferences("Y1Prefs", Context.MODE_PRIVATE).edit()
                 .putString("navidrome_url", serverUrl)
                 .putString("navidrome_user", username)
                 .putString("navidrome_pass", password)
                 .apply();
+        // A stale artist cache from the previous server would otherwise keep showing
+        // instantly and mask a bad URL/login on the new one (getArtists swallows
+        // refresh errors whenever it already served cached data).
+        if (changed) {
+            configVersion++;
+            File cache = artistsCacheFile();
+            if (cache != null) cache.delete();
+        }
     }
+
+    // Bumped whenever saveSettings() actually changes the server/user/pass, so callers
+    // holding their own in-memory artist list (e.g. MainActivity.lastNavidromeArtists)
+    // know to drop it instead of showing another server's stale data.
+    private int configVersion = 0;
+    public int getConfigVersion() { return configVersion; }
 
     public boolean isConfigured() {
         return serverUrl != null && !serverUrl.isEmpty()

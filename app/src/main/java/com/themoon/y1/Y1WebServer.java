@@ -344,9 +344,16 @@ public class Y1WebServer extends Thread {
                             "  var user = document.getElementById('navUser').value.trim();" +
                             "  var pass = document.getElementById('navPass').value;" +
                             "  if(!url||!user){document.getElementById('navStatus').innerText='⚠️ URL and username are required.';return;}" +
+                            "  document.getElementById('navStatus').innerText='⏳ Saving & testing connection...';" +
                             "  var body = JSON.stringify({url:url,user:user,pass:pass});" +
-                            "  await fetch('/api/navidrome-settings', {method:'POST', body:body});" +
-                            "  document.getElementById('navStatus').innerText='✅ Saved! Restart Navidrome browser on Y1 to connect.';" +
+                            "  try {" +
+                            "    let r = await fetch('/api/navidrome-settings', {method:'POST', body:body});" +
+                            "    let d = await r.json();" +
+                            "    if (d.ok) { document.getElementById('navStatus').innerText='✅ Saved and connected! Open Navidrome on the Y1.'; }" +
+                            "    else { document.getElementById('navStatus').innerText='⚠️ Saved, but could not connect: ' + (d.error || 'unknown error'); }" +
+                            "  } catch(e) {" +
+                            "    document.getElementById('navStatus').innerText='❌ Save request failed: ' + e;" +
+                            "  }" +
                             "}" +
 
                             "window.onload = function(){ loadList(); loadNavSettings(); };" +
@@ -449,6 +456,8 @@ public class Y1WebServer extends Thread {
                         totalRead += r;
                     }
                     String body = new String(bodyBytes, 0, totalRead, "UTF-8");
+                    boolean pingOk = false;
+                    String pingError = "Invalid request";
                     try {
                         org.json.JSONObject obj = new org.json.JSONObject(body);
                         String navUrl = obj.optString("url", "").trim().replaceAll("/+$", "");
@@ -460,8 +469,29 @@ public class Y1WebServer extends Thread {
                                 .putString("navidrome_pass", navPass)
                                 .apply();
                         com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
-                    } catch (Exception ignored) {}
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
+
+                        // Actually test the new settings against the server rather than just
+                        // trusting the save — this is what was silently failing before: the
+                        // Y1 kept showing the previous server's cached artist list with no
+                        // indication the new URL/login didn't work.
+                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                        final boolean[] okHolder = {false};
+                        final String[] errHolder = {"Timed out waiting for server"};
+                        com.themoon.y1.subsonic.SubsonicClient.getInstance().ping(
+                                new com.themoon.y1.subsonic.SubsonicClient.Callback<Boolean>() {
+                                    @Override public void onSuccess(Boolean result) { okHolder[0] = true; latch.countDown(); }
+                                    @Override public void onError(String message) { errHolder[0] = message; latch.countDown(); }
+                                });
+                        latch.await(8, java.util.concurrent.TimeUnit.SECONDS);
+                        pingOk = okHolder[0];
+                        pingError = errHolder[0];
+                    } catch (Exception e) {
+                        pingError = e.getMessage() != null ? e.getMessage() : "Save failed";
+                    }
+                    String json = pingOk
+                            ? "{\"ok\":true}"
+                            : "{\"ok\":false,\"error\":\"" + (pingError == null ? "Unknown error" : pingError.replace("\\", "\\\\").replace("\"", "\\\"")) + "\"}";
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
                 }
 
                 // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
