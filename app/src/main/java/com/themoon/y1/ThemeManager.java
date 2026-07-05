@@ -49,6 +49,7 @@ public class ThemeManager {
 
     public static class ThemeData {
         public String folderPath, name;
+        public String bgImage = ""; // Optional full-screen background image filename (from config.json "bg_image")
         public android.graphics.Typeface customFont;
         public int textPrimary, textSecondary;
         public int bgOverlay, statusBarBg;
@@ -264,6 +265,9 @@ public class ThemeManager {
                                     parsedBtnNormal, parsedBtnFocused, parsedBtnFocusedText,
                                     parsedRadius
                             );
+
+                            // Optional full-screen background image declared in config.json (empty if absent)
+                            theme.bgImage = json.optString("bg_image", "");
 
                             if (json.has("main_menu")) {
                                 JSONArray menuArray = json.getJSONArray("main_menu");

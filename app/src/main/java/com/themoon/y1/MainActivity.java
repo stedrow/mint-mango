@@ -2664,7 +2664,30 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // 🚀 2. If there's no custom background (or it was cleared), apply 'blur' to the album art or default image and render it as before.
+            // 🚀 2. No custom background set — fall back to the current theme's own background image, if it ships one.
+            //    Theme backgrounds are shown crisp (no blur), exactly as the theme author designed them.
+            //    A theme provides one either via "bg_image" in config.json, or by dropping a background.png / bg.png
+            //    into its folder. Themes without a background image fall through to the album-art blur below.
+            Bitmap themeBg = null;
+            try {
+                ThemeManager.ThemeData currentTheme = ThemeManager.getCurrentTheme();
+                if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()) {
+                    File themeBgFile = new File(currentTheme.folderPath, currentTheme.bgImage);
+                    if (themeBgFile.exists()) {
+                        try { themeBg = BitmapFactory.decodeFile(themeBgFile.getAbsolutePath()); } catch (Exception e) {}
+                    }
+                }
+                // Fallback filenames resolved via ThemeManager (handles both SD-card theme folders and the built-in default theme)
+                if (themeBg == null) themeBg = ThemeManager.getCustomIcon("background.png", this, 0);
+                if (themeBg == null) themeBg = ThemeManager.getCustomIcon("bg.png", this, 0);
+            } catch (Exception e) {}
+
+            if (themeBg != null) {
+                ivMainBg.setImageBitmap(themeBg);
+                return;
+            }
+
+            // 🚀 3. If there's no custom background (or it was cleared), apply 'blur' to the album art or default image and render it as before.
             Bitmap sourceBitmap = null;
             if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
