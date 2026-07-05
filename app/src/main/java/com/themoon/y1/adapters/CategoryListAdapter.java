@@ -167,10 +167,10 @@ public class CategoryListAdapter extends BaseAdapter {
             if (song.album.equals(name)) {
                 String trackPath = song.file.getAbsolutePath();
 
-                // ① SharedPreferences 금고에 다운로드 경로가 등록되어 있는지 확인
-                if (MainActivity.instance.prefs != null) {
-                    String savedPath = MainActivity.instance.prefs.getString("album_art_" + trackPath, "");
-                    if (!savedPath.isEmpty() && new File(savedPath).exists()) {
+                // ① DB에 다운로드 경로가 등록되어 있는지 확인
+                if (MainActivity.instance.libraryCacheDb != null) {
+                    String savedPath = MainActivity.instance.libraryCacheDb.getAlbumArtPath(trackPath);
+                    if (savedPath != null && !savedPath.isEmpty() && new File(savedPath).exists()) {
                         artPath = savedPath;
                         break; // 이미지를 찾았으면 즉시 탈출!
                     }

@@ -46,16 +46,26 @@ public class SongListAdapter extends BaseAdapter {
 
         // 🚀 [들여쓰기 정렬] 음악 모드와 오디오북 모드에 맞춰 알맞은 접두사 아이콘 부여
         String prefixIcon = MainActivity.instance.isAudiobookLibraryMode ? "🎧 " : "🎵 ";
-        btn.setText(prefixIcon + song.title);
+
+        // Only prefix the track number when browsing an album screen.
+        String trackNum = "";
+        if (("ALBUM".equals(MainActivity.instance.virtualQueryType) || "COVER_FLOW_ALBUM".equals(MainActivity.instance.virtualQueryType))
+                && MainActivity.instance.trackNumberMap.containsKey(song.file.getAbsolutePath())) {
+            int track = MainActivity.instance.trackNumberMap.get(song.file.getAbsolutePath());
+            if (track > 0) {
+                trackNum = String.format(java.util.Locale.US, "%02d. ", track);
+            }
+        }
+
+        btn.setText(prefixIcon + trackNum + song.title);
 
         // 🚀 [버그 1의 핵심 해결책] 포커스가 이동할 때 프로그레스 바가 강제로 지워지는 현상을 원천 차단합니다.
         if (MainActivity.instance.isAudiobookLibraryMode) {
-            int pos = MainActivity.instance.prefs.getInt("book_pos_" + song.file.getAbsolutePath(), 0);
-            int dur = MainActivity.instance.prefs.getInt("book_dur_" + song.file.getAbsolutePath(), 0);
+            com.themoon.y1.db.LibraryCacheDb.Bookmark bm = MainActivity.instance.libraryCacheDb.getBookmark(song.file.getAbsolutePath());
 
-            if (pos > 0 && dur > 0) {
+            if (bm != null && bm.posMs > 0 && bm.durMs > 0) {
                 // 이어듣기 기록이 있는 오디오북 파일은 프로그레스 전용 포커스 유지 엔진으로 연결!
-                MainActivity.instance.setupAudiobookProgress(btn, pos, dur);
+                MainActivity.instance.setupAudiobookProgress(btn, bm.posMs, bm.durMs);
             } else {
                 // 재생 기록이 없는 순수 파일은 기본 포커스 리스너 할당
                 applyDefaultFocusListener(btn, song.title);

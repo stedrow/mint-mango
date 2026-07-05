@@ -49,6 +49,7 @@ public class SubsonicClient {
     private String username;
     private String password;
     private Context appContext;
+    private com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     private final Handler mainHandler = new Handler();
 
     private SubsonicClient() {}
@@ -60,6 +61,7 @@ public class SubsonicClient {
 
     public void loadSettings(Context ctx) {
         appContext = ctx.getApplicationContext();
+        if (libraryCacheDb == null) libraryCacheDb = new com.themoon.y1.db.LibraryCacheDb(appContext);
         SharedPreferences prefs = ctx.getSharedPreferences("Y1Prefs", Context.MODE_PRIVATE);
         serverUrl = prefs.getString("navidrome_url", "").trim().replaceAll("/+$", "");
         username  = prefs.getString("navidrome_user", "").trim();
@@ -84,8 +86,8 @@ public class SubsonicClient {
         // refresh errors whenever it already served cached data).
         if (changed) {
             configVersion++;
-            File cache = artistsCacheFile();
-            if (cache != null) cache.delete();
+            if (libraryCacheDb == null) libraryCacheDb = new com.themoon.y1.db.LibraryCacheDb(ctx.getApplicationContext());
+            libraryCacheDb.clearNavidromeArtists();
         }
     }
 
@@ -164,14 +166,10 @@ public class SubsonicClient {
             public void run() {
                 // Serve the cached list first so the screen is instant (and browsable
                 // offline); then refresh from the network and re-deliver only if changed.
-                String cachedJson = readArtistsCache();
-                boolean deliveredFromCache = false;
-                if (cachedJson != null) {
-                    try {
-                        final List<SubsonicArtist> cached = parseArtists(new JSONObject(cachedJson));
-                        deliveredFromCache = true;
-                        mainHandler.post(new Runnable() { @Override public void run() { cb.onSuccess(cached); }});
-                    } catch (Exception ignored) {}
+                final List<SubsonicArtist> cachedArtists = libraryCacheDb != null ? libraryCacheDb.loadNavidromeArtists() : null;
+                boolean deliveredFromCache = cachedArtists != null && !cachedArtists.isEmpty();
+                if (deliveredFromCache) {
+                    mainHandler.post(new Runnable() { @Override public void run() { cb.onSuccess(cachedArtists); }});
                 }
                 try {
                     String rawJson = fetchString(buildUrl("getArtists", null));
@@ -184,8 +182,9 @@ public class SubsonicClient {
                         return;
                     }
                     final List<SubsonicArtist> artists = parseArtists(root);
-                    writeArtistsCache(rawJson);
-                    if (deliveredFromCache && rawJson.equals(cachedJson)) return; // no change, keep UI as-is
+                    boolean unchanged = deliveredFromCache && artistListsEqual(cachedArtists, artists);
+                    if (libraryCacheDb != null) libraryCacheDb.saveNavidromeArtists(artists);
+                    if (unchanged) return; // no change, keep UI as-is
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onSuccess(artists); }});
                 } catch (final Exception e) {
                     if (deliveredFromCache) {
@@ -222,31 +221,17 @@ public class SubsonicClient {
         return artists;
     }
 
-    private File artistsCacheFile() {
-        return appContext != null ? new File(appContext.getCacheDir(), "navidrome_artists.json") : null;
-    }
-
-    private String readArtistsCache() {
-        File f = artistsCacheFile();
-        if (f == null || !f.exists()) return null;
-        try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line);
-            reader.close();
-            return sb.toString();
-        } catch (Exception e) { return null; }
-    }
-
-    private void writeArtistsCache(String json) {
-        File f = artistsCacheFile();
-        if (f == null) return;
-        try {
-            FileOutputStream fos = new FileOutputStream(f);
-            fos.write(json.getBytes("UTF-8"));
-            fos.close();
-        } catch (Exception ignored) {}
+    private boolean artistListsEqual(List<SubsonicArtist> a, List<SubsonicArtist> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            SubsonicArtist x = a.get(i), y = b.get(i);
+            if (!java.util.Objects.equals(x.id, y.id)) return false;
+            if (!java.util.Objects.equals(x.name, y.name)) return false;
+            if (x.albumCount != y.albumCount) return false;
+            if (!java.util.Objects.equals(x.coverArtId, y.coverArtId)) return false;
+            if (!java.util.Objects.equals(x.indexLetter, y.indexLetter)) return false;
+        }
+        return true;
     }
 
     public void getArtist(final String artistId, final Callback<List<SubsonicAlbum>> cb) {
@@ -385,6 +370,7 @@ public class SubsonicClient {
                     final String path = savePath;
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onComplete(path); }});
                 } catch (final Exception e) {
+                    android.util.Log.e("Subsonic", "Download failed: songId=" + songId + " path=" + savePath, e);
                     try { partFile.delete(); } catch (Exception ignored) {}
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 } finally {
