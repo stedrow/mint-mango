@@ -98,7 +98,8 @@ public class MainActivity extends Activity {
     };
     // 🚀 [신규 추가] 가상 암전 화면 끄기 제어 스위치
     public boolean isFakeScreenOff = false;
-
+    // 🚀 [신규 추가] 플레이리스트에 메인 메뉴에서 숏컷으로 들어왔는지, 라이브러리를 거쳐서 들어왔는지 구분하는 지능형 플래그!
+    public boolean isPlaylistOpenedFromLibrary = false;
     // 🚀 [신규 추가] 다이렉트 숏컷 뒤로 가기 복귀 경로 추적기!
     private int backTargetForPlayer = STATE_BROWSER;
     private int backTargetForUtility = STATE_SETTINGS;
@@ -262,6 +263,7 @@ public class MainActivity extends Activity {
     // 💡 백그라운드 미디어 제어권(스크린 오프) 변수
 
     private ImageView ivStatusPlay;
+    private ImageView ivStatusServer; // 🚀 [신규 추가] 상태바 웹 서버 아이콘
 
     // 💡 미디어 라이브러리 브라우저 상태 관리 변수들 근처에 추가
     private static final int BROWSER_FAVORITES = 5;
@@ -420,6 +422,11 @@ public class MainActivity extends Activity {
 
     private Y1WebServer webServer;
     private boolean isServerRunning = false;
+
+    // 🚀 [신규 전역 변수] 웹 서버 백그라운드 유지용 시스템 자물쇠
+    private android.os.PowerManager.WakeLock serverWakeLock = null;
+    private android.net.wifi.WifiManager.WifiLock serverWifiLock = null;
+
     private int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
     // 🚀 괄호를 덧붙여서 이퀄라이저의 Normal과 완전히 다른 Key로 분리 독립시킵니다!
     private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
@@ -489,10 +496,11 @@ public class MainActivity extends Activity {
             }
         }
     }
-    
+
     public void turnOffScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-        if (fm.isPowerUp || activePlayer == 1) {
+        // 🚀 [웹 서버 방어막] 라디오뿐만 아니라 서버가 돌아갈 때도 '가상 암전 모드'를 사용하여 CPU가 잠들지 않게 보호합니다!
+        if (fm.isPowerUp || activePlayer == 1 || isServerRunning) {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -1007,7 +1015,14 @@ public class MainActivity extends Activity {
             // 리모컨 클라이언트를 위한 인텐트 생성
             android.content.Intent mediaButtonIntent = new android.content.Intent(android.content.Intent.ACTION_MEDIA_BUTTON);
             mediaButtonIntent.setComponent(mediaButtonReceiver);
-            android.app.PendingIntent mediaPendingIntent = android.app.PendingIntent.getBroadcast(context, 0, mediaButtonIntent, 0);
+
+            // 🚀 [보안 에러 완벽 해결] 안드로이드 12 이상을 위한 불변(IMMUTABLE) 플래그를 장착합니다!
+            // 젤리빈 등 구형 기기(API 23 미만)에서는 에러가 나지 않도록 분기 처리를 해줍니다.
+            int pendingIntentFlags = 0;
+            if (android.os.Build.VERSION.SDK_INT >= 23) { // 안드로이드 6.0(마시멜로) 이상
+                pendingIntentFlags = android.app.PendingIntent.FLAG_IMMUTABLE;
+            }
+            android.app.PendingIntent mediaPendingIntent = android.app.PendingIntent.getBroadcast(context, 0, mediaButtonIntent, pendingIntentFlags);
 
             // 🚀 젤리빈 전용 방송국 개국!
             remoteControlClient = new android.media.RemoteControlClient(mediaPendingIntent);
@@ -1523,6 +1538,25 @@ public class MainActivity extends Activity {
 
         // 3. 우측 아이콘 그룹의 맨 앞(인덱스 0)에 쏙 끼워 넣습니다!
         rightStatusGroup.addView(ivStatusPlay, 0, playLp);
+
+        // 🚀 [신규 추가] 웹 서버 아이콘도 똑같이 22dp 크기로 빚어서 상태바 우측 그룹에 꽂아 넣습니다!
+        ivStatusServer = new ImageView(this);
+
+        // 🚀 [순정 아이콘 교체 완료] 안드로이드 시스템 기본 '업로드(Upload)' 아이콘을 장착합니다!
+        ivStatusServer.setImageResource(android.R.drawable.stat_sys_upload);
+        // 💡 팁: 만약 둥글게 도는 '동기화' 화살표 모양이 더 좋으시다면 아래 코드로 바꾸셔도 예쁩니다!
+        // ivStatusServer.setImageResource(android.R.drawable.ic_popup_sync);
+
+        ivStatusServer.setColorFilter(0xFFFFFFFF); // 깔끔한 순백색으로 도색!
+        ivStatusServer.setVisibility(View.GONE);   // 평소엔 끄기
+
+        android.widget.LinearLayout.LayoutParams serverLp = new android.widget.LinearLayout.LayoutParams(
+                (int) (22 * statusDensity), (int) (22 * statusDensity));
+        serverLp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        serverLp.setMargins(0, 0, (int) (8 * statusDensity), 0); // 우측 아이콘과의 간격 8dp
+
+        rightStatusGroup.addView(ivStatusServer, 0, serverLp); // 재생 아이콘 옆에 나란히 배치!
+
         // [🟢 아래 코드로 교체!]
         tvBrowserPath = findViewById(R.id.tv_browser_path);
         tvBrowserPath.setTextColor(ThemeManager.getTextColorPrimary());
@@ -2396,6 +2430,23 @@ public class MainActivity extends Activity {
             if (webServer != null)
                 webServer.stopServer();
             isServerRunning = false;
+
+            // 🚀 [웹 서버 절전 해제] 서버가 꺼지면 자물쇠를 풀고 시스템을 놔줍니다.
+            try {
+                if (serverWakeLock != null && serverWakeLock.isHeld()) {
+                    serverWakeLock.release();
+                    serverWakeLock = null;
+                }
+                if (serverWifiLock != null && serverWifiLock.isHeld()) {
+                    serverWifiLock.release();
+                    serverWifiLock = null;
+                }
+                // 스캔 작업 중이 아닐 때만 화면 꺼짐 방지(FLAG) 해제
+                if (!isCustomScanning && !isRadioScanning) {
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            } catch (Exception e) {}
+
         } else {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             if (wm == null || !wm.isWifiEnabled()) {
@@ -2405,6 +2456,22 @@ public class MainActivity extends Activity {
             webServer = new Y1WebServer(getApplicationContext(), rootFolder);
             webServer.start();
             isServerRunning = true;
+
+            // 🚀 [웹 서버 무중단 백그라운드 엔진 가동!]
+            try {
+                // 1. 시스템 타임아웃에 의해 화면이 물리적으로 꺼지는 것을 차단!
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+                // 2. CPU(WakeLock)와 Wi-Fi(WifiLock)가 딥슬립(절전 모드)에 빠지지 않도록 시스템 멱살 잡기!
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                serverWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Y1:WebServerLock");
+                serverWakeLock.acquire();
+
+                serverWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL, "Y1:WebServerWifiLock");
+                serverWifiLock.acquire();
+            } catch (Exception e) {
+                // (앱 매니페스트에 권한이 없더라도 가상 암전 모드가 있기 때문에 2차 우회 방어가 완벽히 작동합니다)
+            }
         }
     }
 
@@ -2416,6 +2483,9 @@ public class MainActivity extends Activity {
             tvServerIp.setText("http://" + webServer.getLocalIpAddress() + ":8080");
             tvServerIp.setTextColor(0xFFFFFFFF);
             btnServerToggle.setText(t("STOP SERVER"));
+
+            // 🚀 [상태바 동기화] 서버가 켜지면 상단에 서버 아이콘 표시!
+            if (ivStatusServer != null) ivStatusServer.setVisibility(View.VISIBLE);
         } else {
             // 💡 애플 스타일: 튀지 않는 은은한 회색으로!
             tvServerStatus.setText(t("SERVER STOPPED"));
@@ -2423,6 +2493,9 @@ public class MainActivity extends Activity {
             tvServerIp.setText("http://---.---.---.---:8080");
             tvServerIp.setTextColor(0xFF888888);
             btnServerToggle.setText(t("START SERVER"));
+
+            // 🚀 [상태바 동기화] 서버가 꺼지면 상단 서버 아이콘 즉시 숨김!
+            if (ivStatusServer != null) ivStatusServer.setVisibility(View.GONE);
         }
     }
 
@@ -2805,22 +2878,61 @@ public class MainActivity extends Activity {
     // 💡 [추가] 과부하 방지용 타이머 변수
     private long lastClickTime = 0;
 
+    // 🚀 [원본 스크롤 위치 기억 금고] 클릭한 버튼의 텍스트를 열쇠로 삼아, 화면 상단으로부터의 정확한 거리(Offset)를 1px 단위로 기억합니다!
+    public java.util.HashMap<String, Integer> exactOffsetMemory = new java.util.HashMap<>();
+
     public void clickFeedback() {
         long now = System.currentTimeMillis();
 
-        // 🚀 [UI 멈춤 완벽 차단] 0.03초 이내에 연속으로 들어온 휠 신호는 생략
-        if (now - lastClickTime < 30)
-            return;
+        if (now - lastClickTime < 30) return;
         lastClickTime = now;
+
+        // 🚀 [초정밀 스크롤 캡처 엔진 가동] 진동이 울리는 그 찰나의 순간, 현재 선택된 뷰의 화면상 Y좌표를 훔쳐와 금고에 저장합니다!
+        try {
+            View focused = getCurrentFocus();
+            if (focused != null) {
+                String keyText = "";
+                if (focused instanceof android.widget.Button) {
+                    keyText = ((android.widget.Button) focused).getText().toString();
+                } else if (focused instanceof LinearLayout) {
+                    LinearLayout layout = (LinearLayout) focused;
+                    if (layout.getChildCount() > 1 && layout.getChildAt(1) instanceof TextView) {
+                        keyText = ((TextView) layout.getChildAt(1)).getText().toString();
+                    } else if (layout.getChildCount() > 0 && layout.getChildAt(0) instanceof TextView) {
+                        keyText = ((TextView) layout.getChildAt(0)).getText().toString();
+                    }
+                }
+
+                if (!keyText.isEmpty()) {
+                    if (keyText.contains("  ⏱")) keyText = keyText.substring(0, keyText.indexOf("  ⏱")).trim();
+
+                    android.view.ViewParent p = focused.getParent();
+                    while (p != null) {
+                        if (p instanceof android.widget.ScrollView) {
+                            // 버튼의 절대 높이에서 현재 스크롤된 높이를 빼면 화면 상단으로부터의 실제 오프셋(거리)이 나옵니다.
+                            int offset = focused.getTop() - ((android.widget.ScrollView) p).getScrollY();
+                            exactOffsetMemory.put(keyText, offset);
+
+                            // 💡 설정창(Settings) 복원 전용 인덱스 오프셋도 보너스로 동시 저장!
+                            if (focused.getParent() == containerSettingsItems) {
+                                exactOffsetMemory.put("SETTINGS_" + containerSettingsItems.indexOfChild(focused), offset);
+                            }
+                            // 🚀 [추가] 메인 화면(동적 메뉴) 복원 전용 인덱스 오프셋도 금고에 저장합니다!
+                            if (focused.getId() >= 10000 && focused.getId() < 11000) {
+                                exactOffsetMemory.put("MAIN_" + (focused.getId() - 10000), offset);
+                            }
+                            break;
+                        }
+                        p = p.getParent();
+                    }
+                }
+            }
+        } catch(Exception e){}
 
         try {
             if (isVibrationEnabled) {
                 Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                if (v != null) {
-                    // 🚀 젤리빈(Jelly Bean) 맞춤형 진동 알고리즘!
-                    // 설정된 세기(Weak/Normal/Strong)에 따라 10ms, 25ms, 50ms 중 하나를 꺼내서 울립니다.
-                    v.vibrate(VIBE_DURATIONS[vibrationStrengthLevel]);
-                }
+                if (v != null) v.vibrate(VIBE_DURATIONS[vibrationStrengthLevel]);
             }
         } catch (Exception e) {}
     }
@@ -3697,15 +3809,29 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 buildMainMenuVisibilitySettingsUI(); // 대망의 개별 숨김 편집창 호출!
 
-                // 🚀 [초기 진입 포커스 강제 주입] 서브 메뉴가 열리자마자 0번 항목에 자석처럼 포커스를 꽂아줍니다!
-                containerSettingsItems.postDelayed(new Runnable() {
+                // 🚀 [대개조 완료] OnGlobalLayoutListener를 활용해 설정 화면 복귀 시 시각적 모션 레이텐시를 완전히 제거합니다!
+                containerSettingsItems.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
                     @Override
-                    public void run() {
-                        if (containerSettingsItems.getChildCount() > 0) {
+                    public void onGlobalLayout() {
+                        if (android.os.Build.VERSION.SDK_INT >= 16) {
+                            containerSettingsItems.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        } else {
+                            containerSettingsItems.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                        }
+
+                        if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
+                            View target = containerSettingsItems.getChildAt(targetFocusIndex);
+                            if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
+                                android.widget.ScrollView sv = (android.widget.ScrollView) containerSettingsItems.getParent();
+                                sv.scrollTo(0, target.getTop()); // 첫 프레임 출력 전 미리 스크롤 정렬!
+                            }
+                            target.requestFocus();
+                            lastSettingsFocusIndex = targetFocusIndex;
+                        } else if (containerSettingsItems.getChildCount() > 0) {
                             containerSettingsItems.getChildAt(0).requestFocus();
                         }
                     }
-                }, 50); // 화면이 전환되는 찰나(50ms)를 기다렸다가 완벽하게 꽂음
+                });
             }
         });
         containerSettingsItems.addView(btnMenuVisibility);
@@ -3822,9 +3948,21 @@ public class MainActivity extends Activity {
                                 try {
                                     Toast.makeText(MainActivity.this, "Switching to Rockbox...", Toast.LENGTH_SHORT).show();
 
-                                    // 💡 [핵심 기술] 락박스 활성화 -> 실행 -> 현재 런처(JJ) 비활성화
-                                    String cmd = "pm enable org.rockbox && am start -n org.rockbox/.RockboxActivity && pm disable com.themoon.y1";
+                                    // 🚀 [긴급 수리: 좀비 라디오 원천 차단!]
+                                    // 락박스로 넘어가기 직전에, 우리 앱이 켜둔 라디오 하드웨어 칩셋 전원을 물리적으로 뽑아버립니다!
+                                    com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(MainActivity.this);
+                                    if (fm.isPowerUp) {
+                                        fm.powerDown(); // 라디오 칩셋 전원 차단!
+                                    }
 
+                                    // 음악 플레이어도 멈춤 (소리 겹침 방지)
+                                    com.themoon.y1.managers.AudioPlayerManager.getInstance().releasePlayer();
+
+                                    // 💡 칩셋이 꺼질 수 있는 시간(0.2초)을 잠깐 줍니다.
+                                    try { Thread.sleep(200); } catch(Exception e){}
+
+                                    // 그 다음 안전하게 락박스 활성화 -> 실행 -> 현재 런처 비활성화
+                                    String cmd = "pm enable org.rockbox && am start -n org.rockbox/.RockboxActivity && pm disable com.themoon.y1";
                                     Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
 
                                 } catch (Exception e) {
@@ -4028,27 +4166,37 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnUpdateCheck);
 
-        // 🚀 [수정] 오염되지 않은 안전한 백업 인덱스(targetFocusIndex)를 사용하여 정확한 위치로 강제 이동!
-        containerSettingsItems.postDelayed(new Runnable() {
+        // 🚀 [설정창 전용 무감쇠 스크롤 엔진 적용]
+        final android.widget.ScrollView sv = (android.widget.ScrollView) containerSettingsItems.getParent();
+        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public void run() {
+            public void onGlobalLayout() {
+                if (android.os.Build.VERSION.SDK_INT >= 16) {
+                    sv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                } else {
+                    sv.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                }
+
                 if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
                     View target = containerSettingsItems.getChildAt(targetFocusIndex);
-                    target.requestFocus();
 
-                    // 스크롤 뷰가 해당 버튼 위치를 찾아서 화면을 쫙 내려주도록 강제 명령!
-                    if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
-                        ((android.widget.ScrollView) containerSettingsItems.getParent())
-                                .requestChildFocus(containerSettingsItems, target);
+                    // 🚀 [원본 위치 100% 복원] 설정창 전용 인덱스로 저장된 오프셋을 꺼내옵니다.
+                    int offset = (sv.getHeight() / 2) - (target.getHeight() / 2);
+                    if (exactOffsetMemory.containsKey("SETTINGS_" + targetFocusIndex)) {
+                        offset = exactOffsetMemory.get("SETTINGS_" + targetFocusIndex);
                     }
 
-                    // 이동을 마친 후 변수 상태를 일치시켜 줍니다.
+                    int targetY = target.getTop() - offset;
+                    if (targetY < 0) targetY = 0;
+
+                    sv.scrollTo(0, targetY);
+                    target.requestFocus();
                     lastSettingsFocusIndex = targetFocusIndex;
                 } else if (containerSettingsItems.getChildCount() > 0) {
                     containerSettingsItems.getChildAt(0).requestFocus();
                 }
             }
-        }, 50);
+        });
     } // buildSettingsUI 함수 끝/ buildSettingsUI 함수 끝
     // 💡 [신규 추가] 언어팩 선택 전용 화면
     private void buildLanguageSelectorUI() {
@@ -4270,9 +4418,20 @@ public class MainActivity extends Activity {
             });
             containerSettingsItems.addView(btnClose);
 
+            // 🚀 [신규 엔진 전역 변수] 라디오 광클 방지용 타이머 장착! (이 줄은 밖에서 전역으로 선언해도 되지만, 익명 클래스 내부에선 아래처럼 처리합니다)
+            final long[] lastRadioPowerToggleTime = {0};
+
             final android.widget.LinearLayout btnPower = createSettingRow("Radio Power", fmManager.isPowerUp ? t("ON") : t("OFF"));
             btnPower.setOnLongClickListener(globalScreenOffLongClickListener);
             btnPower.setOnClickListener(v -> {
+                long now = System.currentTimeMillis();
+                // 🚀 [1차 방어막] 전원 버튼을 누른 지 1.5초(1500ms)가 지나지 않았다면 명령을 무시합니다! (광클로 인한 하드웨어 꼬임 완벽 차단)
+                if (now - lastRadioPowerToggleTime[0] < 1500) {
+                    android.widget.Toast.makeText(MainActivity.this, t("Please wait a moment..."), android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                lastRadioPowerToggleTime[0] = now;
+
                 clickFeedback();
                 if (fmManager.isPowerUp) {
                     fmManager.powerDown();
@@ -5018,9 +5177,14 @@ public class MainActivity extends Activity {
                 containerBrowserItems.addView(btnCoverFlow);
 
                 android.view.View btnM3uPlaylist = createListButtonWithIcon("\uE05F", t("Playlists"));
-                btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); lastBrowserFocusText = "FROM_LIBRARY"; currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
-                containerBrowserItems.addView(btnM3uPlaylist);
-
+                btnM3uPlaylist.setOnClickListener(v -> {
+                    clickFeedback();
+                    isPlaylistOpenedFromLibrary = true; // 🚀 확실하게 라이브러리를 거쳐왔음을 도장에 찍습니다!
+                    lastBrowserFocusText = "FROM_LIBRARY";
+                    currentBrowserMode = BROWSER_PLAYLISTS;
+                    buildM3uPlaylistUI();
+                });
+                containerBrowserItems.addView(btnM3uPlaylist); // 🚀 [핵심 복구 완료] 만든 버튼을 라이브러리 화면 패널에 단단히 조립합니다!
                 //Button btnFolder = createListButton("📁 " + t("Folders"));
                 android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
                 btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = rootFolder; buildFileBrowserUI(); });
@@ -5103,31 +5267,53 @@ public class MainActivity extends Activity {
 
             if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
         }
-        // 🚀 [추가] 화면이 다 그려진 후(50ms 뒤), 방금 나온 폴더/메뉴를 찾아 자동으로 포커스를 꽂습니다!
-        containerBrowserItems.postDelayed(new Runnable() {
+        // 🚀 [대개조 완료] ScrollView 본체에 리스너를 달아 스크롤 범위가 100% 확보된 순간 단번에 화면을 내립니다!
+        final android.widget.ScrollView sv = (android.widget.ScrollView) containerBrowserItems.getParent();
+        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public void run() {
+            public void onGlobalLayout() {
+                if (android.os.Build.VERSION.SDK_INT >= 16) {
+                    sv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                } else {
+                    sv.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                }
+
                 boolean found = false;
                 if (!lastBrowserFocusText.isEmpty()) {
                     for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
                         View v = containerBrowserItems.getChildAt(i);
-                        if (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText)) {
-                            v.requestFocus();
-                            if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
-                                ((android.widget.ScrollView) containerBrowserItems.getParent())
-                                        .requestChildFocus(containerBrowserItems, v);
+                        String itemText = "";
+
+                        if (v instanceof android.widget.Button) {
+                            itemText = ((android.widget.Button) v).getText().toString();
+                        } else if (v instanceof LinearLayout) {
+                            LinearLayout layout = (LinearLayout) v;
+                            if (layout.getChildCount() > 1 && layout.getChildAt(1) instanceof TextView) {
+                                itemText = ((TextView) layout.getChildAt(1)).getText().toString();
                             }
+                        }
+
+                        if (itemText.equals(lastBrowserFocusText)) {
+                            // 🚀 [원본 위치 100% 복원]
+                            int offset = (sv.getHeight() / 2) - (v.getHeight() / 2);
+                            if (exactOffsetMemory.containsKey(itemText)) offset = exactOffsetMemory.get(itemText);
+
+                            int targetY = v.getTop() - offset;
+                            if (targetY < 0) targetY = 0;
+
+                            sv.scrollTo(0, targetY);
+                            v.requestFocus();
                             found = true;
                             break;
                         }
                     }
                 }
                 if (!found && containerBrowserItems.getChildCount() > 0) {
-                    containerBrowserItems.getChildAt(0).requestFocus(); // 못 찾으면 맨 위로
+                    containerBrowserItems.getChildAt(0).requestFocus();
                 }
-                lastBrowserFocusText = ""; // 🚀 1회용이므로 사용 후 즉시 기억 포맷
+                lastBrowserFocusText = "";
             }
-        }, 50);
+        });
     }
 
     // 💡 3. 자체 DB에서 아티스트/앨범 카테고리 추출 (초고속 엔진 적용!)
@@ -6096,60 +6282,78 @@ public class MainActivity extends Activity {
         if (containerBrowserItems.getChildCount() > 0)
             containerBrowserItems.getChildAt(0).requestFocus();
 
-        // 🚀 [추가] 화면이 다 그려진 후(50ms 뒤), 방금 나온 폴더나 재생 중인 곡을 찾아 자동으로 포커스를 꽂습니다!
-        containerBrowserItems.postDelayed(new Runnable() {
+        // 🚀 [대개조 완료] ScrollView 자체의 준비 상태를 파악하여 애니메이션 없이 완벽히 스크롤 고정!
+        final android.widget.ScrollView sv = (android.widget.ScrollView) containerBrowserItems.getParent();
+        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public void run() {
-                boolean found = false;
+            public void onGlobalLayout() {
+                if (android.os.Build.VERSION.SDK_INT >= 16) {
+                    sv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                } else {
+                    sv.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                }
 
-                // 현재 플레이어에서 돌고 있는 파일 이름을 가져옵니다.
+                boolean found = false;
                 String playingFileName = "";
                 if (currentPlaylist != null && !currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
                     playingFileName = currentPlaylist.get(currentIndex).getName();
                 }
 
-                for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
-                    View v = containerBrowserItems.getChildAt(i);
-                    String itemText = "";
+                if (!lastBrowserFocusText.isEmpty() || !playingFileName.isEmpty()) {
+                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
+                        View v = containerBrowserItems.getChildAt(i);
+                        String itemText = "";
 
-                    // 💡 [호환성 패치] Button뿐만 아니라 개조된 유니코드 뷰(LinearLayout) 내부의 진짜 텍스트도 추출할 수 있게 개선!
-                    if (v instanceof Button) {
-                        itemText = ((Button) v).getText().toString();
-                    } else if (v instanceof LinearLayout) {
-                        LinearLayout layout = (LinearLayout) v;
-                        if (layout.getChildCount() > 1 && layout.getChildAt(1) instanceof TextView) {
-                            itemText = ((TextView) layout.getChildAt(1)).getText().toString();
+                        if (v instanceof android.widget.Button) {
+                            itemText = ((android.widget.Button) v).getText().toString();
+                        } else if (v instanceof LinearLayout) {
+                            LinearLayout layout = (LinearLayout) v;
+                            if (layout.getChildCount() > 1 && layout.getChildAt(1) instanceof TextView) {
+                                itemText = ((TextView) layout.getChildAt(1)).getText().toString();
+                            }
                         }
-                    }
 
-                    // 1순위: 이전 브라우저 폴더명 기억 장치와 매칭되는 경우 (폴더 타고 나갈 때)
-                    if (!lastBrowserFocusText.isEmpty() && itemText.equals(lastBrowserFocusText)) {
-                        v.requestFocus();
-                        if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
-                            ((android.widget.ScrollView) containerBrowserItems.getParent())
-                                    .requestChildFocus(containerBrowserItems, v);
+                        String cleanItemText = itemText;
+                        if (cleanItemText.contains("  ⏱")) {
+                            cleanItemText = cleanItemText.substring(0, cleanItemText.indexOf("  ⏱")).trim();
                         }
-                        found = true;
-                        break;
-                    }
-                    // 2순위: 플레이어에서 듣다가 뒤로 왔을 때 현재 곡의 파일명과 매칭되는 경우 (플레이어에서 돌아올 때)
-                    else if (lastBrowserFocusText.isEmpty() && !playingFileName.isEmpty() && itemText.equals(playingFileName)) {
-                        v.requestFocus();
-                        if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
-                            ((android.widget.ScrollView) containerBrowserItems.getParent())
-                                    .requestChildFocus(containerBrowserItems, v);
+
+                        // 1순위: 이전 브라우저 폴더명 기억 장치와 매칭되는 경우 (밖으로 나갈 때)
+                        if (!lastBrowserFocusText.isEmpty() && cleanItemText.equals(lastBrowserFocusText)) {
+                            // 🚀 [원본 위치 100% 복원] 기본은 중앙 정렬이지만, 금고에 저장된 원본 오프셋이 있다면 그 위치 그대로 꽂아 넣습니다!
+                            int offset = (sv.getHeight() / 2) - (v.getHeight() / 2);
+                            if (exactOffsetMemory.containsKey(cleanItemText)) offset = exactOffsetMemory.get(cleanItemText);
+
+                            int targetY = v.getTop() - offset;
+                            if (targetY < 0) targetY = 0; // 최상단 이탈 방지 방어막
+
+                            sv.scrollTo(0, targetY);
+                            v.requestFocus();
+                            found = true;
+                            break;
                         }
-                        found = true;
-                        break;
+                        // 2순위: 플레이어에서 곡을 듣다가 뒤로 돌아왔을 때 현재 재생 곡 파일명과 매칭되는 경우
+                        else if (lastBrowserFocusText.isEmpty() && !playingFileName.isEmpty() && cleanItemText.equals(playingFileName)) {
+                            int offset = (sv.getHeight() / 2) - (v.getHeight() / 2);
+                            if (exactOffsetMemory.containsKey(cleanItemText)) offset = exactOffsetMemory.get(cleanItemText);
+
+                            int targetY = v.getTop() - offset;
+                            if (targetY < 0) targetY = 0;
+
+                            sv.scrollTo(0, targetY);
+                            v.requestFocus();
+                            found = true;
+                            break;
+                        }
                     }
                 }
 
                 if (!found && containerBrowserItems.getChildCount() > 0) {
-                    containerBrowserItems.getChildAt(0).requestFocus(); // 못 찾으면 맨 위로
+                    containerBrowserItems.getChildAt(0).requestFocus();
                 }
-                lastBrowserFocusText = ""; // 사용 후 즉시 리셋
+                lastBrowserFocusText = "";
             }
-        }, 50);
+        });
     }
     // 🚀 [추가 도구 1] 영어로 된 정렬(Gravity) 텍스트를 안드로이드가 알아듣게 번역해 주는 함수
     private int parseGravity(String gravityStr) {
@@ -6776,9 +6980,10 @@ public class MainActivity extends Activity {
                         case "OPEN_STORAGE_INFO": changeScreen(STATE_STORAGE); break;
                         // 🚀 [신규 숏컷] 메인 화면에서 재생목록(Playlists) 화면으로 점프하는 직통 채널 개설!
                         case "OPEN_PLAYLISTS":
-                            lastBrowserFocusText = "";              // 🚀 메인에서 다이렉트로 들어왔으므로 경로 기억 변수를 깨끗하게 비워둡니다!
-                            currentBrowserMode = BROWSER_PLAYLISTS; // 💡 브라우저 모드를 재생목록 모드로 장전!
-                            changeScreen(STATE_BROWSER);            // 💡 파일 탐색기 화면을 켜서 즉시 렌더링 지시!
+                            isPlaylistOpenedFromLibrary = false; // 🚀 메인 다이렉트 숏컷임을 도장에 찍습니다!
+                            lastBrowserFocusText = "";
+                            currentBrowserMode = BROWSER_PLAYLISTS;
+                            changeScreen(STATE_BROWSER);
                             break;
                         case "OPEN_BACKGROUND_SETTINGS":
                             isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildBackgroundSettingsUI(); isNavigatingToSubMenu = false; break;
@@ -6833,26 +7038,39 @@ public class MainActivity extends Activity {
 
         refreshWidgets();
 
-        // 🚀 [지능형 포커스&스크롤 복구 복귀 공정] 화면 조립 완수 후, 마지막 위치를 추적해 복원합니다!
+        // 🚀 [대개조 완료] OnGlobalLayoutListener를 통해 메인 메뉴 복귀 시 딜레이와 이질감 없는 초고속 복원을 수행합니다!
         if (!createdButtons.isEmpty()) {
             final LinearLayout firstBtn = createdButtons.get(0);
-            firstBtn.postDelayed(new Runnable() {
+            canvas.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
                 @Override
-                public void run() {
+                public void onGlobalLayout() {
+                    if (android.os.Build.VERSION.SDK_INT >= 16) {
+                        canvas.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    } else {
+                        canvas.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                    }
+
                     if (currentScreenState == STATE_MENU) {
-                        // 💡 오염될 수 있는 전역 변수 대신, 아까 대피시켜둔 백업 변수(safeMenuIndex)를 100% 신뢰하여 사용합니다!
                         int targetId = 10000 + safeMenuIndex;
                         View targetBtn = findViewById(targetId);
 
-                        // 🚀 기억한 버튼에 포커스를 꽂고 스크롤 위치까지 완벽 자동 동기화!
                         if (targetBtn != null && targetBtn.getVisibility() == View.VISIBLE) {
-                            targetBtn.requestFocus();
-                            lastMainMenuFocusIndex = safeMenuIndex; // 정상 록온 후 전역 변수도 원상 복구
-
                             android.view.ViewParent parent = targetBtn.getParent();
                             if (parent != null && parent.getParent() instanceof android.widget.ScrollView) {
-                                ((android.widget.ScrollView) parent.getParent()).requestChildFocus((View) parent, targetBtn);
+                                android.widget.ScrollView sv = (android.widget.ScrollView) parent.getParent();
+
+                                // 🚀 [메인 화면 초정밀 스크롤 복원] 메인 전용 금고 키를 불러와 1픽셀 오차 없이 복원합니다!
+                                int offset = (sv.getHeight() / 2) - (targetBtn.getHeight() / 2);
+                                if (exactOffsetMemory.containsKey("MAIN_" + safeMenuIndex)) {
+                                    offset = exactOffsetMemory.get("MAIN_" + safeMenuIndex);
+                                }
+                                int targetY = targetBtn.getTop() - offset;
+                                if (targetY < 0) targetY = 0;
+
+                                sv.scrollTo(0, targetY);
                             }
+                            targetBtn.requestFocus();
+                            lastMainMenuFocusIndex = safeMenuIndex;
                         } else {
                             firstBtn.requestFocus();
                             android.view.ViewParent parent = firstBtn.getParent();
@@ -6862,7 +7080,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 }
-            }, 50);
+            });
         }
     } // buildDynamicMainMenuUI 끝
     private void collectAudioFilesAsFile(File dir, List<File> list) {
@@ -7619,16 +7837,15 @@ public class MainActivity extends Activity {
                                 }
                             }
                         } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
-                            // 🚀 [경로 복구 3] 꼬리표가 커버플로우면 무조건 커버플로우 화면으로 되돌려 보냅니다!
                             if (virtualQueryType.equals("COVER_FLOW_ALBUM")) {
                                 currentBrowserMode = BROWSER_COVER_FLOW;
                                 buildCoverFlowUI();
                             } else {
-                                // 기존 일반 라우팅 로직
                                 currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
                                         : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
                                 if (currentBrowserMode == BROWSER_ROOT) {
-                                    lastBrowserFocusText = t("All Songs");
+                                    // 🚀 [오디오북 포커스 버그 수리] 뮤직인지 오디오북인지에 맞춰 돌아갈 대상 텍스트를 다르게 지정합니다!
+                                    lastBrowserFocusText = isAudiobookLibraryMode ? t("All Audiobooks") : t("All Songs");
                                     buildFileBrowserUI();
                                 } else {
                                     buildVirtualCategories(virtualQueryType);
@@ -7636,34 +7853,39 @@ public class MainActivity extends Activity {
                             }
                         } else if (currentBrowserMode == BROWSER_ARTISTS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText =t("Artists");
+                            // 🚀 [오디오북 포커스 버그 수리]
+                            lastBrowserFocusText = isAudiobookLibraryMode ? t("Authors") : t("Artists");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_FAVORITES) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText =t("My Favorites");
+                            lastBrowserFocusText = t("My Favorites");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("All Audiobooks");
+                            // 🚀 오디오북에서 뮤직으로 돌아갈 때의 방어막
+                            lastBrowserFocusText = t("Switch to Audiobooks");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
-                            // 🚀 [지능형 다이렉트 퇴근 센서 장착]
-                            // 라이브러리 메뉴를 거치지 않고 메인 화면 숏컷으로 바로 들어왔다면 메인으로 즉시 복귀!
-                            if (lastBrowserFocusText == null || lastBrowserFocusText.trim().isEmpty() || !lastBrowserFocusText.equals("FROM_LIBRARY")) {
-                                applyThemeToMainMenu(); // 메인 화면 UI 리프레시
+                            // 🚀 [플레이리스트 탈출 버그 완벽 수리]
+                            // 꼬리표 텍스트에 의존하지 않고, 절대 지워지지 않는 '스위치 플래그'를 통해 정확한 경로로 퇴근시킵니다!
+                            if (!isPlaylistOpenedFromLibrary) {
+                                applyThemeToMainMenu();
                                 changeScreen(STATE_MENU);
                             } else {
-                                // 라이브러리 메뉴를 통해 정석으로 들어왔다면 기존처럼 부모 메뉴(BROWSER_ROOT)로 복귀
                                 currentBrowserMode = BROWSER_ROOT;
                                 lastBrowserFocusText = t("Playlists");
                                 buildFileBrowserUI();
                             }
                         } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
                             currentBrowserMode = BROWSER_PLAYLISTS;
+                            if (currentM3uFile != null) {
+                                lastBrowserFocusText = currentM3uFile.getName().substring(0, currentM3uFile.getName().lastIndexOf("."));
+                            }
                             buildM3uPlaylistUI();
                         } else if (currentBrowserMode == BROWSER_ALBUMS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Albums");
+                            // 🚀 [오디오북 포커스 버그 수리]
+                            lastBrowserFocusText = isAudiobookLibraryMode ? t("Books") : t("Albums");
                             buildFileBrowserUI();
                         }
                         // 🚀 [여기에 아래 코드를 추가하여 퇴근 경로를 뚫어줍니다!]
@@ -8235,6 +8457,20 @@ public class MainActivity extends Activity {
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);
+
+        // 🚀 [웹 서버 자물쇠 해제] 앱이 종료될 때 시스템 잠금 좀비 버그가 걸리지 않도록 확실하게 풀어줍니다.
+        try {
+            if (serverWakeLock != null && serverWakeLock.isHeld()) serverWakeLock.release();
+            if (serverWifiLock != null && serverWifiLock.isHeld()) serverWifiLock.release();
+        } catch (Exception e) {}
+
+        // 🚀 [2차 방어막] 앱이 완전히 죽기 직전, 라디오 칩셋이 켜져 있다면 강제로 모가지를 비틀어 전원을 뽑아버립니다! (좀비 라디오 원천 차단)
+        try {
+            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
+            if (fm.isPowerUp) {
+                fm.powerDown();
+            }
+        } catch (Exception e) {}
 
         com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
@@ -9357,7 +9593,53 @@ public class MainActivity extends Activity {
                 containerBrowserItems.addView(b);
             }
         }
-        if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
+        // 🚀 [플레이리스트 전용 스크롤 추적기 장착]
+        final android.widget.ScrollView sv = (android.widget.ScrollView) containerBrowserItems.getParent();
+        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (android.os.Build.VERSION.SDK_INT >= 16) {
+                    sv.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                } else {
+                    sv.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                }
+
+                boolean found = false;
+                if (!lastBrowserFocusText.isEmpty()) {
+                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
+                        View v = containerBrowserItems.getChildAt(i);
+                        String itemText = "";
+
+                        if (v instanceof android.widget.Button) {
+                            itemText = ((android.widget.Button) v).getText().toString();
+                        } else if (v instanceof LinearLayout) {
+                            LinearLayout layout = (LinearLayout) v;
+                            if (layout.getChildCount() > 1 && layout.getChildAt(1) instanceof TextView) {
+                                itemText = ((TextView) layout.getChildAt(1)).getText().toString();
+                            }
+                        }
+
+                        if (itemText.equals(lastBrowserFocusText)) {
+                            // 🚀 [원본 위치 100% 복원]
+                            int offset = (sv.getHeight() / 2) - (v.getHeight() / 2);
+                            if (exactOffsetMemory.containsKey(itemText)) offset = exactOffsetMemory.get(itemText);
+
+                            int targetY = v.getTop() - offset;
+                            if (targetY < 0) targetY = 0;
+
+                            sv.scrollTo(0, targetY);
+                            v.requestFocus();
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found && containerBrowserItems.getChildCount() > 0) {
+                    containerBrowserItems.getChildAt(0).requestFocus();
+                }
+                lastBrowserFocusText = "";
+            }
+        });
     }
 
     // 🚀 [네이티브 엔진 2] M3U 실시간 텍스트 경로 파서 (핵심 디테일 공정)
@@ -9940,6 +10222,22 @@ public class MainActivity extends Activity {
             } else if (!hasLiveWidgetActivated) {
                 // 보여줄 라이브 위젯도 없고, 이미지도 지정 안 된 일반 버튼이면 프리뷰 공간을 깔끔하게 비웁니다.
                 ivWidgetFocusImage.setImageDrawable(null);
+            } else {
+                // 🚀 [초기화 처리 완벽 장착] 라이브 위젯(앨범/시계)이 활성화된 버튼(Now Playing 등)일 때는
+                // 이전 버튼이 남긴 프리뷰 이미지 잔상이 절대로 겹치지 않도록 내부 비트맵 이미지를 깨끗이 파쇄합니다!
+                ivWidgetFocusImage.setImageDrawable(null);
+
+                // 💡 만약 프리뷰 이미지 위젯 자체가 현재 버튼의 전용 라이브 위젯으로 등록된 게 아니라면 안전하게 GONE 가림막을 칩니다.
+                boolean isFocusImageLiveForCurrentBtn = false;
+                for (ThemeManager.MenuElement el : allElements) {
+                    if (el.type.equals("widget_focus_image") && focusedElement.id.equals(el.visibleOnFocus)) {
+                        isFocusImageLiveForCurrentBtn = true;
+                        break;
+                    }
+                }
+                if (!isFocusImageLiveForCurrentBtn) {
+                    ivWidgetFocusImage.setVisibility(View.GONE);
+                }
             }
         }
     }
