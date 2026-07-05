@@ -1268,6 +1268,7 @@ public class MainActivity extends Activity {
                         if (profile == android.bluetooth.BluetoothProfile.A2DP) {
                             globalA2dp = proxy; // Loaded and ready!
                             updateBluetoothStatusIcon();
+                            resyncAapWithConnectedDevice();
                         }
                     }
 
@@ -8330,6 +8331,31 @@ public class MainActivity extends Activity {
         }
         return super.onKeyLongPress(keyCode, event);
     }
+    // AapService only (re)starts from the A2DP CONNECTION_STATE_CHANGED broadcast, which fires on
+    // a state transition. If Android kills this process while AirPods are already connected, the
+    // process comes back with no AAP session and no new broadcast to trigger one (the state never
+    // changed) -- ear-detection stays dead until the user manually toggles Bluetooth. Re-checking
+    // on resume (and right after the A2DP proxy first binds) self-heals that without needing a
+    // manual reconnect.
+    private void resyncAapWithConnectedDevice() {
+        if (globalA2dp == null) return;
+        try {
+            java.util.List<BluetoothDevice> connected = globalA2dp.getConnectedDevices();
+            if (!connected.isEmpty()) {
+                BluetoothDevice device = connected.get(0);
+                targetDeviceForAudio = device;
+                AapService.deviceConnected(this, device);
+            }
+        } catch (Exception e) {
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        resyncAapWithConnectedDevice();
+    }
+
     // ⭕ [Overwrite with the code below]
     @Override
     protected void onDestroy() {
@@ -9025,6 +9051,12 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Extracts every zip in assets/themes/ to /storage/sdcard0/Y1_Themes/<zip-name-without-extension>.
+    // cyberpunk_dark.zip is Cyberpunk Neon's layout/config recolored to Dark (Default)'s palette
+    // (white/gray text, black overlay, sharp corners) with a cyan focus highlight kept as the one
+    // neon accent; its icon_*.png files are intentionally byte-identical copies of Dark (Default)'s
+    // res/drawable icons, not a new icon set, so the two themes look consistent on the right-side
+    // focus preview.
     private void installBundledThemes() {
         SharedPreferences prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
 
