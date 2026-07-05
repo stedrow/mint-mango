@@ -2631,13 +2631,59 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Loads the active theme's own background image, if it ships one: first the "bg_image" declared in
+    // config.json, then a background.png / bg.png dropped into the theme folder (resolved through
+    // ThemeManager so both SD-card themes and the built-in default theme are handled). Returns null when
+    // the theme provides no background image.
+    private Bitmap loadThemeBackgroundBitmap() {
+        try {
+            ThemeManager.ThemeData currentTheme = ThemeManager.getCurrentTheme();
+            if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()) {
+                File bgFile = new File(currentTheme.folderPath, currentTheme.bgImage);
+                if (bgFile.exists()) {
+                    try { return BitmapFactory.decodeFile(bgFile.getAbsolutePath()); } catch (Exception e) {}
+                }
+            }
+            Bitmap bg = ThemeManager.getCustomIcon("background.png", this, 0);
+            if (bg == null) bg = ThemeManager.getCustomIcon("bg.png", this, 0);
+            return bg;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // Returns true if the active theme ships a usable background image file. Used by the "Apply Theme
+    // Background" setting to decide whether to engage theme-default mode or fall back to album blur.
+    private boolean currentThemeHasBackground() {
+        try {
+            ThemeManager.ThemeData currentTheme = ThemeManager.getCurrentTheme();
+            if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()
+                    && new File(currentTheme.folderPath, currentTheme.bgImage).exists()) return true;
+            if (new File(currentTheme.folderPath, "background.png").exists()) return true;
+            if (new File(currentTheme.folderPath, "bg.png").exists()) return true;
+        } catch (Exception e) {}
+        return false;
+    }
+
     // 💡 Auto-update the main screen background (high-quality Gaussian blur applied)
-    // 💡 [Fix] Auto-update the main screen background (custom background takes priority & blur removed)
+    // 💡 [Fix] Main screen background: theme-default > custom image > album-art blur
     public void updateMainMenuBackground() {
         try {
             String savedBgPath = prefs.getString("bg_path", null);
 
-            // 🚀 1. First check whether the user has set a custom background!
+            // 🚀 1. Theme-default background mode: the user explicitly chose "Apply Theme Background".
+            //    Show the active theme's own background image crisp (no blur). If the theme ships no
+            //    image, quietly fall through to the album-art blur mode below.
+            if ("THEME_DEFAULT".equals(savedBgPath)) {
+                Bitmap themeBg = loadThemeBackgroundBitmap();
+                if (themeBg != null) {
+                    ivMainBg.setImageBitmap(themeBg);
+                    return;
+                }
+                savedBgPath = null; // theme has no background — behave as if nothing is set (album blur)
+            }
+
+            // 🚀 2. Otherwise, check whether the user has set a custom background image!
             if (savedBgPath != null && !savedBgPath.isEmpty()) {
                 File bgFile = new File(savedBgPath);
                 if (bgFile.exists()) {
@@ -2664,30 +2710,7 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // 🚀 2. No custom background set — fall back to the current theme's own background image, if it ships one.
-            //    Theme backgrounds are shown crisp (no blur), exactly as the theme author designed them.
-            //    A theme provides one either via "bg_image" in config.json, or by dropping a background.png / bg.png
-            //    into its folder. Themes without a background image fall through to the album-art blur below.
-            Bitmap themeBg = null;
-            try {
-                ThemeManager.ThemeData currentTheme = ThemeManager.getCurrentTheme();
-                if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()) {
-                    File themeBgFile = new File(currentTheme.folderPath, currentTheme.bgImage);
-                    if (themeBgFile.exists()) {
-                        try { themeBg = BitmapFactory.decodeFile(themeBgFile.getAbsolutePath()); } catch (Exception e) {}
-                    }
-                }
-                // Fallback filenames resolved via ThemeManager (handles both SD-card theme folders and the built-in default theme)
-                if (themeBg == null) themeBg = ThemeManager.getCustomIcon("background.png", this, 0);
-                if (themeBg == null) themeBg = ThemeManager.getCustomIcon("bg.png", this, 0);
-            } catch (Exception e) {}
-
-            if (themeBg != null) {
-                ivMainBg.setImageBitmap(themeBg);
-                return;
-            }
-
-            // 🚀 3. If there's no custom background (or it was cleared), apply 'blur' to the album art or default image and render it as before.
+            // 🚀 3. No theme/custom background — apply 'blur' to the album art or default image and render it as before.
             Bitmap sourceBitmap = null;
             if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -4963,7 +4986,26 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnSelectBg);
 
-        // 2. Clear-existing-background button
+        // 🚀 2. Force the active theme's own background image (falls back to album blur if the theme has none)
+        LinearLayout btnThemeBg = createSettingRow("Apply Theme Background", "〉 ");
+        btnThemeBg.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                if (currentThemeHasBackground()) {
+                    prefs.edit().putString("bg_path", "THEME_DEFAULT").apply();
+                    Toast.makeText(MainActivity.this, t("Theme background applied."), Toast.LENGTH_SHORT).show();
+                } else {
+                    // The theme ships no background image — don't force a blank; drop back to album blur.
+                    prefs.edit().remove("bg_path").apply();
+                    Toast.makeText(MainActivity.this, t("This theme has no background. Switched to Album Blur."), Toast.LENGTH_SHORT).show();
+                }
+                updateMainMenuBackground(); // Render the change immediately
+            }
+        });
+        containerSettingsItems.addView(btnThemeBg);
+
+        // 3. Clear-existing-background button (returns to album-art blur mode)
         LinearLayout btnClearBg = createSettingRow("Clear Custom Background", "〉 ");
         btnClearBg.setOnClickListener(new View.OnClickListener() {
             @Override
