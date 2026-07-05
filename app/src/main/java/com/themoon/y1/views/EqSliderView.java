@@ -40,26 +40,26 @@ public class EqSliderView extends android.view.View {
         float trackHeight = h - (padY * 2);
         float trackTop = padY, trackBottom = h - padY;
 
-        // 뒷 배경 트랙 (회색 선)
+        // Background track (gray line)
         trackPaint.setStrokeWidth(6f);
         canvas.drawLine(trackX, trackTop, trackX, trackBottom, trackPaint);
-        // 정중앙 0dB 눈금 선
+        // 0dB tick mark at dead center
         canvas.drawLine(trackX - 10f, trackTop + trackHeight/2f, trackX + 10f, trackTop + trackHeight/2f, trackPaint);
 
-        // 현재 데시벨의 위치 비율 계산
+        // Calculate the position ratio for the current decibel level
         float ratio = (float) (level - min) / (max - min);
         float thumbY = trackBottom - (ratio * trackHeight);
 
-        // 조작 중일 땐 주황색, 포커스 상태일 땐 테마색, 평소엔 밝은 회색
+        // Orange while adjusting, theme color while focused, light gray otherwise
         activeTrackPaint.setColor(isAdjusting ? 0xFFFF8800 : (isFocused ? themeColor : 0xFFAAAAAA));
         activeTrackPaint.setStrokeWidth(8f);
         canvas.drawLine(trackX, trackTop + trackHeight/2f, trackX, thumbY, activeTrackPaint);
 
-        // 동그란 손잡이(Thumb)
+        // Round thumb handle
         thumbPaint.setColor(isAdjusting ? 0xFFFF8800 : (isFocused ? themeColor : 0xFFDDDDDD));
         canvas.drawCircle(trackX, thumbY, 15f, thumbPaint);
 
-        // 손잡이 바로 위에 떠다니는 +dB 텍스트
+        // +dB text floating just above the thumb
         textPaint.setColor(0xFFFFFFFF);
         textPaint.setTextSize(22f);
         String dbStr = (level > 0 ? "+" : "") + (level / 100);

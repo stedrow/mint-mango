@@ -22,7 +22,7 @@ public class Y1WebServer extends Thread {
 
     public Y1WebServer(Context context, File originalRootFolder) {
         this.context = context;
-        this.rootFolder = new File("/storage/sdcard0"); // 🚀 기기 전체 루트 폴더로 고정
+        this.rootFolder = new File("/storage/sdcard0"); // 🚀 fixed to the device's entire root folder
     }
 
     public void run() {
@@ -108,24 +108,24 @@ public class Y1WebServer extends Thread {
                     }
                 }
 
-                // 1️⃣ 화면 UI 전송 (프론트엔드 - 인라인 플레이어 + 🚀 텍스트 에디터 탑재 + 🚀 드래그 앤 드롭 지원)
+                // 1. Send the screen UI (frontend - inline player + 🚀 text editor built in + 🚀 drag & drop support)
                 if (method.equals("GET") && path.equals("/")) {
                     String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
                             "<title>Y1 File Manager</title><style>" +
-                            // 🚀 [디자인 수정] 바탕색 및 기본 글꼴 (Material Dark Theme 기반)
+                            // 🚀 [design tweak] Background color and default font (based on Material Dark Theme)
                             "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
                             "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:20px; border:none; outline:none; transition:0.2s;} " +
                             "input[type=text]{width:calc(100% - 120px); background:#2A2A35; color:#E0E0E0; border-radius:12px; padding:12px;} " +
 
-                            // 🚀 [디자인 수정] 버튼 색상 (보라색 포인트 & 모던 톤)
-                            "button{background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " + // 기본 버튼 (연한 보라)
+                            // 🚀 [design tweak] Button colors (purple accent & modern tone)
+                            "button{background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " + // default button (light purple)
                             "button:hover{background:#9575CD;} " +
-                            "button.danger{background:#424250; color:#E57373;} " + // 삭제/취소 버튼 (어두운 회색 바탕, 빨간 글씨)
+                            "button.danger{background:#424250; color:#E57373;} " + // delete/cancel button (dark gray background, red text)
                             "button.danger:hover{background:#EF5350; color:#fff;} " +
-                            "button.action{background:#383848; color:#B39DDB;} " + // 서브 액션 버튼 (어두운 바탕, 보라색 글씨)
+                            "button.action{background:#383848; color:#B39DDB;} " + // sub-action button (dark background, purple text)
                             "button.action:hover{background:#454555;} " +
 
-                            // 🚀 [디자인 수정] 박스 및 리스트 아이템
+                            // 🚀 [design tweak] Boxes and list items
                             ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
                             ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #333340; cursor:pointer; transition:0.2s;} " +
                             ".item:last-child{border-bottom:none;} " +
@@ -133,18 +133,18 @@ public class Y1WebServer extends Thread {
                             ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:12px;} " +
                             ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;} " +
                             ".thumb{width:40px; height:40px; object-fit:cover; border-radius:8px; background:#1A1A20;} " +
-                            ".icon{font-size:22px; width:40px; text-align:center; color:#B39DDB;} " + // 아이콘도 연보라 톤으로 통일
+                            ".icon{font-size:22px; width:40px; text-align:center; color:#B39DDB;} " + // icons unified to the same light purple tone
                             ".btn-group{display:flex; gap:6px;} " +
 
-                            // 오디오 플레이어
+                            // Audio player
                             "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#252530; border-top:1px solid #454555; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
                             "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:24px;} " +
 
-                            // 드래그 앤 드롭 애니메이션
+                            // Drag & drop animation
                             "#uploadBox{transition:0.3s; border:2px dashed #454555;} " +
                             "#uploadBox.dragover{background:#2D2D3A; border:2px dashed #B39DDB;} " +
 
-                            // 텍스트 에디터 모달
+                            // Text editor modal
                             "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(18,18,22,0.95); z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
                             "#editorArea{width:100%; height:calc(100% - 120px); background:#1E1E24; color:#E0E0E0; font-family:'Courier New', monospace; font-size:15px; border:1px solid #454555; border-radius:12px; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
                             "#editorTitle{color:#B39DDB; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
@@ -152,7 +152,7 @@ public class Y1WebServer extends Thread {
 
                             "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
 
-                            // 업로드/폴더생성 박스
+                            // Upload / create-folder box
                             "<div class='box' id='uploadBox'>" +
                             "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>📍 <span id='currentPathText'>/</span></div>" +
                             "<div style='text-align:center; color:#9E9E9E; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #333340;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
@@ -165,7 +165,7 @@ public class Y1WebServer extends Thread {
                             "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
                             "</div>" +
 
-                            // Navidrome 설정 박스
+                            // Navidrome settings box
                             "<div class='box'>" +
                             "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>🎵 Navidrome Settings</div>" +
                             "<div style='display:flex; flex-direction:column; gap:8px;'>" +
@@ -180,16 +180,16 @@ public class Y1WebServer extends Thread {
                             "<div id='navStatus' style='margin-top:8px; color:#81C784; font-size:13px;'></div>" +
                             "</div>" +
 
-                            // 파일 리스트 박스
+                            // File list box
                             "<div class='box' id='fileList'>Loading...</div>" +
 
-                            // 플로팅 오디오 플레이어
+                            // Floating audio player
                             "<div id='audioBox'>" +
                             "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#B39DDB;'></div>" +
                             "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
                             "</div>" +
 
-                            // 전체화면 텍스트 에디터
+                            // Fullscreen text editor
                             "<div id='editorBox'>" +
                             "<h3 id='editorTitle'>📝 Edit File</h3>" +
                             "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
@@ -374,7 +374,7 @@ public class Y1WebServer extends Thread {
 
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
                 }
-                // 2️⃣ [API] 파일 및 폴더 리스트 응답 (JSON 형식)
+                // 2. [API] Returns the file and folder list (JSON format)
                 else if (method.equals("GET") && path.startsWith("/api/list")) {
                     String q = path.contains("?") ? path.split("\\?")[1] : "";
                     String dirStr = "";
@@ -401,7 +401,7 @@ public class Y1WebServer extends Thread {
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json.toString()).getBytes("UTF-8"));
                 }
 
-                // 3️⃣ [API] 폴더 생성
+                // 3. [API] Create folder
                 else if (method.equals("POST") && path.startsWith("/api/create")) {
                     String q = path.split("\\?")[1];
                     String[] params = q.split("&");
@@ -415,7 +415,7 @@ public class Y1WebServer extends Thread {
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 
-                // 4️⃣ [API] 파일 및 폴더 삭제
+                // 4. [API] Delete file or folder
                 else if (method.equals("POST") && path.startsWith("/api/delete")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
@@ -426,7 +426,7 @@ public class Y1WebServer extends Thread {
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 
-                // 🚀 [수정 5] [API] 파일 및 폴더 이름 변경 (Rename) 엔진 장착!
+                // 🚀 [fix 5] [API] File/folder rename engine!
                 else if (method.equals("POST") && path.startsWith("/api/rename")) {
                     String q = path.split("\\?")[1];
                     String[] params = q.split("&");
@@ -440,7 +440,7 @@ public class Y1WebServer extends Thread {
                     File oldFile = resolveSafePath(dirStr.isEmpty() ? oldName : dirStr + "/" + oldName);
                     File newFile = resolveSafePath(dirStr.isEmpty() ? newName : dirStr + "/" + newName);
 
-                    // 기존 파일이 존재하고 새 이름의 파일이 없을 때만 안전하게 이름 변경 실행
+                    // Only rename safely when the existing file exists and no file with the new name already exists
                     if (oldFile.exists() && !newFile.exists()) {
                         oldFile.renameTo(newFile);
                     }
@@ -508,9 +508,9 @@ public class Y1WebServer extends Thread {
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
                 }
 
-                // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
+                // 5. [API] Read file (streaming, download, load code)
 
-                // 5️⃣ [API] 파일 읽기 (스트리밍, 다운로드, 코드 불러오기)
+                // 5. [API] Read file (streaming, download, load code)
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
@@ -529,7 +529,7 @@ public class Y1WebServer extends Thread {
                         else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
                         else if (lowerName.endsWith(".png")) mimeType = "image/png";
                         else if (lowerName.endsWith(".json")) mimeType = "application/json";
-                            // 🚀 [수정 2] 방금 추가한 파일들도 브라우저가 순수한 '글자'로 인식해서 에디터 창에 띄우도록 명시!
+                            // 🚀 [fix 2] Explicitly makes the browser treat these newly added file types as plain text so they open in the editor window!
                         else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")) mimeType = "text/plain";
 
                         String header = "HTTP/1.1 200 OK\r\n" +
@@ -548,7 +548,7 @@ public class Y1WebServer extends Thread {
                     }
                 }
 
-                // 6️⃣ [API] 파일 업로드
+                // 6. [API] File upload
                 else if (method.equals("POST") && path.startsWith("/api/upload")) {
                     String q = path.split("\\?")[1];
                     String[] params = q.split("&");
@@ -563,38 +563,44 @@ public class Y1WebServer extends Thread {
                     File outFile = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
 
                     FileOutputStream fos = new FileOutputStream(outFile);
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    int totalRead = 0;
-                    while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
-                        fos.write(buffer, 0, bytesRead);
-                        totalRead += bytesRead;
+                    try {
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        int totalRead = 0;
+                        while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                            fos.write(buffer, 0, bytesRead);
+                            totalRead += bytesRead;
+                        }
+                        fos.flush();
+                        try { fos.getFD().sync(); } catch(Exception e){}
+                    } finally {
+                        fos.close();
                     }
-                    fos.flush();
-                    try { fos.getFD().sync(); } catch(Exception e){}
-                    fos.close();
 
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }
 
-                // 7️⃣ [API] 🚀 텍스트 파일 저장 (코드 에디터에서 전송된 텍스트를 기기에 덮어쓰기)
+                // 7. [API] 🚀 Save text file (overwrites the on-device file with text sent from the code editor)
                 else if (method.equals("POST") && path.startsWith("/api/save")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
                     File targetFile = resolveSafePath(targetPath);
 
                     FileOutputStream fos = new FileOutputStream(targetFile);
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    int totalRead = 0;
-                    // 전달받은 텍스트 몸통(Body)을 파일로 그대로 쭉 밀어 넣습니다.
-                    while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
-                        fos.write(buffer, 0, bytesRead);
-                        totalRead += bytesRead;
+                    try {
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        int totalRead = 0;
+                        // Write the received text body straight through to the file as-is.
+                        while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                            fos.write(buffer, 0, bytesRead);
+                            totalRead += bytesRead;
+                        }
+                        fos.flush();
+                        try { fos.getFD().sync(); } catch(Exception e){}
+                    } finally {
+                        fos.close();
                     }
-                    fos.flush();
-                    try { fos.getFD().sync(); } catch(Exception e){}
-                    fos.close();
 
                     os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
                 }

@@ -20,14 +20,17 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
+import java.io.ByteArrayInputStream;
+import java.security.KeyStore;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 
 public class SubsonicClient {
@@ -51,6 +54,9 @@ public class SubsonicClient {
     private Context appContext;
     private com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     private final Handler mainHandler = new Handler();
+    // Shared pool instead of spawning a raw Thread per request, so a burst of calls
+    // (e.g. loading an artist list with many albums) can't pile up unbounded threads.
+    private final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool();
 
     private SubsonicClient() {}
 
@@ -104,7 +110,6 @@ public class SubsonicClient {
     }
 
     public String getServerUrl() { return serverUrl != null ? serverUrl : ""; }
-    public String getUsername() { return username != null ? username : ""; }
 
     // ── URL builders ─────────────────────────────────────────────────────────
 
@@ -143,7 +148,7 @@ public class SubsonicClient {
     // ── API calls ─────────────────────────────────────────────────────────────
 
     public void ping(final Callback<Boolean> cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -157,11 +162,11 @@ public class SubsonicClient {
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 }
             }
-        }).start();
+        });
     }
 
     public void getArtists(final Callback<List<SubsonicArtist>> cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 // Serve the cached list first so the screen is instant (and browsable
@@ -194,7 +199,7 @@ public class SubsonicClient {
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 }
             }
-        }).start();
+        });
     }
 
     private static List<SubsonicArtist> parseArtists(JSONObject root) throws Exception {
@@ -235,7 +240,7 @@ public class SubsonicClient {
     }
 
     public void getArtist(final String artistId, final Callback<List<SubsonicAlbum>> cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -269,11 +274,11 @@ public class SubsonicClient {
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 }
             }
-        }).start();
+        });
     }
 
     public void getAlbum(final String albumId, final Callback<List<SubsonicSong>> cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -315,11 +320,11 @@ public class SubsonicClient {
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 }
             }
-        }).start();
+        });
     }
 
     public void downloadSong(final String songId, final String savePath, final boolean transcoded, final DownloadCallback cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 HttpURLConnection conn = null;
@@ -377,7 +382,7 @@ public class SubsonicClient {
                     if (conn != null) try { conn.disconnect(); } catch (Exception ignored) {}
                 }
             }
-        }).start();
+        });
     }
 
     /**
@@ -385,7 +390,7 @@ public class SubsonicClient {
      * and return the local path. Callback fires on the main thread.
      */
     public void fetchCoverArt(final String coverArtId, final int size, final File cacheFile, final Callback<String> cb) {
-        new Thread(new Runnable() {
+        executor.execute(new Runnable() {
             @Override
             public void run() {
                 if (cacheFile.exists() && cacheFile.length() > 0) {
@@ -415,7 +420,7 @@ public class SubsonicClient {
                     if (conn != null) try { conn.disconnect(); } catch (Exception ignored) {}
                 }
             }
-        }).start();
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -442,7 +447,6 @@ public class SubsonicClient {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         if (conn instanceof HttpsURLConnection) {
             ((HttpsURLConnection) conn).setSSLSocketFactory(getTls12Factory());
-            ((HttpsURLConnection) conn).setHostnameVerifier(TRUST_ALL_HOSTNAMES);
         }
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(20000);
@@ -452,19 +456,97 @@ public class SubsonicClient {
     }
 
     private static SSLSocketFactory tls12Factory;
-    private static final HostnameVerifier TRUST_ALL_HOSTNAMES = new HostnameVerifier() {
-        @Override public boolean verify(String hostname, SSLSession session) { return true; }
-    };
+
+    // The Y1's factory Android build predates Let's Encrypt's ISRG Root X1 being added to
+    // the system trust store, so plain system validation rejects most Navidrome servers'
+    // certs. Rather than trusting all certs (previous approach), trust the system store
+    // plus this pinned Let's Encrypt root so real cert validation still applies.
+    private static final String ISRG_ROOT_X1_PEM =
+            "-----BEGIN CERTIFICATE-----\n" +
+            "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n" +
+            "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n" +
+            "cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n" +
+            "WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n" +
+            "ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\n" +
+            "MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\n" +
+            "h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n" +
+            "0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\n" +
+            "A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\n" +
+            "T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\n" +
+            "B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\n" +
+            "B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\n" +
+            "KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\n" +
+            "OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\n" +
+            "jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\n" +
+            "qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\n" +
+            "rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\n" +
+            "HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\n" +
+            "hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\n" +
+            "ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n" +
+            "3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\n" +
+            "NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\n" +
+            "ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\n" +
+            "TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\n" +
+            "jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\n" +
+            "oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n" +
+            "4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\n" +
+            "mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n" +
+            "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n" +
+            "-----END CERTIFICATE-----\n";
+
+    private static X509TrustManager[] systemAndLetsEncryptTrustManagers() throws Exception {
+        TrustManagerFactory systemTmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        systemTmf.init((KeyStore) null);
+        X509TrustManager systemTm = null;
+        for (TrustManager tm : systemTmf.getTrustManagers()) {
+            if (tm instanceof X509TrustManager) { systemTm = (X509TrustManager) tm; break; }
+        }
+
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate isrgRootX1 = (X509Certificate) cf.generateCertificate(
+                new ByteArrayInputStream(ISRG_ROOT_X1_PEM.getBytes("UTF-8")));
+        KeyStore letsEncryptStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        letsEncryptStore.load(null, null);
+        letsEncryptStore.setCertificateEntry("isrg-root-x1", isrgRootX1);
+        TrustManagerFactory leTmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        leTmf.init(letsEncryptStore);
+        X509TrustManager letsEncryptTm = null;
+        for (TrustManager tm : leTmf.getTrustManagers()) {
+            if (tm instanceof X509TrustManager) { letsEncryptTm = (X509TrustManager) tm; break; }
+        }
+
+        return new X509TrustManager[]{systemTm, letsEncryptTm};
+    }
 
     private static synchronized SSLSocketFactory getTls12Factory() throws Exception {
         if (tls12Factory == null) {
-            TrustManager[] trustAll = new TrustManager[]{new X509TrustManager() {
-                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+            final X509TrustManager[] delegates = systemAndLetsEncryptTrustManagers();
+            TrustManager[] combined = new TrustManager[]{new X509TrustManager() {
+                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    delegates[0].checkClientTrusted(chain, authType);
+                }
+                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    for (X509TrustManager tm : delegates) {
+                        if (tm == null) continue;
+                        try {
+                            tm.checkServerTrusted(chain, authType);
+                            return;
+                        } catch (CertificateException ignored) {
+                            // fall through to next trust manager
+                        }
+                    }
+                    throw new CertificateException("No trust manager accepted the server certificate");
+                }
+                @Override public X509Certificate[] getAcceptedIssuers() {
+                    List<X509Certificate> all = new ArrayList<>();
+                    for (X509TrustManager tm : delegates) {
+                        if (tm != null) all.addAll(java.util.Arrays.asList(tm.getAcceptedIssuers()));
+                    }
+                    return all.toArray(new X509Certificate[0]);
+                }
             }};
             SSLContext ctx = SSLContext.getInstance("TLSv1.2");
-            ctx.init(null, trustAll, null);
+            ctx.init(null, combined, null);
             tls12Factory = new Tls12SocketFactory(ctx.getSocketFactory());
         }
         return tls12Factory;

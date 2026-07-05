@@ -12,7 +12,7 @@ public class LanguageManager {
     private static LanguageManager instance;
     private Context context;
 
-    // 💡 번역된 단어들이 저장될 메모리 단어장
+    // 💡 In-memory dictionary where translated words are stored
     private HashMap<String, String> dictionary = new HashMap<>();
 
     public List<File> availableLangFiles = new ArrayList<>();
@@ -28,7 +28,7 @@ public class LanguageManager {
         return instance;
     }
 
-    // 1. 폴더에서 .json 언어팩 파일들을 스캔합니다.
+    // 1. Scans the folder for .json language pack files.
     public void loadAvailableLanguages() {
         availableLangFiles.clear();
         File langDir = new File("/storage/sdcard0/Y1_Languages");
@@ -44,12 +44,12 @@ public class LanguageManager {
         }
     }
 
-    // 2. 선택된 언어팩 JSON 파일을 읽어와 단어장에 등록합니다.
+    // 2. Reads the selected language pack JSON file and registers it in the dictionary.
     public void applyLanguage(String fileName) {
         dictionary.clear();
         currentLangFileName = fileName;
 
-        if (fileName.equals("English (Default)")) return; // 기본값일 경우 빈 단어장 유지 (원본 출력)
+        if (fileName.equals("English (Default)")) return; // Keep an empty dictionary for the default value (outputs the original text)
 
         try {
             File f = new File("/storage/sdcard0/Y1_Languages/" + fileName);
@@ -80,23 +80,23 @@ public class LanguageManager {
         }
     }
 
-    // 🚀 [핵심 기술] 화면에 글씨를 그리기 직전에, 단어장을 뒤져보고 번역본이 있으면 바꿔서 내보냅니다!
+    // 🚀 [Core mechanism] Right before drawing text on screen, checks the dictionary and swaps in the translation if one exists!
     public String t(String originalText) {
         if (originalText == null) return "";
 
-        // 아이콘 등 보이지 않는 문자가 앞에 섞여 있을 경우를 대비해 원본 그대로 검색
+        // Search using the original text first, in case invisible characters like icons are mixed in up front
         if (dictionary.containsKey(originalText)) {
             return dictionary.get(originalText);
         }
 
-        // 만약 완벽히 일치하지 않는다면 양쪽 공백을 제거하고 다시 한 번 검색
+        // If there's no exact match, trim whitespace from both ends and search again
         String trimmed = originalText.trim();
         if (dictionary.containsKey(trimmed)) {
-            // 원본의 앞뒤 공백이나 이모지 형태를 유지하기 위해 살짝 가공
+            // Slight massaging to preserve the original's surrounding whitespace or emoji shape
             return originalText.replace(trimmed, dictionary.get(trimmed));
         }
 
-        // 번역팩에 해당 단어가 없으면 그냥 원래 영어 단어를 그대로 내보냅니다.
+        // If the word isn't in the translation pack, just output the original English word as-is.
         return originalText;
     }
 }

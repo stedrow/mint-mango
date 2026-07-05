@@ -45,7 +45,7 @@ public class WheelLockRingView extends View {
         dividerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         dividerPaint.setStyle(Paint.Style.STROKE);
         dividerPaint.setStrokeWidth(2.5f * density);
-        dividerPaint.setColor(0xDD000000); // 오버레이 배경색과 동일 — 링을 조각처럼 "잘라내는" 효과
+        dividerPaint.setColor(0xDD000000); // Matches the overlay background color — creates a "cutout" effect that segments the ring
     }
 
     public void setSegments(int total) {

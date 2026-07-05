@@ -15,7 +15,7 @@ public class AudiobookManager {
     private int currentChapterIndex = -1;
 
     private AudiobookManager(Context context) {
-        // 오디오북 전용 독립 금고 (음악 설정 파일과 완전히 분리)
+        // Dedicated storage for audiobooks only (completely separate from the music settings file)
         this.bookPrefs = context.getSharedPreferences("Y1_AUDIOBOOK_BOOKMARKS", Context.MODE_PRIVATE);
         if (!audiobookRoot.exists()) {
             audiobookRoot.mkdirs();
@@ -29,25 +29,21 @@ public class AudiobookManager {
         return instance;
     }
 
-    public File getRootFolder() {
-        return audiobookRoot;
-    }
-
-    // 🚀 [북마크 저장] 책 파일 경로별로 마지막 들은 위치(ms)를 기록
+    // 🚀 [Save bookmark] Records the last listened position (ms) per book file path
     public void saveBookmark(String filePath, int positionMs, int chapterIdx) {
         if (filePath == null || filePath.isEmpty()) return;
         bookPrefs.edit()
                 .putInt("POS_" + filePath, positionMs)
                 .putInt("CHAP_" + filePath, chapterIdx)
-                .apply(); // 백그라운드 비동기 저장으로 UI 멈춤 방지
+                .apply(); // Saved asynchronously in the background to avoid blocking the UI
     }
 
-    // 🚀 [북마크 로드] 저장된 이어듣기 위치 반환
+    // 🚀 [Load bookmark] Returns the saved resume position
     public int getSavedPosition(String filePath) {
         return bookPrefs.getInt("POS_" + filePath, 0);
     }
 
-    // 오디오북 전용 플레이리스트 장전 및 이어듣기 연동
+    // Loads the audiobook-specific playlist and hooks up resume playback
     public void setupBookPlaylist(Context context, File clickedFile, File parentFolder) {
         currentBookChapters.clear();
 
@@ -62,10 +58,10 @@ public class AudiobookManager {
         this.currentChapterIndex = currentBookChapters.indexOf(clickedFile);
         if (this.currentChapterIndex == -1) this.currentChapterIndex = 0;
 
-        // 저장된 이어듣기 위치(ms)를 가져옵니다.
+        // Fetches the saved resume position (ms).
         int savedOffset = getSavedPosition(clickedFile.getAbsolutePath());
 
-        // 🚀 기존 음악 엔진을 활용하되, 오디오북 전용 오프셋 재생 메서드를 호출합니다.
+        // 🚀 Reuses the existing music engine, but calls the audiobook-specific offset playback method.
         AudioPlayerManager.getInstance().playTrackListWithOffset(currentBookChapters, currentChapterIndex, savedOffset);
     }
 

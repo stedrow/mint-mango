@@ -12,19 +12,19 @@ public class PieChartView extends View {
     private Paint paintUsed;
     private float percentage = 0f;
 
-    // 1. 자바 코드에서 'new PieChartView'로 직접 만들 때 쓰는 기본 생성자
+    // 1. Default constructor used when directly creating with 'new PieChartView' in Java code
     public PieChartView(Context context) {
         super(context);
         init();
     }
 
-    // 🚀 2. XML 화면 파일에서 이 뷰를 불러올 때 시스템이 찾는 필수 생성자! (이게 없어서 경고가 떴습니다)
+    // 🚀 2. Required constructor the system looks for when inflating this view from an XML layout! (missing this caused a warning)
     public PieChartView(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();
     }
 
-    // 🚀 3. 테마 스타일 속성까지 적용할 때 쓰는 꼼꼼한 생성자
+    // 🚀 3. A thorough constructor that also applies theme style attributes
     public PieChartView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         init();

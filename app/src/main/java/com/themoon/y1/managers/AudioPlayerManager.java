@@ -138,7 +138,7 @@ public class AudioPlayerManager {
                     if (!isUsingLegacyPlayer) handleTrackError("Cannot play this file.");
                 }
             });
-            applyPlayerVolumeState(); // 💡 새로 만든 ExoPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
+            applyPlayerVolumeState(); // 💡 A freshly created ExoPlayer always starts at volume 1.0, so reapply the mute state
         }
     }
 
@@ -263,9 +263,9 @@ public class AudioPlayerManager {
             main.currentIndex = index;
         }
 
-        main.isPausedByHand = false; // 🚀 스위치를 미리 켜줍니다!
+        main.isPausedByHand = false; // 🚀 Flip the switch ahead of time!
         prepareMusicTrack(main.currentIndex);
-        main.updatePlayerUI(); // 🚀 타이머 즉시 시작!
+        main.updatePlayerUI(); // 🚀 Start the timer immediately!
     }
 
     public void playTrackListWithOffset(List<File> list, int index, int offsetMs) {
@@ -419,7 +419,7 @@ public class AudioPlayerManager {
         }
     }
 
-    // 🚀 [순정 및 동기화 완벽 복원] 번쩍이는 딜레이를 아예 없앴습니다!
+    // 🚀 [restored stock behavior and full sync] Completely eliminated the flicker delay!
     public void prepareMusicTrack(int index) {
         final MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
@@ -447,7 +447,7 @@ public class AudioPlayerManager {
             return;
         }
 
-        // 🚀 스레드(Thread)를 걷어내고 메인에서 즉시 처리하여 깜빡임/딜레이 현상을 완벽 차단!
+        // 🚀 Removed the separate Thread and process this immediately on the main thread, completely blocking the flicker/delay!
         main.tvPlayerTitle.setText(track.getName());
         main.tvPlayerArtist.setText("Loading...");
         main.ivAlbumArt.setImageResource(R.drawable.default_album);
@@ -457,12 +457,13 @@ public class AudioPlayerManager {
         main.tvPlayerTimeTotal.setText("00:00");
 
         String ext = track.getName().toLowerCase();
-        isUsingLegacyPlayer = ext.endsWith(".flac"); // FLAC 판별기
+        isUsingLegacyPlayer = ext.endsWith(".flac"); // FLAC detector
 
+        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        java.io.FileInputStream fisMmr = null;
         try {
-            // 🚀 FLAC 파일이더라도 막지 않고 정상적으로 정보(태그)를 파싱합니다!
-            android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
-            java.io.FileInputStream fisMmr = new java.io.FileInputStream(track);
+            // 🚀 Don't block FLAC files — parse their tags normally too!
+            fisMmr = new java.io.FileInputStream(track);
             mmr.setDataSource(fisMmr.getFD());
 
             String t = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
@@ -486,7 +487,7 @@ public class AudioPlayerManager {
             if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
             else main.tvPlayerArtist.setText("Unknown Artist");
 
-            // 🚀 동기식 렌더링으로 번쩍거림 없이 100% 매끄럽게 넘어갑니다.
+            // 🚀 Synchronous rendering transitions smoothly, 100% flicker-free.
             if (main.lastAlbumArtBytes != null && main.lastAlbumArtBytes.length > 0) {
                 main.updateMainMenuBackground();
                 main.refreshNowPlayingPreview();
@@ -526,14 +527,16 @@ public class AudioPlayerManager {
                     main.fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
                 }
             }
-            fisMmr.close();
-            mmr.release();
-        } catch (Throwable t) {}
+        } catch (Throwable t) {
+        } finally {
+            if (fisMmr != null) try { fisMmr.close(); } catch (Exception e) {}
+            try { mmr.release(); } catch (Exception e) {}
+        }
 
-        // 🚀 엔진 가동 구간
+        // 🚀 Engine startup section
         try {
             if (isUsingLegacyPlayer) {
-                // FLAC: 데드락 구출용 특수 엔진
+                // FLAC: special engine for deadlock recovery
                 if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
 
                 if (legacyPlayer == null) {
@@ -554,10 +557,10 @@ public class AudioPlayerManager {
                 }
                 currentFileInputStream = new java.io.FileInputStream(track);
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
-                legacyPlayer.prepare(); // 💡 장전 완료!
-                applyPlayerVolumeState(); // 💡 새 MediaPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
+                legacyPlayer.prepare(); // 💡 loaded and ready!
+                applyPlayerVolumeState(); // 💡 A new MediaPlayer always starts at volume 1.0, so reapply the mute state
 
-                // 🚀 [핵심 로직 1] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
+                // 🚀 [core logic 1] Right before playback, check if this is an audiobook and force-jump to the saved position!
                 com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
                 int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
@@ -575,7 +578,7 @@ public class AudioPlayerManager {
                 main.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
 
             } else {
-                // MP3/WAV: 초고속 ExoPlayer
+                // MP3/WAV: ultra-fast ExoPlayer
                 if (legacyPlayer != null) { legacyPlayer.stop(); legacyPlayer.reset(); }
 
                 if (exoPlayer == null) initPlayer(main.getApplicationContext());
@@ -587,9 +590,9 @@ public class AudioPlayerManager {
                 MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(mediaItem);
 
                 exoPlayer.setMediaSource(mediaSource);
-                exoPlayer.prepare(); // 💡 장전 완료!
+                exoPlayer.prepare(); // 💡 loaded and ready!
 
-                // 🚀 [핵심 로직 2] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
+                // 🚀 [core logic 2] Right before playback, check if this is an audiobook and force-jump to the saved position!
                 com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
                 int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
@@ -688,16 +691,19 @@ public class AudioPlayerManager {
             String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
             String t = null, a = null;
             byte[] embeddedArt = null;
+            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+            java.io.FileInputStream fis = null;
             try {
-                MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                java.io.FileInputStream fis = new java.io.FileInputStream(track);
+                fis = new java.io.FileInputStream(track);
                 mmr.setDataSource(fis.getFD());
                 t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
                 a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
                 embeddedArt = mmr.getEmbeddedPicture();
-                fis.close();
-                mmr.release();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            } finally {
+                if (fis != null) try { fis.close(); } catch (Exception e) {}
+                try { mmr.release(); } catch (Exception e) {}
+            }
 
             com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
             if (metaOverride != null) {
@@ -740,11 +746,11 @@ public class AudioPlayerManager {
                 if (main.currentIndex >= 0 && main.currentIndex < main.currentPlaylist.size()) {
                     String filePath = main.currentPlaylist.get(main.currentIndex).getAbsolutePath();
 
-                    // 오디오북 폴더이거나, 오디오북 모드일 때만 저장!
+                    // Only save when it's in the Audiobooks folder or audiobook mode is active!
                     if (filePath.startsWith("/storage/sdcard0/Audiobooks") || main.isAudiobookLibraryMode) {
                         AudiobookManager.getInstance(main).saveBookmark(filePath, getCurrentPosition(), main.currentIndex);
 
-                        // 🚀 [핵심 추가] 프로그레스 바를 그리기 위해 파일 주소를 열쇠로 '현재 위치'와 '총 길이'를 몰래 저장합니다.
+                        // 🚀 [core addition] Quietly save "current position" and "total length" keyed by the file path, for drawing the progress bar.
                         main.libraryCacheDb.setBookmark(filePath, getCurrentPosition(), getDuration());
                     }
                 }
