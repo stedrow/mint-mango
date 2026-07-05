@@ -18,12 +18,12 @@ public class AudioEffectManager {
         return instance;
     }
 
-    // 🎧 1. 오디오 이펙트 하드웨어 칩셋 항시 대기 및 재연결
+    // 🎧 1. Keeps the audio effect hardware chipset ready and reconnects it as needed
     public void ensureAudioEffectsReady() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         try {
-            // 🚀 [수정] 낡은 mediaPlayer 대신, 새 매니저의 다리(Bridge) 함수를 통해 안전하게 세션 ID를 가져옵니다!
+            // 🚀 [Fix] Instead of the old mediaPlayer, safely fetch the session ID through the new manager's bridge function!
             int sessionId = com.themoon.y1.managers.AudioPlayerManager.getInstance().getAudioSessionId();
             if (main.equalizer == null || main.currentAudioSessionId != sessionId) {
                 if (main.equalizer != null) main.equalizer.release();
@@ -41,7 +41,7 @@ public class AudioEffectManager {
         } catch (Exception e) {}
     }
 
-    // 🎧 2. 4구 베이스 부스터 및 공간감 이펙터 물리 주파수 압력 매핑
+    // 🎧 2. Maps physical frequency pressure for the bass booster and virtualizer (spatial) effect
     public void applyAudioEffects() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
@@ -58,7 +58,7 @@ public class AudioEffectManager {
         } catch (Exception e) {}
     }
 
-    // 🎧 3. 순정 프리셋 및 커스텀 fader 밴드 데이터 로드
+    // 🎧 3. Loads stock preset or custom fader band data
     public void applyEqProfile() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
@@ -85,7 +85,7 @@ public class AudioEffectManager {
         } catch (Exception e) {}
     }
 
-    // 🎧 4. 로컬 공유 메모리 저장
+    // 🎧 4. Saves to local shared preferences
     public void saveCustomEqProfile(String name) {
         MainActivity main = MainActivity.instance;
         if (main == null || main.equalizer == null) return;
@@ -97,7 +97,7 @@ public class AudioEffectManager {
         editor.apply();
     }
 
-    // 🎧 5. 내부 금고 및 외부 JSON 백업 물리 소멸 삭제
+    // 🎧 5. Permanently deletes both the internal storage entry and the external JSON backup
     public void deleteCustomEqProfile(String name) {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
@@ -131,7 +131,7 @@ public class AudioEffectManager {
         Toast.makeText(main, "Profile Deleted Completely.", Toast.LENGTH_SHORT).show();
     }
 
-    // 🎧 6. [외부 공유용] JSON 배출 엔진
+    // 🎧 6. [For external sharing] JSON export engine
     public void exportEqProfileToFile(String name) {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
@@ -158,7 +158,7 @@ public class AudioEffectManager {
         }
     }
 
-    // 🎧 7. [양방향 동기화] 폴더 스캔 및 자동 주입 구조
+    // 🎧 7. [Two-way sync] Folder scan and auto-import structure
     public void loadAndSyncExternalEqProfiles() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;

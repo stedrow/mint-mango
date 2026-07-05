@@ -5,9 +5,9 @@ import android.view.View;
 
 public class AudioVisualizerView extends View {
     private byte[] fftData;
-    private float[] currentHeights; // 🚀 부드러운 움직임을 위한 이전 높이 기억 장치
+    private float[] currentHeights; // 🚀 Stores the previous heights for smooth movement
     private android.graphics.Paint paint;
-    private int barCount = 40; // 🚀 막대기 개수를 늘려서 옆으로 쫙 퍼지게!
+    private int barCount = 40; // 🚀 Increase the bar count so it spreads out wide!
 
     public AudioVisualizerView(Context context) {
         super(context);
@@ -24,7 +24,7 @@ public class AudioVisualizerView extends View {
         if (!com.themoon.y1.managers.AudioPlayerManager.getInstance().isPlaying()) return;
         this.fftData = fft;
         paint.setColor(color);
-        // 새 FFT 데이터가 들어올 때만 다시 그립니다 (호출 빈도는 Visualizer 캡처 레이트에 이미 제한되어 있음).
+        // Only redraws when new FFT data arrives (call frequency is already capped by the Visualizer's capture rate).
         postInvalidate();
     }
 
@@ -35,7 +35,7 @@ public class AudioVisualizerView extends View {
         int width = getWidth();
         int height = getHeight();
         float barWidth = width / (float) barCount;
-        paint.setStrokeWidth(barWidth * 0.4f); // 🚀 막대기 두께를 얇고 세련되게 (40%)
+        paint.setStrokeWidth(barWidth * 0.4f); // 🚀 Keep the bars thin and sleek (40%)
 
         if (fftData != null) {
             for (int i = 0; i < barCount && (i * 2 + 2) < fftData.length; i++) {
@@ -43,15 +43,15 @@ public class AudioVisualizerView extends View {
                 byte ifk = fftData[i * 2 + 3];
                 float magnitude = (float) Math.hypot(rfk, ifk);
 
-                // 🚀 1. 높이 제한: 아무리 소리가 커도 화면 높이의 85%를 넘지 못하게 캡을 씌웁니다.
+                // 🚀 1. Height cap: no matter how loud, the height never exceeds 85% of the view height.
                 float targetHeight = Math.min(height * 0.85f, (magnitude * height) / 100f);
 
-                // 🚀 2. 부드러운 보간: 목표 지점까지 한 번에 점프하지 않고 15%씩 스무스하게 따라갑니다.
+                // 🚀 2. Smooth interpolation: instead of jumping straight to the target, eases toward it 15% at a time.
                 currentHeights[i] += (targetHeight - currentHeights[i]) * 0.15f;
             }
         }
 
-        // 그려내기
+        // Draw
         for (int i = 0; i < barCount; i++) {
             float x = i * barWidth + (barWidth / 2f);
             canvas.drawLine(x, height, x, height - currentHeights[i], paint);

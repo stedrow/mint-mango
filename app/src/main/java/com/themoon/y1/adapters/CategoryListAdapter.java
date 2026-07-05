@@ -23,7 +23,7 @@ public class CategoryListAdapter extends BaseAdapter {
     private List<String> items;
     private String type;
 
-    // 🚀 스크롤 할 때 버벅거리지 않도록 이미지를 기억해두는 '메모리 캐시 금고'입니다!
+    // 🚀 An in-memory cache "vault" that remembers images so scrolling doesn't stutter!
     private static LruCache<String, Drawable> coverCache;
 
     // Album art lookup does file scans + MediaMetadataRetriever + bitmap decode, all real I/O.
@@ -39,7 +39,7 @@ public class CategoryListAdapter extends BaseAdapter {
         this.type = type;
 
         if (coverCache == null) {
-            coverCache = new LruCache<>(50); // 최대 50개의 앨범 아트를 메모리에 안전하게 기억
+            coverCache = new LruCache<>(50); // safely keeps up to 50 album art images in memory
         }
     }
 
@@ -67,20 +67,20 @@ public class CategoryListAdapter extends BaseAdapter {
 
         final String name = items.get(position);
 
-        // 🚀 [핵심 개조] 앨범 모드일 때만 왼쪽 아이콘(앨범 아트 썸네일)을 세팅합니다!
+        // 🚀 [core change] Only set the left icon (album art thumbnail) in album mode!
         if (type.equals("ALBUM")) {
-            btn.setText(name); // 💿 이모티콘을 없애고 순수 앨범 이름만 넣습니다.
+            btn.setText(name); // 💿 Drop the emoji and use the plain album name only.
             btn.setTag(name); // recycled-view guard: only apply an async result if the row still shows this album
 
-            // 1. 메모리 금고에 이미 불러온 그림이 있는지 확인!
+            // 1. Check whether the image is already loaded in the memory cache!
             Drawable cached = coverCache.get(name);
 
             if (cached != null) {
                 btn.setCompoundDrawables(cached, null, null, null);
             } else {
-                // 2. 캐시 미스: 즉시 기본 아이콘을 보여주고, 실제 조회/디코딩은 백그라운드로 넘깁니다.
-                // (전체 라이브러리 스캔 + MediaMetadataRetriever + 비트맵 디코딩을 메인 스레드에서
-                // 하면 스크롤 중 버벅임이 심해서 별도 스레드로 뺐습니다.)
+                // 2. Cache miss: show the default icon immediately and hand off the actual lookup/decoding to a background thread.
+                // (Doing the full library scan + MediaMetadataRetriever + bitmap decoding on the main thread
+                // caused heavy stutter while scrolling, so it was moved to a separate thread.)
                 final int size = (int) (40 * MainActivity.instance.getResources().getDisplayMetrics().density);
                 btn.setCompoundDrawables(getDefaultAlbumDrawable(size), null, null, null);
 
@@ -95,17 +95,17 @@ public class CategoryListAdapter extends BaseAdapter {
                 });
             }
 
-            // 버튼 왼쪽에 이미지를 세팅하고, 글자와의 간격을 15dp 띄워줍니다.
+            // Sets the image on the left of the button, with 15dp of spacing before the text.
             btn.setCompoundDrawablePadding((int)(15 * MainActivity.instance.getResources().getDisplayMetrics().density));
 
         } else {
-            // 👤 가수(ARTIST) 모드일 때는 기존처럼 텍스트 이모티콘만 씁니다!
+            // 👤 In artist (ARTIST) mode, keep using only the text emoji as before!
             btn.setText("👤 " + name);
             btn.setCompoundDrawables(null, null, null, null);
         }
 
         if (type.equals("ALBUM")) {
-            // 롱 클릭 = 앨범 전체 삭제 (테마 모달로 확인)
+            // Long click = delete the whole album (confirmed via themed modal)
             btn.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override
                 public boolean onLongClick(View v) {
@@ -160,31 +160,31 @@ public class CategoryListAdapter extends BaseAdapter {
         String artPath = "";
         byte[] embeddedPic = null;
 
-        // 🚀 [버그 대수술] 이 앨범에 속한 '모든 노래'를 전부 뒤집니다!
-        // 특정 곡(예: 3번 트랙)을 재생할 때 다운로드된 이미지가 저장되었더라도,
-        // 앨범 카테고리 전체 리스트에서 완벽하게 찾아내도록 조회 범위를 넓힙니다.
+        // 🚀 [major bug fix] Search through every song belonging to this album!
+        // Even if a downloaded image was only saved while playing one specific track (e.g. track 3),
+        // widen the lookup scope so it's still found reliably from the full album category list.
         for (SongItem song : MainActivity.customLibrary) {
             if (song.album.equals(name)) {
                 String trackPath = song.file.getAbsolutePath();
 
-                // ① DB에 다운로드 경로가 등록되어 있는지 확인
+                // (1) Check whether a download path is registered in the DB
                 if (MainActivity.instance.libraryCacheDb != null) {
                     String savedPath = MainActivity.instance.libraryCacheDb.getAlbumArtPath(trackPath);
                     if (savedPath != null && !savedPath.isEmpty() && new File(savedPath).exists()) {
                         artPath = savedPath;
-                        break; // 이미지를 찾았으면 즉시 탈출!
+                        break; // found the image, exit immediately!
                     }
                 }
 
-                // ② 금고 등록 정보가 누락되었을 경우를 대비해, 파일 이름 매칭으로 폴더 직접 스캔 더블 체크!
+                // (2) In case the cache registration is missing, double-check by scanning the folder directly via filename matching!
                 String safeFileName = song.file.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "").replace(".aac", "").replace(".ogg", "");
                 File manualCoverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
                 if (manualCoverFile.exists()) {
                     artPath = manualCoverFile.getAbsolutePath();
-                    break; // 실제 파일이 존재하면 즉시 탈출!
+                    break; // exit immediately once the actual file is found!
                 }
 
-                // ③ 인터넷 이미지가 없다면 파일 내부 내장 아트(Embedded) 후보로 등록 (FLAC 제외)
+                // (3) If there's no downloaded image, register the file's embedded art as a candidate (excluding FLAC)
                 if (embeddedPic == null && !trackPath.toLowerCase().endsWith(".flac")) {
                     android.media.MediaMetadataRetriever mmr = null;
                     java.io.FileInputStream fis = null;
@@ -207,7 +207,7 @@ public class CategoryListAdapter extends BaseAdapter {
 
         Bitmap bmp = null;
 
-        // [선택 1] 인터넷 다운로드 커버가 있으면 최우선 로딩
+        // [option 1] If a downloaded cover exists, load it first
         if (!artPath.isEmpty()) {
             try {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -215,7 +215,7 @@ public class CategoryListAdapter extends BaseAdapter {
                 bmp = BitmapFactory.decodeFile(artPath, opts);
             } catch (Exception e) {}
         }
-        // [선택 2] 인터넷 커버가 없으면 파일 내장 아트 로딩
+        // [option 2] If there's no downloaded cover, load the file's embedded art
         else if (embeddedPic != null) {
             try {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -224,7 +224,7 @@ public class CategoryListAdapter extends BaseAdapter {
             } catch (Exception e) {}
         }
 
-        // [선택 3] 둘 다 없으면 기본 이미지
+        // [option 3] If neither exists, use the default image
         if (bmp == null) {
             return getDefaultAlbumDrawable(size);
         }

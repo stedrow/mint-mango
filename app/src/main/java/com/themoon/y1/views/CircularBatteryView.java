@@ -18,21 +18,21 @@ public class CircularBatteryView extends View {
         super(context);
         float density = getResources().getDisplayMetrics().density;
 
-        // 배경 회색 트랙
+        // Background gray track
         trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         trackPaint.setStyle(Paint.Style.STROKE);
         trackPaint.setStrokeWidth(8 * density);
-        trackPaint.setColor(ThemeManager.getTextColorSecondary()); // 테마 보조 색상 적용
+        trackPaint.setColor(ThemeManager.getTextColorSecondary()); // Applies the theme's secondary color
         trackPaint.setAlpha(60);
 
-        // 게이지 바
+        // Gauge bar
         progressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         progressPaint.setStyle(Paint.Style.STROKE);
         progressPaint.setStrokeWidth(8 * density);
         progressPaint.setStrokeCap(Paint.Cap.ROUND);
-        progressPaint.setColor(ThemeManager.getTextColorPrimary()); // 테마 메인 색상 적용
+        progressPaint.setColor(ThemeManager.getTextColorPrimary()); // Applies the theme's main color
 
-        // 중앙 숫자 텍스트
+        // Centered numeric text
         textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(ThemeManager.getTextColorPrimary());
         textPaint.setTextAlign(Paint.Align.CENTER);
@@ -51,7 +51,7 @@ public class CircularBatteryView extends View {
         super.onDraw(canvas);
         int w = getWidth(), h = getHeight();
 
-        // 🚀 테마 크기에 비례하여 원형 선 굵기 자동 조절! (전체 너비의 8%)
+        // 🚀 Auto-adjusts the ring's stroke width proportionally to the view size! (8% of total width)
         float stroke = Math.min(w, h) * 0.08f;
         trackPaint.setStrokeWidth(stroke);
         progressPaint.setStrokeWidth(stroke);
@@ -59,7 +59,7 @@ public class CircularBatteryView extends View {
         float halfStroke = stroke / 2f;
         rectF.set(halfStroke, halfStroke, w - halfStroke, h - halfStroke);
 
-        // 🚀 스마트 컬러 로직: 충전 중이면 초록색, 15% 이하면 빨간색!
+        // 🚀 Smart color logic: green while charging, red at 15% or below!
         if (isCharging) {
             progressPaint.setColor(0xFF44FF44);
         } else if (level <= 15) {
@@ -68,12 +68,12 @@ public class CircularBatteryView extends View {
             progressPaint.setColor(ThemeManager.getTextColorPrimary());
         }
 
-        // 배경 원 그리기
+        // Draw the background circle
         canvas.drawArc(rectF, 0, 360, false, trackPaint);
-        // 잔량만큼 호(Arc) 그리기
+        // Draw the arc proportional to the remaining level
         canvas.drawArc(rectF, -90, 360f * level / 100f, false, progressPaint);
 
-        // 중앙에 텍스트 배치
+        // Place the text in the center
         float textY = (h / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f);
         canvas.drawText(String.valueOf(level), w / 2f, textY, textPaint);
     }

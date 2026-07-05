@@ -10,7 +10,7 @@ public class WidgetBatteryBarView extends View {
     private int level = 100;
     private boolean isCharging = false;
     private int baseColor = 0xFFFFFFFF;
-    private float customTextSize = -1; // 🚀 [신규] 사용자 지정 텍스트 크기 변수
+    private float customTextSize = -1; // 🚀 [New] Custom text size variable
 
     public WidgetBatteryBarView(Context context) {
         super(context);
@@ -31,7 +31,7 @@ public class WidgetBatteryBarView extends View {
         this.baseColor = color; invalidate();
     }
 
-    // 🚀 [신규 추가] 외부에서 글자 크기를 강제 지정할 수 있는 함수
+    // 🚀 [New] Function that lets an external caller force a specific text size
     public void setCustomTextSize(float size) {
         this.customTextSize = size; invalidate();
     }
@@ -62,7 +62,7 @@ public class WidgetBatteryBarView extends View {
         canvas.drawRoundRect(progressRect, radius, radius, progressPaint);
 
         textPaint.setColor(0xFFFFFFFF);
-        // 🚀 [핵심 로직] 사용자 지정 크기가 있으면 적용, 없으면 기존처럼 위젯 높이에 비례해서 자동 조절!
+        // 🚀 [Core logic] Uses the custom size if set, otherwise auto-scales proportionally to widget height as before!
         if (customTextSize > 0) textPaint.setTextSize(customTextSize);
         else textPaint.setTextSize(height * 0.6f);
 
