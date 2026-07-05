@@ -20,6 +20,8 @@ public class WheelLockRingView extends View {
     private final Paint dividerPaint;
     private final RectF rectF = new RectF();
 
+    private static final float SWEEP_DEGREES = 360f; // full circle
+
     private int total = 8;
     private float displayedProgress = 0f; // animated, fractional
     private ValueAnimator animator;
@@ -38,7 +40,7 @@ public class WheelLockRingView extends View {
         progressPaint.setStyle(Paint.Style.STROKE);
         progressPaint.setStrokeWidth(5 * density);
         progressPaint.setStrokeCap(Paint.Cap.BUTT);
-        progressPaint.setColor(0xFF6FE3B4); // 은은한 민트 그린 — 이 오버레이는 항상 검정 배경이라 테마색과 무관하게 고정
+        progressPaint.setColor(0xFF4CAF50); // Green fill — this overlay is always on a black background, so the color is fixed regardless of theme
 
         dividerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         dividerPaint.setStyle(Paint.Style.STROKE);
@@ -78,22 +80,22 @@ public class WheelLockRingView extends View {
         int w = getWidth(), h = getHeight();
         if (w == 0 || h == 0) return;
 
-        float stroke = Math.min(w, h) * 0.045f;
+        float stroke = Math.min(w, h) * 0.09f;
         trackPaint.setStrokeWidth(stroke);
         progressPaint.setStrokeWidth(stroke);
 
         float halfStroke = stroke / 2f;
         rectF.set(halfStroke, halfStroke, w - halfStroke, h - halfStroke);
 
-        canvas.drawArc(rectF, -90, 360, false, trackPaint);
-        canvas.drawArc(rectF, -90, 360f * displayedProgress / total, false, progressPaint);
+        canvas.drawArc(rectF, -90, SWEEP_DEGREES, false, trackPaint);
+        canvas.drawArc(rectF, -90, SWEEP_DEGREES * displayedProgress / total, false, progressPaint);
 
-        // 세그먼트 경계마다 배경색 방사형 선을 그어 조각(웨지)처럼 보이게 자릅니다.
+        // Cuts a background-colored radial line at each segment boundary so the arc reads as wedges
         float cx = w / 2f, cy = h / 2f;
         float outer = Math.min(w, h) / 2f;
         float inner = outer - stroke;
-        for (int i = 0; i < total; i++) {
-            double angle = Math.toRadians(-90 + 360.0 * i / total);
+        for (int i = 0; i <= total; i++) {
+            double angle = Math.toRadians(-90 + SWEEP_DEGREES * i / total);
             float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
             canvas.drawLine(cx + inner * cos, cy + inner * sin, cx + outer * cos, cy + outer * sin, dividerPaint);
         }

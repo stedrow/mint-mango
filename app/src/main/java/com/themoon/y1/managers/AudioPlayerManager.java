@@ -47,6 +47,11 @@ public class AudioPlayerManager {
     // only that path is allowed to auto-resume, so it never fights a real user pause.
     private boolean pausedByAirpods = false;
 
+    // Position (ms) to seek to the first time playback is resumed after a cold start —
+    // set by restoreLastPlaybackState(), consumed and cleared by playOrPauseMusic().
+    private int pendingResumePositionMs = 0;
+    private long lastPlaybackStateSaveTime = 0;
+
     // "Disable Built-in Speaker" setting. Deliberately done at the player level
     // (ExoPlayer/MediaPlayer's own volume) rather than via AudioManager: this
     // device's AudioService keeps separate per-output-device volume indices, so
@@ -234,6 +239,7 @@ public class AudioPlayerManager {
 
     public void playTrackList(List<File> list, int index) {
         isNavidromeMode = false;
+        pendingResumePositionMs = 0;
         saveAudiobookBookmarkIfNeeded();
 
         final MainActivity main = MainActivity.instance;
@@ -314,6 +320,20 @@ public class AudioPlayerManager {
 
     public void playOrPauseMusic() {
         pausedByAirpods = false; // any manual toggle cancels a pending AirPods auto-resume
+
+        // Nothing loaded yet this session (e.g. right after a cold start) but a track was
+        // restored from the last session by restoreLastPlaybackState() — start it now,
+        // seeking to where playback left off, instead of silently doing nothing.
+        if (legacyPlayer == null && exoPlayer == null) {
+            MainActivity main = MainActivity.instance;
+            if (main != null && main.currentPlaylist != null && !main.currentPlaylist.isEmpty()) {
+                int offset = pendingResumePositionMs;
+                pendingResumePositionMs = 0;
+                playTrackListWithOffset(main.currentPlaylist, main.currentIndex, offset);
+            }
+            return;
+        }
+
         if (isUsingLegacyPlayer && legacyPlayer != null) {
             if (legacyPlayer.isPlaying()) {
                 saveAudiobookBookmarkIfNeeded();
@@ -452,9 +472,10 @@ public class AudioPlayerManager {
             String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
             File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
 
-            if (main.prefs.contains("meta_title_" + track.getAbsolutePath())) {
-                t = main.prefs.getString("meta_title_" + track.getAbsolutePath(), t);
-                a = main.prefs.getString("meta_artist_" + track.getAbsolutePath(), a);
+            com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
+            if (metaOverride != null) {
+                if (metaOverride.title != null) t = metaOverride.title;
+                if (metaOverride.artist != null) a = metaOverride.artist;
             }
 
             boolean hasValidTags = (t != null && !t.trim().isEmpty() && a != null && !a.trim().isEmpty() && !a.equalsIgnoreCase("Unknown Artist"));
@@ -537,7 +558,8 @@ public class AudioPlayerManager {
                 applyPlayerVolumeState(); // 💡 새 MediaPlayer는 항상 볼륨 1.0으로 시작하니 뮤트 상태 재적용
 
                 // 🚀 [핵심 로직 1] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
-                int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
+                com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
+                int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                     legacyPlayer.seekTo(savedPos);
                 }
@@ -568,7 +590,8 @@ public class AudioPlayerManager {
                 exoPlayer.prepare(); // 💡 장전 완료!
 
                 // 🚀 [핵심 로직 2] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
-                int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
+                com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
+                int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                     exoPlayer.seekTo(savedPos);
                 }
@@ -604,12 +627,114 @@ public class AudioPlayerManager {
         }
     }
 
+    /** Persists what's currently loaded (playlist/index/position) so it survives a restart. */
+    private void persistCurrentPlaybackState() {
+        try {
+            MainActivity main = MainActivity.instance;
+            if (main == null || main.libraryCacheDb == null) return;
+            if (main.currentPlaylist == null || main.currentPlaylist.isEmpty()) return;
+            if (main.currentIndex < 0 || main.currentIndex >= main.currentPlaylist.size()) return;
+            List<String> paths = new ArrayList<>();
+            for (File f : main.currentPlaylist) paths.add(f.getAbsolutePath());
+            main.libraryCacheDb.savePlayerState(paths, main.currentIndex, getCurrentPosition(), main.isAudiobookLibraryMode);
+        } catch (Exception ignored) {}
+    }
+
+    /** Same as {@link #persistCurrentPlaybackState()} but throttled — call from a frequent tick. */
+    public void maybeSavePlaybackStateThrottled() {
+        long now = System.currentTimeMillis();
+        if (now - lastPlaybackStateSaveTime < 5000) return;
+        lastPlaybackStateSaveTime = now;
+        persistCurrentPlaybackState();
+    }
+
+    /**
+     * Restores the last playlist/track/position from the DB on cold start — populates the
+     * player UI with the last-played track's info immediately, without starting playback.
+     * The saved position is actually seeked to the first time the user presses play
+     * (see playOrPauseMusic()), since eagerly starting audio on launch would be jarring.
+     */
+    public void restoreLastPlaybackState() {
+        try {
+            MainActivity main = MainActivity.instance;
+            if (main == null || main.libraryCacheDb == null) return;
+            com.themoon.y1.db.LibraryCacheDb.PlayerState state = main.libraryCacheDb.loadPlayerState();
+            if (state == null || state.playlist.isEmpty()) return;
+            if (state.index < 0 || state.index >= state.playlist.size()) return;
+
+            List<File> restoredPlaylist = new ArrayList<>();
+            for (String p : state.playlist) restoredPlaylist.add(new File(p));
+            File track = restoredPlaylist.get(state.index);
+            if (!track.exists()) return;
+
+            main.originalPlaylist.clear();
+            main.originalPlaylist.addAll(restoredPlaylist);
+            main.currentPlaylist.clear();
+            main.currentPlaylist.addAll(restoredPlaylist);
+            main.currentIndex = state.index;
+            main.isAudiobookLibraryMode = state.isAudiobook;
+            main.isPausedByHand = true;
+            pendingResumePositionMs = state.positionMs;
+
+            displayTrackMetadataOnly(track);
+        } catch (Exception ignored) {}
+    }
+
+    /** Populates the player/preview UI (title, artist, art) for a track without touching the audio engine. */
+    private void displayTrackMetadataOnly(File track) {
+        MainActivity main = MainActivity.instance;
+        if (main == null) return;
+        try {
+            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
+            String t = null, a = null;
+            byte[] embeddedArt = null;
+            try {
+                MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                java.io.FileInputStream fis = new java.io.FileInputStream(track);
+                mmr.setDataSource(fis.getFD());
+                t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                embeddedArt = mmr.getEmbeddedPicture();
+                fis.close();
+                mmr.release();
+            } catch (Exception ignored) {}
+
+            com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
+            if (metaOverride != null) {
+                if (metaOverride.title != null) t = metaOverride.title;
+                if (metaOverride.artist != null) a = metaOverride.artist;
+            }
+
+            main.tvPlayerTitle.setText(t != null && !t.trim().isEmpty() ? t : safeFileName);
+            main.tvPlayerArtist.setText(a != null && !a.trim().isEmpty() ? a : "Unknown Artist");
+
+            main.lastAlbumArtBytes = embeddedArt;
+            if (embeddedArt != null && embeddedArt.length > 0) {
+                main.updateMainMenuBackground();
+                main.refreshNowPlayingPreview();
+                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                opts.inSampleSize = 2;
+                main.ivAlbumArt.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts));
+            } else {
+                File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
+                if (coverFile.exists()) {
+                    main.applyCachedCoverArt(coverFile.getAbsolutePath());
+                } else {
+                    main.ivAlbumArt.setImageResource(R.drawable.default_album);
+                    main.updateMainMenuBackground();
+                    main.refreshNowPlayingPreview();
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void saveAudiobookBookmarkIfNeeded() {
         try {
             // In Navidrome mode currentPlaylist/currentIndex still point at the last
             // LOCAL track — saving here would write the stream's position into that
             // file's bookmark and corrupt audiobook resume points.
             if (isNavidromeMode) return;
+            persistCurrentPlaybackState();
             MainActivity main = MainActivity.instance;
             if (main != null && main.currentPlaylist != null && !main.currentPlaylist.isEmpty()) {
                 if (main.currentIndex >= 0 && main.currentIndex < main.currentPlaylist.size()) {
@@ -620,10 +745,7 @@ public class AudioPlayerManager {
                         AudiobookManager.getInstance(main).saveBookmark(filePath, getCurrentPosition(), main.currentIndex);
 
                         // 🚀 [핵심 추가] 프로그레스 바를 그리기 위해 파일 주소를 열쇠로 '현재 위치'와 '총 길이'를 몰래 저장합니다.
-                        main.prefs.edit()
-                                .putInt("book_pos_" + filePath, getCurrentPosition())
-                                .putInt("book_dur_" + filePath, getDuration())
-                                .apply();
+                        main.libraryCacheDb.setBookmark(filePath, getCurrentPosition(), getDuration());
                     }
                 }
             }

@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import android.renderscript.Allocation;
 import android.renderscript.Element;
@@ -101,9 +102,27 @@ public class MainActivity extends Activity {
     private boolean isWheelLockEnabled = false; // 설정 토글 (기본 OFF)
     private boolean isWheelLockActive = false; // 지금 잠겨서 대기 중인지
     private int wheelUnlockProgress = 0;
-    private static final int WHEEL_UNLOCK_THRESHOLD = 8;
+    // Half as many segments as the ring now only sweeps a half circle (180°) instead of
+    // a full one — keeps each wedge the same angular width as before, so filling the
+    // shorter arc only takes half the wheel rotation instead of a full turn.
+    private static final int WHEEL_UNLOCK_THRESHOLD = 4;
     private LinearLayout layoutWheelLockOverlay;
     private com.themoon.y1.views.WheelLockRingView wheelLockRing;
+    // Remembers the last tick direction (0 = none yet) so reversing direction doesn't count toward progress
+    private int lastWheelDirection = 0;
+    // Timer that resets progress if the wheel stops turning (no further tick) before the unlock completes
+    private final Handler wheelLockHandler = new Handler();
+    private static final long WHEEL_UNLOCK_RELEASE_TIMEOUT_MS = 500;
+    private final Runnable wheelLockReleaseResetRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (isWheelLockActive && wheelUnlockProgress < WHEEL_UNLOCK_THRESHOLD) {
+                wheelUnlockProgress = 0;
+                lastWheelDirection = 0;
+                if (wheelLockRing != null) wheelLockRing.resetProgress();
+            }
+        }
+    };
 
     // 🚀 [신규 추가] 다이렉트 숏컷 뒤로 가기 복귀 경로 추적기!
     private int backTargetForPlayer = STATE_BROWSER;
@@ -313,6 +332,7 @@ public class MainActivity extends Activity {
     // (볼륨 전용 변수와 복잡한 포커스 인덱스는 이제 필요 없으므로 과감히 삭제!)
     private boolean isCustomScanning = false;
     public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
+    public com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -343,11 +363,13 @@ public class MainActivity extends Activity {
     private static class NavidromeDownloadItem {
         final com.themoon.y1.subsonic.SubsonicSong song;
         final boolean transcoded; // true = MP3 192kbps, false = original file
+        int retryCount = 0; // bumped on each failed attempt, reset never — item is discarded once exhausted
         NavidromeDownloadItem(com.themoon.y1.subsonic.SubsonicSong song, boolean transcoded) {
             this.song = song;
             this.transcoded = transcoded;
         }
     }
+    private static final int MAX_NAVIDROME_DOWNLOAD_RETRIES = 2; // up to 3 attempts total per track
     private final java.util.ArrayDeque<NavidromeDownloadItem> navidromeDownloadQueue = new java.util.ArrayDeque<>();
     private boolean isNavidromeDownloading = false;
     private int navidromeQueueTotal = 0;
@@ -552,6 +574,8 @@ public class MainActivity extends Activity {
     private void activateWheelLock() {
         isWheelLockActive = true;
         wheelUnlockProgress = 0;
+        lastWheelDirection = 0;
+        wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
         if (layoutWheelLockOverlay != null) {
             if (wheelLockRing != null) wheelLockRing.resetProgress();
             layoutWheelLockOverlay.setVisibility(View.VISIBLE);
@@ -561,6 +585,8 @@ public class MainActivity extends Activity {
     private void deactivateWheelLock() {
         isWheelLockActive = false;
         wheelUnlockProgress = 0;
+        lastWheelDirection = 0;
+        wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
         if (layoutWheelLockOverlay != null) {
             layoutWheelLockOverlay.setVisibility(View.GONE);
         }
@@ -688,6 +714,7 @@ public class MainActivity extends Activity {
             try {
                 com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
                 if (am.isPlaying() || am.isNavidromeMode) {
+                    am.maybeSavePlaybackStateThrottled();
                     int current = am.getCurrentPosition();
                     int duration = am.getDuration();
                     // When ExoPlayer is buffering it returns 0 for duration; fall back to API metadata
@@ -1304,9 +1331,18 @@ public class MainActivity extends Activity {
         wheelLockRingFrame.addView(wheelLockRing, ringLp);
 
         TextView tvWheelLockIcon = new TextView(this);
-        tvWheelLockIcon.setText("🔒"); // 🔒
+        tvWheelLockIcon.setText("\uE897"); // Material Icons "lock" glyph — same icon font used everywhere else in the app
+        tvWheelLockIcon.setTextColor(0xFFFFFFFF);
         tvWheelLockIcon.setTextSize(40);
         tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
+        if (materialIconFont == null) {
+            try { materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/MaterialIcons-Regular.ttf"); }
+            catch (Exception e) {}
+        }
+        if (materialIconFont != null) tvWheelLockIcon.setTypeface(materialIconFont);
+        // Tag it so applyFontToAllViews() (which walks the whole tree and reassigns the app's
+        // regular font to every TextView) skips this one and leaves the icon-font glyph alone
+        tvWheelLockIcon.setTag("icon_font");
         android.widget.FrameLayout.LayoutParams iconLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
         wheelLockRingFrame.addView(tvWheelLockIcon, iconLp);
 
@@ -1466,6 +1502,9 @@ public class MainActivity extends Activity {
 
         if (!rootFolder.exists())
             rootFolder.mkdirs();
+
+        libraryCacheDb = new com.themoon.y1.db.LibraryCacheDb(this);
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().restoreLastPlaybackState();
 
         // 🚀 [추가된 부분] 앱이 켜질 때(혹은 튕기고 재시작될 때) 조용히 자동 스캔을 돌려 리스트를 복구합니다!
         if (customLibrary.isEmpty() && !isCustomScanning) {
@@ -1860,9 +1899,8 @@ public class MainActivity extends Activity {
         parentRel.addView(verticalWrapper, params);
 
         try {
-            // 앱이 켜질 때 금고(SharedPreferences)에서 즐겨찾기 경로들을 싹 다 가져옵니다.
-            java.util.Set<String> savedFavs = prefs.getStringSet("favorites", new java.util.HashSet<String>());
-            favoritePaths = new java.util.HashSet<>(savedFavs);
+            // 앱이 켜질 때 DB에서 즐겨찾기 경로들을 싹 다 가져옵니다.
+            favoritePaths = new java.util.HashSet<>(libraryCacheDb.loadFavoritePaths());
         } catch (Exception e) {}
         // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
 
@@ -2051,65 +2089,90 @@ public class MainActivity extends Activity {
     }
 
     // 2. 태그 추출 및 바구니 담기 (타겟 바구니를 지정해 줍니다)
-    private void buildCustomLibrary(File folder, List<SongItem> targetLibrary) {
+    // cachedSongs holds tag results from the last scan (keyed by absolute path) so files whose
+    // mtime/size haven't changed skip MediaMetadataRetriever entirely; freshEntries collects the
+    // up-to-date cache rows to persist once the whole scan finishes.
+    private void buildCustomLibrary(File folder, List<SongItem> targetLibrary,
+                                     Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs,
+                                     boolean isAudiobook,
+                                     List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries) {
         if (!folder.exists()) return;
         File[] files = folder.listFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isDirectory()) {
-                    buildCustomLibrary(f, targetLibrary);
+                    buildCustomLibrary(f, targetLibrary, cachedSongs, isAudiobook, freshEntries);
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
 
+                    String path = f.getAbsolutePath();
+                    long mtime = f.lastModified();
+                    long size = f.length();
+                    com.themoon.y1.db.LibraryCacheDb.CachedSong cached = cachedSongs.get(path);
 
-                    // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값들을 먼저 장전해 둡니다!
-                    String title = f.getName(); // 제목이 없으면 파일 이름으로 대체!
-                    String artist = t("Unknown Artist"); // 🚀 번역기 장착!
-                    String album = t("Unknown Album");   // 🚀 번역기 장착!
-                    String year = t("Unknown Year");     // 🚀 번역기 장착!
-                    String genre = t("Unknown Genre");   // 🚀 번역기 장착!
-                    int trackNum = 0;
+                    String title, artist, album, year, genre;
+                    int trackNum;
 
-                    try {
-                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                        java.io.FileInputStream fis = new java.io.FileInputStream(f);
-                        mmr.setDataSource(fis.getFD());
+                    if (cached != null && cached.mtime == mtime && cached.size == size) {
+                        // Quick scan: file is unchanged, reuse the cached tags instead of re-reading them
+                        title = cached.title;
+                        artist = cached.artist;
+                        album = cached.album;
+                        year = cached.year;
+                        genre = cached.genre;
+                        trackNum = cached.trackNumber;
+                    } else {
+                        // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값들을 먼저 장전해 둡니다!
+                        title = f.getName(); // 제목이 없으면 파일 이름으로 대체!
+                        artist = t("Unknown Artist"); // 🚀 번역기 장착!
+                        album = t("Unknown Album");   // 🚀 번역기 장착!
+                        year = t("Unknown Year");     // 🚀 번역기 장착!
+                        genre = t("Unknown Genre");   // 🚀 번역기 장착!
+                        trackNum = 0;
 
-                        String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                        String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                        // Prefer ALBUMARTIST for grouping — track-artist tags like
-                        // "Coldplay • Avicii" scatter one album across the Artists list
-                        String aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
-                        String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
-                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-                        String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE에 연도가 들어있습니다.
-                        String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
+                        try {
+                            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                            java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                            mmr.setDataSource(fis.getFD());
 
-                        // 🚀 태그가 존재할 때만 "Unknown..." 기본값을 실제 데이터로 덮어씌웁니다!
-                        if (t != null && !t.trim().isEmpty()) title = t;
-                        if (aa != null && !aa.trim().isEmpty()) artist = aa;
-                        else if (a != null && !a.trim().isEmpty()) artist = a;
-                        if (al != null && !al.trim().isEmpty()) album = al;
-                        if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 연도 덮어쓰기
-                        if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 장르 덮어쓰기
+                            String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                            String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                            // Prefer ALBUMARTIST for grouping — track-artist tags like
+                            // "Coldplay • Avicii" scatter one album across the Artists list
+                            String aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
+                            String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                            String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
+                            String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE에 연도가 들어있습니다.
+                            String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
 
-                        if (trackStr != null && !trackStr.isEmpty()) {
-                            try {
-                                if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
-                                else trackNum = Integer.parseInt(trackStr.trim());
-                            } catch (Exception e) {}
+                            // 🚀 태그가 존재할 때만 "Unknown..." 기본값을 실제 데이터로 덮어씌웁니다!
+                            if (t != null && !t.trim().isEmpty()) title = t;
+                            if (aa != null && !aa.trim().isEmpty()) artist = aa;
+                            else if (a != null && !a.trim().isEmpty()) artist = a;
+                            if (al != null && !al.trim().isEmpty()) album = al;
+                            if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 연도 덮어쓰기
+                            if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 장르 덮어쓰기
+
+                            if (trackStr != null && !trackStr.isEmpty()) {
+                                try {
+                                    if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
+                                    else trackNum = Integer.parseInt(trackStr.trim());
+                                } catch (Exception e) {}
+                            }
+
+                            fis.close();
+                            mmr.release();
+                        } catch (Exception e) {
+                            // 💡 태그가 없거나 스캐너가 실패해도 앱이 터지지 않고 이 구역으로 안전하게 빠져나옵니다.
                         }
-
-                        fis.close();
-                        mmr.release();
-                    } catch (Exception e) {
-                        // 💡 태그가 없거나 스캐너가 실패해도 앱이 터지지 않고 이 구역으로 안전하게 빠져나옵니다.
                     }
 
                     // 🚀 [핵심 해결] 안전지대(try-catch 밖)에서 바구니에 담습니다.
                     // 에러가 났어도 장전해 둔 기본값("Unknown Artist" 등)으로 정상 추가되어 분류됩니다!
                     targetLibrary.add(new SongItem(f, title, artist, album, year, genre)); // 💡 6개 꽉 채우기 완료!
-                    trackNumberMap.put(f.getAbsolutePath(), trackNum);
+                    trackNumberMap.put(path, trackNum);
+                    freshEntries.add(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
+                            path, mtime, size, title, artist, album, year, genre, trackNum, isAudiobook));
 
                     scannedAudioFiles++;
                     if (totalAudioFiles > 0) {
@@ -2155,25 +2218,29 @@ public class MainActivity extends Activity {
                 countAudioFiles(rootFolder);
                 countAudioFiles(audiobookRootFolder);
 
+                // Quick scan: load the previous scan's results so unchanged files skip tag re-reading
+                Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs = libraryCacheDb.loadAll();
+                List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries = new ArrayList<>();
+
                 // 🚀 양쪽 폴더 모두 스캔해서 각각의 바구니에 담기
-                buildCustomLibrary(rootFolder, customLibrary);
-                buildCustomLibrary(audiobookRootFolder, audiobookLibrary);
+                buildCustomLibrary(rootFolder, customLibrary, cachedSongs, false, freshEntries);
+                buildCustomLibrary(audiobookRootFolder, audiobookLibrary, cachedSongs, true, freshEntries);
+
+                libraryCacheDb.replaceAll(freshEntries);
 
                 // 즐겨찾기 자동 청소기 가동 (뮤직 기준)
                 java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
                 for (SongItem song : customLibrary) aliveSongs.add(song.file.getAbsolutePath());
                 for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath()); // 💡 오디오북도 포함!
 
-                boolean isCleanedUp = false;
                 java.util.Iterator<String> favIterator = favoritePaths.iterator();
                 while (favIterator.hasNext()) {
                     String favPath = favIterator.next();
                     if (!aliveSongs.contains(favPath)) {
                         favIterator.remove();
-                        isCleanedUp = true;
+                        libraryCacheDb.setFavorite(favPath, false);
                     }
                 }
-                if (isCleanedUp) prefs.edit().putStringSet("favorites", favoritePaths).apply();
 
                 runOnUiThread(new Runnable() {
                     @Override
@@ -3994,17 +4061,8 @@ public class MainActivity extends Activity {
                                         }
                                     }
 
-                                    // 🚀 2. [핵심 추가] 금고(SharedPreferences)에 저장된 제목, 가수 정보 싹 다 지우기
-                                    android.content.SharedPreferences.Editor editor = prefs.edit();
-                                    java.util.Map<String, ?> allEntries = prefs.getAll();
-                                    for (java.util.Map.Entry<String, ?> entry : allEntries.entrySet()) {
-                                        String key = entry.getKey();
-                                        // "meta_title_", "meta_artist_", "album_art_" 로 시작하는 기억들만 골라서 지웁니다.
-                                        if (key.startsWith("meta_title_") || key.startsWith("meta_artist_") || key.startsWith("album_art_")) {
-                                            editor.remove(key);
-                                        }
-                                    }
-                                    editor.apply(); // 변경사항 영구 저장!
+                                    // 🚀 2. [핵심 추가] DB에 저장된 제목, 가수, 앨범아트 정보 싹 다 지우기
+                                    libraryCacheDb.clearAllMetaAndArt();
 
                                     Toast.makeText(MainActivity.this, "Deleted " + count + " covers & cleared track info.",
                                             Toast.LENGTH_SHORT).show();
@@ -4033,6 +4091,29 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnClearCache);
+
+        // 🚀 Force a full re-scan that ignores the tag cache — useful if tags were edited
+        // externally or the cache is suspected to be stale.
+        LinearLayout btnRebuildCache = createSettingRow("Rebuild Library Cache", "〉 ");
+        btnRebuildCache.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(t("Rebuild Library Cache"))
+                        .setMessage(t("Re-scan every song and re-read its tags from scratch? This is slower than a normal scan but fixes a stale or incorrect cache."))
+                        .setPositiveButton(t("Rebuild"), new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                if (libraryCacheDb != null) libraryCacheDb.clear();
+                                startMediaLibraryScan();
+                            }
+                        })
+                        .setNegativeButton(t("Cancel"), null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnRebuildCache);
+
         LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
         btnBtMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -5521,7 +5602,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 android.graphics.Bitmap bmp = null;
-                String cachedArtPath = prefs.getString("album_art_" + path, null);
+                String cachedArtPath = libraryCacheDb.getAlbumArtPath(path);
 
                 if (cachedArtPath != null && new File(cachedArtPath).exists()) {
                     bmp = BitmapFactory.decodeFile(cachedArtPath);
@@ -6045,10 +6126,9 @@ public class MainActivity extends Activity {
 
                 // 🚀 [추가] 오디오북 모드이거나 오디오북 폴더 안이라면 프로그레스 바를 그립니다!
                 if (isAudiobookLibraryMode || currentBrowserMode == BROWSER_AUDIOBOOKS) {
-                    int pos = prefs.getInt("book_pos_" + audio.getAbsolutePath(), 0);
-                    int dur = prefs.getInt("book_dur_" + audio.getAbsolutePath(), 0);
-                    if (pos > 0 && dur > 0) {
-                        setupAudiobookProgress(b, pos, dur); // 💡 새 엔진 호출로 교체!
+                    com.themoon.y1.db.LibraryCacheDb.Bookmark bm = libraryCacheDb.getBookmark(audio.getAbsolutePath());
+                    if (bm != null && bm.posMs > 0 && bm.durMs > 0) {
+                        setupAudiobookProgress(b, bm.posMs, bm.durMs); // 💡 새 엔진 호출로 교체!
                     }
                 }
 
@@ -7102,16 +7182,19 @@ public class MainActivity extends Activity {
             return;
         }
 
+        boolean nowFavorite;
         if (favoritePaths.contains(path)) {
             favoritePaths.remove(path);
+            nowFavorite = false;
             Toast.makeText(this, "♡ Removed from Favorites", Toast.LENGTH_SHORT).show();
         } else {
             favoritePaths.add(path);
+            nowFavorite = true;
             Toast.makeText(this, "♥ Added to Favorites", Toast.LENGTH_SHORT).show();
         }
 
         try {
-            prefs.edit().putStringSet("favorites", favoritePaths).apply(); // 즉시 영구 저장!
+            libraryCacheDb.setFavorite(path, nowFavorite); // 즉시 영구 저장!
         } catch (Exception e) {}
 
         updatePlayerStatusIndicators(); // 💖 아이콘 새로고침
@@ -7905,11 +7988,22 @@ public class MainActivity extends Activity {
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
                 int keyCode = event.getKeyCode();
                 if (keyCode == 21 || keyCode == 22) {
+                    // Reversing direction invalidates prior progress — restart the count in the new direction
+                    if (lastWheelDirection != 0 && lastWheelDirection != keyCode) {
+                        wheelUnlockProgress = 0;
+                    }
+                    lastWheelDirection = keyCode;
                     wheelUnlockProgress++;
                     updateWheelLockProgress();
+
+                    // While still turning, push the reset timer back; if the wheel stops before the
+                    // unlock completes (within the timeout), progress resets.
+                    wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
                     if (wheelUnlockProgress >= WHEEL_UNLOCK_THRESHOLD) {
                         deactivateWheelLock();
                         clickFeedback();
+                    } else {
+                        wheelLockHandler.postDelayed(wheelLockReleaseResetRunnable, WHEEL_UNLOCK_RELEASE_TIMEOUT_MS);
                     }
                 }
             }
@@ -8661,11 +8755,8 @@ public class MainActivity extends Activity {
                         fos.close();
 
                         // 🚀 [추가] 앨범 커버 경로(album_art_)도 잊지 말고 저장소에 함께 덮어씌웁니다!
-                        prefs.edit()
-                                .putString("meta_title_" + track.getAbsolutePath(), finalTitle)
-                                .putString("meta_artist_" + track.getAbsolutePath(), finalArtist)
-                                .putString("album_art_" + track.getAbsolutePath(), coverFile.getAbsolutePath()) // 💡 누락되었던 핵심 코드
-                                .apply();
+                        libraryCacheDb.setMetaOverride(track.getAbsolutePath(), finalTitle, finalArtist);
+                        libraryCacheDb.setAlbumArtPath(track.getAbsolutePath(), coverFile.getAbsolutePath()); // 💡 누락되었던 핵심 코드
 
                         runOnUiThread(new Runnable() {
                             @Override
@@ -8770,7 +8861,7 @@ public class MainActivity extends Activity {
                 applyFontToAllViews((android.view.ViewGroup) child, font);
             }
             // 2. 만약 글씨(TextView, Button 등)라면 폰트를 즉시 교체합니다.
-            else if (child instanceof android.widget.TextView) {
+            else if (child instanceof android.widget.TextView && !"icon_font".equals(child.getTag())) {
                 // 기존에 굵은 글씨(Bold) 설정이 되어있었다면 그 특성은 유지해 줍니다!
                 android.graphics.Typeface current = ((android.widget.TextView) child).getTypeface();
                 int style = android.graphics.Typeface.NORMAL;
@@ -9609,7 +9700,7 @@ public class MainActivity extends Activity {
                         clickFeedback();
                         if (favoritePaths.contains(songFile.getAbsolutePath())) {
                             favoritePaths.remove(songFile.getAbsolutePath());
-                            try { prefs.edit().putStringSet("favorites", favoritePaths).apply(); } catch(Exception e){}
+                            try { libraryCacheDb.setFavorite(songFile.getAbsolutePath(), false); } catch(Exception e){}
                             buildVirtualSongsForFavorites(); // 화면 즉시 갱신
                             Toast.makeText(MainActivity.instance, t("Removed from Favorites."), Toast.LENGTH_SHORT).show();
                         }
@@ -10436,17 +10527,9 @@ public class MainActivity extends Activity {
         while (it.hasNext()) if (it.next().file.getAbsolutePath().equals(path)) it.remove();
         virtualSongList.remove(f);
         trackNumberMap.remove(path);
-        if (favoritePaths.remove(path)) {
-            try { prefs.edit().putStringSet("favorites", favoritePaths).apply(); } catch (Exception ignored) {}
-        }
+        favoritePaths.remove(path);
         try {
-            prefs.edit()
-                    .remove("album_art_" + path)
-                    .remove("meta_title_" + path)
-                    .remove("meta_artist_" + path)
-                    .remove("book_pos_" + path)
-                    .remove("book_dur_" + path)
-                    .apply();
+            libraryCacheDb.deleteSongState(path);
         } catch (Exception ignored) {}
         try {
             String base = f.getName();
@@ -10593,7 +10676,7 @@ public class MainActivity extends Activity {
             }
             trackNumberMap.remove(p);
             if (favoritePaths.remove(p)) {
-                try { prefs.edit().putStringSet("favorites", favoritePaths).apply(); } catch (Exception ignored) {}
+                try { libraryCacheDb.setFavorite(p, false); } catch (Exception ignored) {}
             }
             // delete() only succeeds on empty dirs, so this safely prunes
             // the album folder and then the artist folder when they empty out
@@ -10731,11 +10814,39 @@ public class MainActivity extends Activity {
                     }
                     @Override
                     public void onError(String message) {
+                        if (item.retryCount < MAX_NAVIDROME_DOWNLOAD_RETRIES) {
+                            item.retryCount++;
+                            updateNavidromeDownloadStatus("⚠ Retry " + item.retryCount + "/" + MAX_NAVIDROME_DOWNLOAD_RETRIES
+                                    + ": " + song.title);
+                            navidromeDownloadQueue.addFirst(item); // retry this track next, ahead of the rest of the queue
+                            new Handler().postDelayed(new Runnable() {
+                                @Override public void run() { processNextNavidromeDownload(); }
+                            }, 1500);
+                            return;
+                        }
                         navidromeQueueDone++;
+                        logNavidromeDownloadError(song, message + " (gave up after " + (item.retryCount + 1) + " attempts)");
                         Toast.makeText(MainActivity.this, "❌ " + song.title + ": " + message, Toast.LENGTH_SHORT).show();
                         processNextNavidromeDownload();
                     }
                 });
+    }
+
+    /**
+     * Appends a timestamped line to a log file on the SD card so a failed download can still
+     * be diagnosed after the fact — logcat rotates out of everything within a couple of minutes.
+     */
+    private void logNavidromeDownloadError(com.themoon.y1.subsonic.SubsonicSong song, String message) {
+        try {
+            File logDir = new File("/storage/sdcard0/Y1_Logs");
+            if (!logDir.exists()) logDir.mkdirs();
+            File logFile = new File(logDir, "navidrome_download_errors.log");
+            String line = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date())
+                    + "  " + song.title + " (id=" + song.id + ")  ->  " + message + "\n";
+            java.io.FileWriter fw = new java.io.FileWriter(logFile, true);
+            fw.write(line);
+            fw.close();
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -10760,12 +10871,16 @@ public class MainActivity extends Activity {
             String genre = song.genre != null && !song.genre.isEmpty() ? song.genre : t("Unknown Genre");
             customLibrary.add(new SongItem(f, title, artist, album, year, genre));
             trackNumberMap.put(path, song.track);
+            if (libraryCacheDb != null) {
+                libraryCacheDb.upsert(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
+                        path, f.lastModified(), f.length(), title, artist, album, year, genre, song.track, false));
+            }
         } catch (Exception ignored) {}
     }
 
     /**
      * Save the album cover for a downloaded track in the launcher's own cover
-     * convention: Y1_Covers/<track filename>.jpg plus the "album_art_" pref —
+     * convention: Y1_Covers/<track filename>.jpg plus the DB's album art path —
      * the same pair fetchTrackInfoFromInternet writes and Cover Flow reads.
      */
     private void cacheNavidromeCoverForDownloadedTrack(final com.themoon.y1.subsonic.SubsonicSong song,
@@ -10792,7 +10907,7 @@ public class MainActivity extends Activity {
                                 out.close();
                                 in.close();
                             }
-                            prefs.edit().putString("album_art_" + trackPath, dest.getAbsolutePath()).apply();
+                            libraryCacheDb.setAlbumArtPath(trackPath, dest.getAbsolutePath());
                         } catch (Exception ignored) {}
                     }
                     @Override
