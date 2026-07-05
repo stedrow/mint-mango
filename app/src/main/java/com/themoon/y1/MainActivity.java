@@ -1507,9 +1507,13 @@ public class MainActivity extends Activity {
         libraryCacheDb = new com.themoon.y1.db.LibraryCacheDb(this);
         com.themoon.y1.managers.AudioPlayerManager.getInstance().restoreLastPlaybackState();
 
-        // 🚀 [Added] Silently runs an auto-scan to restore the list when the app launches (or restarts after a crash)!
-        if (customLibrary.isEmpty() && !isCustomScanning) {
-            startMediaLibraryScan();
+        // Show last-known library instantly from the cache (no disk walk) so Cover Flow /
+        // Music browsing don't sit empty on cold start; a background scan right after
+        // reconciles with the real filesystem and silently updates anything that changed.
+        loadLibraryFromCacheInstant();
+        boolean hadCachedLibrary = !customLibrary.isEmpty() || !audiobookLibrary.isEmpty();
+        if (!isCustomScanning) {
+            startMediaLibraryScan(hadCachedLibrary);
         }
         layoutMainMenu = findViewById(R.id.layout_main_menu);
         ivMainBg = findViewById(R.id.iv_main_bg);
@@ -1962,7 +1966,9 @@ public class MainActivity extends Activity {
                     startMediaLibraryScan();
                 }
                 changeScreen(STATE_BROWSER);
-                if (isCustomScanning) {
+                // Only show the blocking popup if there's genuinely nothing to browse yet —
+                // a background reconciliation scan with cached data already showing shouldn't.
+                if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
                     showLoadingPopup();
                 }
             }
@@ -2096,13 +2102,14 @@ public class MainActivity extends Activity {
     private void buildCustomLibrary(File folder, List<SongItem> targetLibrary,
                                      Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs,
                                      boolean isAudiobook,
-                                     List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries) {
+                                     List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries,
+                                     java.util.HashMap<String, Integer> targetTrackNumberMap) {
         if (!folder.exists()) return;
         File[] files = folder.listFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isDirectory()) {
-                    buildCustomLibrary(f, targetLibrary, cachedSongs, isAudiobook, freshEntries);
+                    buildCustomLibrary(f, targetLibrary, cachedSongs, isAudiobook, freshEntries, targetTrackNumberMap);
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
 
@@ -2131,9 +2138,10 @@ public class MainActivity extends Activity {
                         genre = t("Unknown Genre");   // 🚀 Translator applied!
                         trackNum = 0;
 
+                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                        java.io.FileInputStream fis = null;
                         try {
-                            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                            java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                            fis = new java.io.FileInputStream(f);
                             mmr.setDataSource(fis.getFD());
 
                             String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
@@ -2160,18 +2168,18 @@ public class MainActivity extends Activity {
                                     else trackNum = Integer.parseInt(trackStr.trim());
                                 } catch (Exception e) {}
                             }
-
-                            fis.close();
-                            mmr.release();
                         } catch (Exception e) {
                             // 💡 Even if there's no tag or the scanner fails, the app doesn't crash and safely exits into this block.
+                        } finally {
+                            if (fis != null) try { fis.close(); } catch (Exception e) {}
+                            try { mmr.release(); } catch (Exception e) {}
                         }
                     }
 
                     // 🚀 [Core fix] Add it to the bucket in the safe zone (outside the try-catch).
                     // Even if an error occurred, it's added and categorized normally using the pre-loaded defaults ("Unknown Artist", etc.)!
                     targetLibrary.add(new SongItem(f, title, artist, album, year, genre)); // 💡 All 6 fields filled in!
-                    trackNumberMap.put(path, trackNum);
+                    targetTrackNumberMap.put(path, trackNum);
                     freshEntries.add(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
                             path, mtime, size, title, artist, album, year, genre, trackNum, isAudiobook));
 
@@ -2193,25 +2201,53 @@ public class MainActivity extends Activity {
         }
     }
     // 3. Central scan engine (scans the two folders in order)
-    private void startMediaLibraryScan() {
+    /**
+     * Populates customLibrary/audiobookLibrary/trackNumberMap directly from the SQLite
+     * cache with no disk I/O — lets the UI (Cover Flow, Music browser) show last-known
+     * data instantly on cold start instead of sitting empty until a full scan finishes.
+     * A background scan should still run afterward to reconcile with the real filesystem.
+     */
+    private void loadLibraryFromCacheInstant() {
+        Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs = libraryCacheDb.loadAll();
+        if (cachedSongs.isEmpty()) return;
+
+        customLibrary.clear();
+        audiobookLibrary.clear();
+        trackNumberMap.clear();
+        for (com.themoon.y1.db.LibraryCacheDb.CachedSong cached : cachedSongs.values()) {
+            SongItem item = new SongItem(new File(cached.path), cached.title, cached.artist,
+                    cached.album, cached.year, cached.genre);
+            if (cached.isAudiobook) audiobookLibrary.add(item);
+            else customLibrary.add(item);
+            trackNumberMap.put(cached.path, cached.trackNumber);
+        }
+    }
+
+    private void startMediaLibraryScan() { startMediaLibraryScan(false); }
+
+    /** @param silent Skip the blocking "Scanning..." popup — used when the cache already
+     *  populated the library instantly and this run is just reconciling with disk in the background. */
+    private void startMediaLibraryScan(final boolean silent) {
         if (isCustomScanning) return;
         isCustomScanning = true;
 
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (pbLoadingProgress != null) pbLoadingProgress.setProgress(0);
-                if (tvLoadingProgress != null) tvLoadingProgress.setText(t("Counting files...\nPlease wait."));
-                showLoadingPopup();
-            }
-        });
+        if (!silent) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (pbLoadingProgress != null) pbLoadingProgress.setProgress(0);
+                    if (tvLoadingProgress != null) tvLoadingProgress.setText(t("Counting files...\nPlease wait."));
+                    showLoadingPopup();
+                }
+            });
+        }
 
         new Thread(new Runnable() {
             @Override
             public void run() {
-                customLibrary.clear();
-                audiobookLibrary.clear(); // 🚀 Also clear the audiobook bucket
-                trackNumberMap.clear();
+                List<SongItem> newCustomLibrary = new ArrayList<>();
+                List<SongItem> newAudiobookLibrary = new ArrayList<>();
+                java.util.HashMap<String, Integer> newTrackNumberMap = new java.util.HashMap<>();
                 totalAudioFiles = 0;
                 scannedAudioFiles = 0;
 
@@ -2224,15 +2260,15 @@ public class MainActivity extends Activity {
                 List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries = new ArrayList<>();
 
                 // 🚀 Scan both folders and put results into their respective buckets
-                buildCustomLibrary(rootFolder, customLibrary, cachedSongs, false, freshEntries);
-                buildCustomLibrary(audiobookRootFolder, audiobookLibrary, cachedSongs, true, freshEntries);
+                buildCustomLibrary(rootFolder, newCustomLibrary, cachedSongs, false, freshEntries, newTrackNumberMap);
+                buildCustomLibrary(audiobookRootFolder, newAudiobookLibrary, cachedSongs, true, freshEntries, newTrackNumberMap);
 
                 libraryCacheDb.replaceAll(freshEntries);
 
                 // Run the favorites auto-cleaner (based on Music)
                 java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
-                for (SongItem song : customLibrary) aliveSongs.add(song.file.getAbsolutePath());
-                for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath()); // 💡 Include audiobooks too!
+                for (SongItem song : newCustomLibrary) aliveSongs.add(song.file.getAbsolutePath());
+                for (SongItem book : newAudiobookLibrary) aliveSongs.add(book.file.getAbsolutePath()); // 💡 Include audiobooks too!
 
                 java.util.Iterator<String> favIterator = favoritePaths.iterator();
                 while (favIterator.hasNext()) {
@@ -2247,13 +2283,25 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         isCustomScanning = false;
-                        Toast.makeText(MainActivity.this, t("Scan Complete! Music")+": " + customLibrary.size()+" " + t("Books: ") + audiobookLibrary.size(), Toast.LENGTH_SHORT).show();
+                        // Swap the freshly reconciled results in now that scanning is done — avoids
+                        // showing a half-populated library to anything reading these lists mid-scan.
+                        customLibrary.clear();
+                        customLibrary.addAll(newCustomLibrary);
+                        audiobookLibrary.clear();
+                        audiobookLibrary.addAll(newAudiobookLibrary);
+                        trackNumberMap.clear();
+                        trackNumberMap.putAll(newTrackNumberMap);
+
+                        if (!silent) {
+                            Toast.makeText(MainActivity.this, t("Scan Complete! Music")+": " + customLibrary.size()+" " + t("Books: ") + audiobookLibrary.size(), Toast.LENGTH_SHORT).show();
+                        }
 
                         if (currentScreenState == STATE_BROWSER) {
                             if (currentBrowserMode == BROWSER_ROOT) buildFileBrowserUI();
                             else if (currentBrowserMode == BROWSER_ARTISTS) buildVirtualCategories("ARTIST");
                             else if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
                             else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
+                            else if (currentBrowserMode == BROWSER_COVER_FLOW) buildCoverFlowUI();
                         }
                     }
                 });
@@ -5106,7 +5154,9 @@ public class MainActivity extends Activity {
 
     // 🚀 [New] Song list generator dedicated to '💖 My Favorites'
     private void buildVirtualSongsForFavorites() {
-        if (isCustomScanning) {
+        // Only block on a scan that's still in progress if there's no cached library to show
+        // yet at all — a background reconciliation scan shouldn't hide already-available data.
+        if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
             showLoadingPopup();
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -5307,7 +5357,9 @@ public class MainActivity extends Activity {
 
     // 💡 3. Extract artist/album categories from the local DB (ultra-fast engine applied!)
     private void buildVirtualCategories(final String type) {
-        if (isCustomScanning) {
+        // Only block on a scan that's still in progress if there's no cached library to show
+        // yet at all — a background reconciliation scan shouldn't hide already-available data.
+        if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
             showLoadingPopup(); // 🚀 Show the nice loading popup if a scan is in progress!
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -5890,7 +5942,9 @@ public class MainActivity extends Activity {
     }
     // 💡 4. Function that pulls songs from the local DB and pushes them into the 'recycler engine'
     public void buildVirtualSongs() {
-        if (isCustomScanning) {
+        // Only block on a scan that's still in progress if there's no cached library to show
+        // yet at all — a background reconciliation scan shouldn't hide already-available data.
+        if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
             showLoadingPopup(); // 🚀 Show a large spinner popup instead of hard-to-see text!
             currentBrowserMode = BROWSER_ROOT;
             buildFileBrowserUI();
@@ -6742,7 +6796,7 @@ public class MainActivity extends Activity {
                             currentBrowserMode = BROWSER_ROOT;
                             if (customLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
                             changeScreen(STATE_BROWSER);
-                            if (isCustomScanning) showLoadingPopup();
+                            if (isCustomScanning && customLibrary.isEmpty()) showLoadingPopup();
                             break;
 
                         // 📚 Jump directly into the audiobook library (set the action to "OPEN_AUDIOBOOKS" in the theme settings to enable this!)
@@ -6751,7 +6805,7 @@ public class MainActivity extends Activity {
                             currentBrowserMode = BROWSER_ROOT;
                             if (audiobookLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
                             changeScreen(STATE_BROWSER);
-                            if (isCustomScanning) showLoadingPopup();
+                            if (isCustomScanning && audiobookLibrary.isEmpty()) showLoadingPopup();
                             break;
                         case "OPEN_BLUETOOTH": changeScreen(STATE_BLUETOOTH); break;
                         case "OPEN_SETTINGS": changeScreen(STATE_SETTINGS); break;
@@ -8246,7 +8300,12 @@ public class MainActivity extends Activity {
 
         unregisterReceiver(systemStatusReceiver);
 
-        if (instance == this) instance = null;
+        // Deliberately NOT nulling `instance` here: this is a single-Activity home launcher
+        // where MainActivity.instance is relied on everywhere (managers, MediaBtnReceiver)
+        // as the de facto app-instance handle. MediaBtnReceiver in particular must still be
+        // able to drive playback (e.g. AirPods play/pause) via this reference for the window
+        // between the Activity being torn down (screen off, memory trim) and recreated
+        // (screen unlock) — nulling it here silently breaks background media-button control.
     }
     // 💡 Function that directly blocks/allows the Android system's own hardware click-sound stream
     private void applySoundSetting() {
@@ -8579,7 +8638,12 @@ public class MainActivity extends Activity {
                         MainActivity.instance.clickFeedback();
                     }
                     // ⏯ Play/pause button
-                    else if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
+                    // AirPods send separate PLAY (126) and PAUSE (127) key codes via AVRCP —
+                    // not the combined toggle code (85) — so both must be handled here or a
+                    // resume-after-pause press while the Activity is backgrounded (screen off)
+                    // silently does nothing.
+                    else if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86
+                            || keyCode == 126 || keyCode == 127) {
                         // 🚀 [Bug fix 2] When the radio is on (activePlayer == 1), completely block the receiver from playing music too!
                         if (MainActivity.instance.activePlayer == 1) {
                             // 💡 In radio mode, ignore the bottom button and don't play music.
