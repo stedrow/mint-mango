@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private boolean isNavigatingToSubMenu = false; // 🚀 [Add one line here!] Guard that prevents focus tangling during direct access
     // 🚀 [Added] Global variable that keeps the audio channel always on standby
     private android.bluetooth.BluetoothProfile globalA2dp;
+    private Y1UsbFocusHelper usbFocusHelper;
     private BluetoothDevice targetDeviceForAudio = null; // 🚀 [Added] Target device to keep latching onto like a zombie
     private boolean isBtConnectingState = false;
     // Caps the zombie-reconnect logic below: isLikelyStowed() reads AapService's last-known ear
@@ -1231,6 +1232,7 @@ public class MainActivity extends Activity {
         installTls12TrustAll();
         // 🚀 Registers itself in a variable when the app launches.
         instance = this;
+        usbFocusHelper = new Y1UsbFocusHelper(this);
         // 🚀 [Ultra-fast cache engine activated] Allocates 1/8 of the device's max memory as a vault dedicated to album art!
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
         final int cacheSize = maxMemory / 8; // (e.g. allocates 16MB)
@@ -2088,108 +2090,148 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 2. Extract tags and put them in a bucket (specify the target bucket)
-    // cachedSongs holds tag results from the last scan (keyed by absolute path) so files whose
-    // mtime/size haven't changed skip MediaMetadataRetriever entirely; freshEntries collects the
-    // up-to-date cache rows to persist once the whole scan finishes.
-    private void buildCustomLibrary(File folder, List<SongItem> targetLibrary,
+    /** One audio file discovered during the (cheap, single-threaded) directory walk, waiting on
+     *  its tag extraction — either already resolved from cache, or running on {@link #scanExecutor}. */
+    private static final class ScanTask {
+        final File file;
+        final boolean isAudiobook;
+        final com.themoon.y1.db.LibraryCacheDb.CachedSong cachedResult; // non-null = cache hit, no future
+        final java.util.concurrent.Future<com.themoon.y1.db.LibraryCacheDb.CachedSong> future; // non-null = cache miss
+
+        ScanTask(File file, boolean isAudiobook, com.themoon.y1.db.LibraryCacheDb.CachedSong cachedResult,
+                 java.util.concurrent.Future<com.themoon.y1.db.LibraryCacheDb.CachedSong> future) {
+            this.file = file;
+            this.isAudiobook = isAudiobook;
+            this.cachedResult = cachedResult;
+            this.future = future;
+        }
+    }
+
+    /** Reads tags for one file with MediaMetadataRetriever. Runs on {@link #scanExecutor} for
+     *  cache misses so multiple files' (slow, I/O-bound) tag reads overlap instead of running
+     *  one after another. */
+    private com.themoon.y1.db.LibraryCacheDb.CachedSong extractTags(File f, long mtime, long size, boolean isAudiobook) {
+        String path = f.getAbsolutePath();
+        String title = f.getName();
+        String artist = t("Unknown Artist");
+        String album = t("Unknown Album");
+        String year = t("Unknown Year");
+        String genre = t("Unknown Genre");
+        int trackNum = 0;
+
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        java.io.FileInputStream fis = null;
+        try {
+            fis = new java.io.FileInputStream(f);
+            mmr.setDataSource(fis.getFD());
+
+            String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+            String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            // Prefer ALBUMARTIST for grouping — track-artist tags like
+            // "Coldplay • Avicii" scatter one album across the Artists list
+            String aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
+            String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+            String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
+            String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE holds the year.
+            String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
+
+            if (t != null && !t.trim().isEmpty()) title = t;
+            if (aa != null && !aa.trim().isEmpty()) artist = aa;
+            else if (a != null && !a.trim().isEmpty()) artist = a;
+            if (al != null && !al.trim().isEmpty()) album = al;
+            if (y != null && !y.trim().isEmpty()) year = y;
+            if (g != null && !g.trim().isEmpty()) genre = g;
+
+            if (trackStr != null && !trackStr.isEmpty()) {
+                try {
+                    if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
+                    else trackNum = Integer.parseInt(trackStr.trim());
+                } catch (Exception e) {}
+            }
+        } catch (Exception e) {
+            // 💡 Even if there's no tag or the scanner fails, the app doesn't crash and safely exits into this block.
+        } finally {
+            if (fis != null) try { fis.close(); } catch (Exception e) {}
+            try { mmr.release(); } catch (Exception e) {}
+        }
+        return new com.themoon.y1.db.LibraryCacheDb.CachedSong(
+                path, mtime, size, title, artist, album, year, genre, trackNum, isAudiobook);
+    }
+
+    // 2. Walk the folder tree and queue each audio file's tag lookup. cachedSongs holds tag
+    // results from the last scan (keyed by absolute path) so files whose mtime/size haven't
+    // changed skip MediaMetadataRetriever entirely — those resolve immediately with no thread
+    // hand-off. Cache misses run on scanExecutor so several (slow, I/O-bound) tag reads overlap.
+    private void buildCustomLibrary(File folder, List<ScanTask> pendingTasks,
                                      Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs,
                                      boolean isAudiobook,
-                                     List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries,
-                                     java.util.HashMap<String, Integer> targetTrackNumberMap) {
+                                     java.util.concurrent.ExecutorService scanExecutor) {
         if (!folder.exists()) return;
         File[] files = folder.listFiles();
         if (files != null) {
-            for (File f : files) {
+            for (final File f : files) {
                 if (f.isDirectory()) {
-                    buildCustomLibrary(f, targetLibrary, cachedSongs, isAudiobook, freshEntries, targetTrackNumberMap);
+                    buildCustomLibrary(f, pendingTasks, cachedSongs, isAudiobook, scanExecutor);
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
 
-                    String path = f.getAbsolutePath();
-                    long mtime = f.lastModified();
-                    long size = f.length();
-                    com.themoon.y1.db.LibraryCacheDb.CachedSong cached = cachedSongs.get(path);
-
-                    String title, artist, album, year, genre;
-                    int trackNum;
+                    final long mtime = f.lastModified();
+                    final long size = f.length();
+                    com.themoon.y1.db.LibraryCacheDb.CachedSong cached = cachedSongs.get(f.getAbsolutePath());
 
                     if (cached != null && cached.mtime == mtime && cached.size == size) {
-                        // Quick scan: file is unchanged, reuse the cached tags instead of re-reading them
-                        title = cached.title;
-                        artist = cached.artist;
-                        album = cached.album;
-                        year = cached.year;
-                        genre = cached.genre;
-                        trackNum = cached.trackNumber;
+                        // Quick scan: file is unchanged, reuse the cached tags — no thread needed
+                        pendingTasks.add(new ScanTask(f, isAudiobook, cached, null));
                     } else {
-                        // 🚀 [Fix] Load default values first so it survives even if an error causes a crash!
-                        title = f.getName(); // Use the file name in place of a missing title!
-                        artist = t("Unknown Artist"); // 🚀 Translator applied!
-                        album = t("Unknown Album");   // 🚀 Translator applied!
-                        year = t("Unknown Year");     // 🚀 Translator applied!
-                        genre = t("Unknown Genre");   // 🚀 Translator applied!
-                        trackNum = 0;
-
-                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                        java.io.FileInputStream fis = null;
-                        try {
-                            fis = new java.io.FileInputStream(f);
-                            mmr.setDataSource(fis.getFD());
-
-                            String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                            String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                            // Prefer ALBUMARTIST for grouping — track-artist tags like
-                            // "Coldplay • Avicii" scatter one album across the Artists list
-                            String aa = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
-                            String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
-                            String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-                            String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE holds the year.
-                            String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
-
-                            // 🚀 Only overwrite the "Unknown..." default with real data if the tag actually exists!
-                            if (t != null && !t.trim().isEmpty()) title = t;
-                            if (aa != null && !aa.trim().isEmpty()) artist = aa;
-                            else if (a != null && !a.trim().isEmpty()) artist = a;
-                            if (al != null && !al.trim().isEmpty()) album = al;
-                            if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 Overwrite the year
-                            if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 Overwrite the genre
-
-                            if (trackStr != null && !trackStr.isEmpty()) {
-                                try {
-                                    if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
-                                    else trackNum = Integer.parseInt(trackStr.trim());
-                                } catch (Exception e) {}
-                            }
-                        } catch (Exception e) {
-                            // 💡 Even if there's no tag or the scanner fails, the app doesn't crash and safely exits into this block.
-                        } finally {
-                            if (fis != null) try { fis.close(); } catch (Exception e) {}
-                            try { mmr.release(); } catch (Exception e) {}
-                        }
-                    }
-
-                    // 🚀 [Core fix] Add it to the bucket in the safe zone (outside the try-catch).
-                    // Even if an error occurred, it's added and categorized normally using the pre-loaded defaults ("Unknown Artist", etc.)!
-                    targetLibrary.add(new SongItem(f, title, artist, album, year, genre)); // 💡 All 6 fields filled in!
-                    targetTrackNumberMap.put(path, trackNum);
-                    freshEntries.add(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
-                            path, mtime, size, title, artist, album, year, genre, trackNum, isAudiobook));
-
-                    scannedAudioFiles++;
-                    if (totalAudioFiles > 0) {
-                        final int progress = (int) (((float) scannedAudioFiles / totalAudioFiles) * 100);
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (pbLoadingProgress != null) pbLoadingProgress.setProgress(progress);
-                                if (tvLoadingProgress != null) {
-                                    tvLoadingProgress.setText("Scanning Media: " + progress + "%\n(" + scannedAudioFiles + " / " + totalAudioFiles + ")\nDo not turn off the screen.");
-                                }
-                            }
-                        });
+                        java.util.concurrent.Future<com.themoon.y1.db.LibraryCacheDb.CachedSong> future =
+                                scanExecutor.submit(new java.util.concurrent.Callable<com.themoon.y1.db.LibraryCacheDb.CachedSong>() {
+                                    @Override
+                                    public com.themoon.y1.db.LibraryCacheDb.CachedSong call() {
+                                        return extractTags(f, mtime, size, isAudiobook);
+                                    }
+                                });
+                        pendingTasks.add(new ScanTask(f, isAudiobook, null, future));
                     }
                 }
+            }
+        }
+    }
+
+    /** Resolves every queued {@link ScanTask} (blocking on any still-running extraction, though
+     *  most finish while later folders are still being walked) and files the result into the
+     *  right library list, updating scan progress as it goes. */
+    private void finalizeScanTasks(List<ScanTask> pendingTasks, List<SongItem> newCustomLibrary,
+                                    List<SongItem> newAudiobookLibrary,
+                                    java.util.HashMap<String, Integer> newTrackNumberMap,
+                                    List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries) {
+        for (ScanTask task : pendingTasks) {
+            com.themoon.y1.db.LibraryCacheDb.CachedSong result = task.cachedResult;
+            if (result == null) {
+                try {
+                    result = task.future.get();
+                } catch (Exception e) {
+                    continue; // extraction thread crashed — skip rather than corrupt the library
+                }
+            }
+
+            SongItem item = new SongItem(task.file, result.title, result.artist, result.album, result.year, result.genre);
+            if (task.isAudiobook) newAudiobookLibrary.add(item);
+            else newCustomLibrary.add(item);
+            newTrackNumberMap.put(result.path, result.trackNumber);
+            freshEntries.add(result);
+
+            scannedAudioFiles++;
+            if (totalAudioFiles > 0) {
+                final int progress = (int) (((float) scannedAudioFiles / totalAudioFiles) * 100);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (pbLoadingProgress != null) pbLoadingProgress.setProgress(progress);
+                        if (tvLoadingProgress != null) {
+                            tvLoadingProgress.setText("Scanning Media: " + progress + "%\n(" + scannedAudioFiles + " / " + totalAudioFiles + ")\nDo not turn off the screen.");
+                        }
+                    }
+                });
             }
         }
     }
@@ -2252,9 +2294,18 @@ public class MainActivity extends Activity {
                 Map<String, com.themoon.y1.db.LibraryCacheDb.CachedSong> cachedSongs = libraryCacheDb.loadAll();
                 List<com.themoon.y1.db.LibraryCacheDb.CachedSong> freshEntries = new ArrayList<>();
 
-                // 🚀 Scan both folders and put results into their respective buckets
-                buildCustomLibrary(rootFolder, newCustomLibrary, cachedSongs, false, freshEntries, newTrackNumberMap);
-                buildCustomLibrary(audiobookRootFolder, newAudiobookLibrary, cachedSongs, true, freshEntries, newTrackNumberMap);
+                // 🚀 Walk both folders (fast) queuing tag extraction for cache misses onto a small
+                // thread pool so slow MediaMetadataRetriever reads overlap instead of serializing.
+                List<ScanTask> pendingTasks = new ArrayList<>();
+                int scanThreads = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors()));
+                java.util.concurrent.ExecutorService scanExecutor = java.util.concurrent.Executors.newFixedThreadPool(scanThreads);
+                try {
+                    buildCustomLibrary(rootFolder, pendingTasks, cachedSongs, false, scanExecutor);
+                    buildCustomLibrary(audiobookRootFolder, pendingTasks, cachedSongs, true, scanExecutor);
+                } finally {
+                    scanExecutor.shutdown();
+                }
+                finalizeScanTasks(pendingTasks, newCustomLibrary, newAudiobookLibrary, newTrackNumberMap, freshEntries);
 
                 libraryCacheDb.replaceAll(freshEntries);
 
@@ -2829,7 +2880,8 @@ public class MainActivity extends Activity {
                 }
             }
         } else if (state == STATE_BLUETOOTH || state == STATE_WIFI || state == STATE_BRIGHTNESS || state == STATE_STORAGE || state == STATE_WEBSERVER) {
-            if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER || currentScreenState == STATE_SETTINGS) {
+            if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER || currentScreenState == STATE_SETTINGS
+                    || currentScreenState == STATE_PLAYER) {
                 backTargetForUtility = currentScreenState;
             }
         }
@@ -8311,14 +8363,15 @@ public class MainActivity extends Activity {
 
             if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
                 // 🚀 [Smart short-click branching] On the player screen, the long-press was given to screen-off,
-                // so favorite (♥) toggling is elegantly rescued via a 'double-click (tap-tap!)' engine.
+                // so a double-click opens the quick menu (playback/queue/Wi-Fi/Bluetooth shortcuts,
+                // including favorite toggle) instead of firing play/pause a second time.
                 if (currentScreenState == STATE_PLAYER) {
                     long now = System.currentTimeMillis();
                     if (now - lastCenterUpTime < 300) {
                         doubleClickHandler.removeCallbacks(singleClickRunnable);
                         lastCenterUpTime = 0; // Reset the timer
                         clickFeedback();
-                        toggleFavorite(); // Double-tap to add/remove a favorite!
+                        showQuickMenu();
                     } else {
                         lastCenterUpTime = now;
                         doubleClickHandler.postDelayed(singleClickRunnable, 300);
@@ -8467,12 +8520,14 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resyncAapWithConnectedDevice();
+        if (usbFocusHelper != null) usbFocusHelper.onResume();
     }
 
     // ⭕ [Overwrite with the code below]
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (usbFocusHelper != null) usbFocusHelper.onDestroy();
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);
@@ -10697,6 +10752,155 @@ public class MainActivity extends Activity {
                 });
     }
 
+    /** Double-click center on Now Playing: playback/queue/Wi-Fi/Bluetooth shortcuts without
+     *  leaving the player screen (center long-press is already claimed by screen-off there). */
+    private void showQuickMenu() {
+        final com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        String favPath = getCurrentTrackPathForFavorites();
+        final boolean isFav = favPath != null && favoritePaths.contains(favPath);
+
+        showThemedOptionsDialog(t("Quick Menu"), null,
+                new String[]{
+                        am.isPlaying() ? "⏸  " + t("Pause") : "▶  " + t("Play"),
+                        "⏭  " + t("Next Track"),
+                        "⏮  " + t("Previous Track"),
+                        isFav ? "♥  " + t("Remove Favorite") : "♡  " + t("Add Favorite"),
+                        "🎵  " + t("View Queue"),
+                        "📶  " + t("Wi-Fi"),
+                        "🔵  " + t("Bluetooth"),
+                        t("Cancel")
+                },
+                new Runnable[]{
+                        new Runnable() { @Override public void run() { am.playOrPauseMusic(); updateGlobalStatusPlayIcon(); } },
+                        new Runnable() { @Override public void run() { am.nextTrack(); } },
+                        new Runnable() { @Override public void run() { am.prevTrack(); } },
+                        new Runnable() { @Override public void run() { toggleFavorite(); } },
+                        new Runnable() { @Override public void run() { showQueueDialog(); } },
+                        new Runnable() { @Override public void run() { changeScreen(STATE_WIFI); } },
+                        new Runnable() { @Override public void run() { changeScreen(STATE_BLUETOOTH); } },
+                        null
+                });
+    }
+
+    /** Queue viewer opened from the quick menu: click a row to jump to that track,
+     *  long-press to remove it from the queue (the currently-playing row can't be removed —
+     *  skip to it moving on is what nextTrack()/prevTrack() are for). */
+    private void showQueueDialog() {
+        if (currentPlaylist.isEmpty()) {
+            Toast.makeText(this, t("Queue is empty"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        float d = getResources().getDisplayMetrics().density;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(createButtonBackground(0xF2151515));
+        root.setPadding((int) (18 * d), (int) (14 * d), (int) (18 * d), (int) (14 * d));
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText(t("Queue") + " (" + currentPlaylist.size() + ")");
+        tvTitle.setTextSize(18f);
+        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
+        root.addView(tvTitle);
+
+        final android.widget.ListView listView = new android.widget.ListView(this);
+        listView.setDivider(null);
+        listView.setSelector(new android.graphics.drawable.ColorDrawable(0x00000000));
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, (int) (260 * d));
+        listParams.topMargin = (int) (10 * d);
+        listView.setLayoutParams(listParams);
+
+        final android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(this,
+                android.R.layout.simple_list_item_1) {
+            @Override
+            public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                TextView tv = (TextView) super.getView(position, convertView, parent);
+                String label = currentPlaylist.get(position).getName();
+                if (position == currentIndex) label = "▶  " + label;
+                tv.setText(label);
+                tv.setTextColor(position == currentIndex
+                        ? ThemeManager.getListButtonFocusedTextColor() : ThemeManager.getTextColorPrimary());
+                tv.setTypeface(ThemeManager.getCustomFont());
+                tv.setTextSize(15f);
+                tv.setPadding((int) (8 * d), (int) (10 * d), (int) (8 * d), (int) (10 * d));
+                tv.setSingleLine(true);
+                tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                return tv;
+            }
+        };
+        for (File f : currentPlaylist) adapter.add(f.getName());
+        listView.setAdapter(adapter);
+        listView.setSelection(currentIndex);
+
+        listView.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                clickFeedback();
+                dialog.dismiss();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(currentPlaylist, position);
+            }
+        });
+        listView.setOnItemLongClickListener(new android.widget.AdapterView.OnItemLongClickListener() {
+            @Override
+            public boolean onItemLongClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position == currentIndex) {
+                    Toast.makeText(MainActivity.this, t("Can't remove the track that's playing"), Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                clickFeedback();
+                currentPlaylist.remove(position);
+                if (position < currentIndex) currentIndex--;
+                adapter.clear();
+                for (File f : currentPlaylist) adapter.add(f.getName());
+                adapter.notifyDataSetChanged();
+                return true;
+            }
+        });
+
+        root.addView(listView);
+
+        TextView hint = new TextView(this);
+        hint.setText(t("Click: jump to track") + "   •   " + t("Long-press: remove"));
+        hint.setTextSize(11f);
+        hint.setTypeface(ThemeManager.getCustomFont());
+        hint.setTextColor(ThemeManager.getTextColorSecondary());
+        hint.setPadding(0, (int) (8 * d), 0, 0);
+        root.addView(hint);
+
+        // Wheel rotation → list scroll. 21/22 are the wheel's synthetic key codes, same
+        // translation used for browser ListViews elsewhere in this file.
+        dialog.setOnKeyListener(new DialogInterface.OnKeyListener() {
+            @Override
+            public boolean onKey(DialogInterface di, int keyCode, KeyEvent event) {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode == 21) {
+                    listView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
+                    clickFeedback();
+                    return true;
+                }
+                if (keyCode == 22) {
+                    listView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
+                    clickFeedback();
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f),
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        dialog.show();
+        listView.requestFocus();
+    }
+
     /** Long-press menu for library songs: playlist add or delete from device. */
     public void showSongOptionsDialog(final java.io.File file) {
         showThemedOptionsDialog(file.getName(), null,
@@ -10795,10 +10999,24 @@ public class MainActivity extends Activity {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
 
+        final int maxScrollHeightPx = (int) (getResources().getDisplayMetrics().heightPixels * 0.8f);
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                // Caps how tall this can grow so long option lists (e.g. the quick menu) scroll
+                // instead of running off-screen, while short dialogs still just wrap to content.
+                int capped = android.view.View.MeasureSpec.makeMeasureSpec(maxScrollHeightPx, android.view.View.MeasureSpec.AT_MOST);
+                super.onMeasure(widthMeasureSpec, capped);
+            }
+        };
+        scroll.setBackground(createButtonBackground(0xF2151515));
+        scroll.setVerticalScrollBarEnabled(false);
+
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(createButtonBackground(0xF2151515));
         root.setPadding((int) (18 * d), (int) (14 * d), (int) (18 * d), (int) (14 * d));
+        scroll.addView(root, new android.widget.ScrollView.LayoutParams(
+                android.widget.ScrollView.LayoutParams.MATCH_PARENT, android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView tvTitle = new TextView(this);
         tvTitle.setText(title);
@@ -10860,7 +11078,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        dialog.setContentView(root);
+        dialog.setContentView(scroll);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
             dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.88f),
