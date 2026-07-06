@@ -355,7 +355,7 @@ public class MainActivity extends Activity {
     private java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
     private boolean isNavidromeLoading = false;
     private boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
-    private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the PC Upload web UI
+    private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the Web Server web UI
     private int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
 
     // Navidrome download queue — one transfer at a time (the ~190kbps link can't
@@ -408,6 +408,7 @@ public class MainActivity extends Activity {
 
     private Button btnNowPlaying, btnPlay, btnSettings, btnBluetooth, btnRadio;
     private Button btnScanBt, btnScanWifi;
+    private LinearLayout btnWifiWebServer;
 
     private TextView tvKeyboardSsid, tvKeyboardInput;
     private TextView tvKeyPprev, tvKeyPrev, tvKeyCurrent, tvKeyNext, tvKeyNnext;
@@ -469,6 +470,8 @@ public class MainActivity extends Activity {
 
     private int lastSettingsFocusIndex = 0;
     private int currentSettingsDepth = 1;
+    private static final int GROUP_PLAYBACK = 0, GROUP_SOUND = 1, GROUP_CONNECTIVITY = 2, GROUP_DISPLAY = 3, GROUP_STORAGE = 4, GROUP_SYSTEM = 5;
+    private int currentSettingsGroup = GROUP_PLAYBACK;
     private boolean isScreenSleeping = false;
     private long lastScreenOnTime = 0;
     // 💡 [Added] Custom battery view variable
@@ -1637,11 +1640,11 @@ public class MainActivity extends Activity {
             // 5. Storage
             ((TextView) ((android.view.ViewGroup) layoutStorageMode).getChildAt(0)).setText(t("Storage"));
             // 6. Web Server
-            ((TextView) ((android.view.ViewGroup) layoutWebServerMode).getChildAt(0)).setText(t("Wireless PC Upload"));
+            ((TextView) ((android.view.ViewGroup) layoutWebServerMode).getChildAt(0)).setText(t("Web Server"));
         } catch (Exception e) {
             // Guard so the app doesn't crash even if the layout structure differs
         }
-        // 🚀 [Added from here] Adjust the PC Upload screen's text height and spacing
+        // 🚀 [Added from here] Adjust the Web Server screen's text height and spacing
         float dt = getResources().getDisplayMetrics().density;
 
         try {
@@ -1650,7 +1653,6 @@ public class MainActivity extends Activity {
             android.widget.TextView tvHeader = (android.widget.TextView) webLayout.getChildAt(0);
 
             // 💡 Feel free to change this to whatever title you want!
-          //  tvHeader.setText("Wireless PC Upload");
 
             // 💡 If you'd like, you can also change the top title's font size or color here.
             // tvHeader.setTextSize(26);
@@ -1748,7 +1750,6 @@ public class MainActivity extends Activity {
         btnBluetooth = findViewById(R.id.btn_bluetooth);
         btnRadio = findViewById(R.id.btn_radio);
         ((android.view.View) btnRadio.getParent()).setVisibility(View.VISIBLE);
-        Button btnWebServer = findViewById(R.id.btn_webserver);
         Button btnNavidrome = findViewById(R.id.btn_navidrome);
         tvPlayerTitle = findViewById(R.id.tv_player_title);
         tvPlayerArtist = findViewById(R.id.tv_player_artist);
@@ -1919,16 +1920,8 @@ public class MainActivity extends Activity {
         setupMenuButton(btnBluetooth, R.drawable.bluetooth_circle, "icon_bluetooth.png");
         setupMenuButton(btnSettings, R.drawable.setting_circle, "icon_setting.png");
         setupMenuButton(btnRadio, R.drawable.radio_circle, "icon_radio.png");
-        setupMenuButton(btnWebServer, R.drawable.file_sync, "icon_server.png");
         setupMenuButton(btnNavidrome, R.drawable.ic_wifi, "icon_navidrome.png");
 
-        // [Added in the click-listener section]
-        btnWebServer.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_WEBSERVER);
-            }
-        });
         btnNavidrome.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2012,7 +2005,6 @@ public class MainActivity extends Activity {
                 startWifiScan();
             }
         });
-
         clockHandler.post(clockTask);
 
         IntentFilter filter = new IntentFilter();
@@ -2507,7 +2499,7 @@ public class MainActivity extends Activity {
     }
     // 💡 [Added] A dedicated screen that shows the full theme list and lets the user pick one
     private void buildThemeSelectorUI() {
-        currentSettingsDepth = 1; // 🚀 Main settings is depth 0
+        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
         File themeFolder = new File("/storage/sdcard0/Y1_Themes");
         ThemeManager.loadThemesFromStorage(themeFolder);
 
@@ -3419,6 +3411,16 @@ public class MainActivity extends Activity {
             });
             containerWifiItems.addView(btnToggle, 0);
 
+            btnWifiWebServer = createSettingRow(t("Web Server"), "〉 ");
+            btnWifiWebServer.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    changeScreen(STATE_WEBSERVER);
+                }
+            });
+            containerWifiItems.addView(btnWifiWebServer, 0);
+
             if (btnScanWifi.getParent() != null) {
                 ((android.view.ViewGroup) btnScanWifi.getParent()).removeView(btnScanWifi);
             }
@@ -3435,11 +3437,14 @@ public class MainActivity extends Activity {
                 else
                     tvRight.setTextColor(0xFFFFFFFF);
             }
-            for (int i = containerWifiItems.getChildCount() - 1; i > 0; i--) {
+            for (int i = containerWifiItems.getChildCount() - 1; i >= 0; i--) {
                 View v = containerWifiItems.getChildAt(i);
-                if (v != btnScanWifi) {
+                if (v != btnScanWifi && v != btnWifiWebServer && v.getId() != 999992) {
                     containerWifiItems.removeViewAt(i);
                 }
+            }
+            if (btnWifiWebServer.getParent() == null) {
+                containerWifiItems.addView(btnWifiWebServer, 0);
             }
         }
 
@@ -3768,7 +3773,105 @@ public class MainActivity extends Activity {
         final int targetFocusIndex = lastSettingsFocusIndex;
         containerSettingsItems.removeAllViews();
 
-        // createCategoryHeader("━ QUICK SETTINGS ━");
+        LinearLayout btnGroupPlayback = createSettingRow(t("Playback"), "〉 ");
+        btnGroupPlayback.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildPlaybackGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupPlayback);
+
+        LinearLayout btnGroupSound = createSettingRow(t("Sound & Vibration"), "〉 ");
+        btnGroupSound.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildSoundVibrationGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupSound);
+
+        LinearLayout btnGroupConnectivity = createSettingRow(t("Connectivity"), "〉 ");
+        btnGroupConnectivity.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildConnectivityGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupConnectivity);
+
+        LinearLayout btnGroupDisplay = createSettingRow(t("Display & Interface"), "〉 ");
+        btnGroupDisplay.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildDisplayInterfaceGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupDisplay);
+
+        LinearLayout btnGroupStorage = createSettingRow(t("Storage & Library"), "〉 ");
+        btnGroupStorage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildStorageLibraryGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupStorage);
+
+        LinearLayout btnGroupSystem = createSettingRow(t("System"), "〉 ");
+        btnGroupSystem.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildSystemGroupUI();
+            }
+        });
+        containerSettingsItems.addView(btnGroupSystem);
+
+        // 🚀 [Fix] Force-move to the correct position using the uncorrupted, safely backed-up index (targetFocusIndex)!
+        containerSettingsItems.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
+                    View target = containerSettingsItems.getChildAt(targetFocusIndex);
+                    target.requestFocus();
+
+                    // Force the ScrollView to find that button's position and scroll all the way down to it!
+                    if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
+                        ((android.widget.ScrollView) containerSettingsItems.getParent())
+                                .requestChildFocus(containerSettingsItems, target);
+                    }
+
+                    // Sync the variable state after the move is complete.
+                    lastSettingsFocusIndex = targetFocusIndex;
+                } else if (containerSettingsItems.getChildCount() > 0) {
+                    containerSettingsItems.getChildAt(0).requestFocus();
+                }
+            }
+        }, 50);
+    } // end of buildSettingsUI function
+
+    private void routeBackToSettingsGroup() {
+        switch (currentSettingsGroup) {
+            case GROUP_PLAYBACK: buildPlaybackGroupUI(); break;
+            case GROUP_SOUND: buildSoundVibrationGroupUI(); break;
+            case GROUP_CONNECTIVITY: buildConnectivityGroupUI(); break;
+            case GROUP_DISPLAY: buildDisplayInterfaceGroupUI(); break;
+            case GROUP_STORAGE: buildStorageLibraryGroupUI(); break;
+            case GROUP_SYSTEM: buildSystemGroupUI(); break;
+            default: buildSettingsUI();
+        }
+    }
+
+    private void buildPlaybackGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_PLAYBACK;
+        containerSettingsItems.removeAllViews();
 
         final LinearLayout btnShuffle = createSettingRow("Shuffle Mode", isShuffleMode ? t("ON") : t("OFF"));
         btnShuffle.setOnClickListener(new View.OnClickListener() {
@@ -3817,13 +3920,12 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnRepeat);
 
-        // 🚀 1. Show EQ on the main settings screen
         String eqDisplayName = "Normal";
         if (currentEqProfile.startsWith("preset_")) {
             int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-            if (pIdx < eqPresetNames.size()) eqDisplayName = t(eqPresetNames.get(pIdx)); // 🚀 Run OS data through the translator!
+            if (pIdx < eqPresetNames.size()) eqDisplayName = t(eqPresetNames.get(pIdx));
         } else {
-            eqDisplayName = currentEqProfile.replace("custom_", ""); // 🚀 Translate the label too!
+            eqDisplayName = currentEqProfile.replace("custom_", "");
         }
         final LinearLayout btnEq = createSettingRow("Equalizer & Audio Effects", eqDisplayName + " 〉");
 
@@ -3835,11 +3937,10 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnEq);
-// 🚀 [New] Control switch for Google ExoPlayer time stretching (playback speed)!
+
         final String[] speedLabels = {"1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)"};
         final float[] speedValues = {1.0f, 1.2f, 1.5f, 2.0f};
 
-        // Check which index the currently applied speed is at
         float currentSpd = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentSpeed();
         int spdIdx = 0;
         for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == currentSpd) spdIdx = i; }
@@ -3853,21 +3954,44 @@ public class MainActivity extends Activity {
                 int nextIdx = 0;
                 for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == current) nextIdx = (i + 1) % speedValues.length; }
 
-                // Immediately inject the new speed into the engine! (speeds up cleanly, no chipmunk voice)
                 com.themoon.y1.managers.AudioPlayerManager.getInstance().setPlaybackSpeed(speedValues[nextIdx]);
 
                 TextView tvStatus = (TextView) btnSpeed.getChildAt(1);
-                tvStatus.setText(t(speedLabels[nextIdx])); // 🚀 Make sure to run it through the translator t() on click too!
+                tvStatus.setText(t(speedLabels[nextIdx]));
                 android.widget.Toast.makeText(MainActivity.this, t("Speed set to ") + t(speedLabels[nextIdx]), android.widget.Toast.LENGTH_SHORT).show();
             }
         });
         containerSettingsItems.addView(btnSpeed);
+
+        final LinearLayout btnAutoFetch = createSettingRow("Auto Fetch Album Art", isAutoFetchEnabled ? t("ON") : t("OFF"));
+        btnAutoFetch.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isAutoFetchEnabled = !isAutoFetchEnabled;
+                ((TextView) btnAutoFetch.getChildAt(1)).setText(isAutoFetchEnabled ? t("ON") : t("OFF"));
+                try {
+                    prefs.edit().putBoolean("auto_fetch", isAutoFetchEnabled).apply();
+                } catch (Exception e) {
+                }
+            }
+        });
+        containerSettingsItems.addView(btnAutoFetch);
+
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void buildSoundVibrationGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_SOUND;
+        containerSettingsItems.removeAllViews();
+
         final LinearLayout btnSound = createSettingRow("Button Sound", isSoundEffectEnabled ? t("ON") : t("OFF"));
         btnSound.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 isSoundEffectEnabled = !isSoundEffectEnabled;
-                applySoundSetting(); // 💡 [Add here] Immediately control system mute as the user presses
+                applySoundSetting();
                 clickFeedback();
                 TextView tvStatus = (TextView) btnSound.getChildAt(1);
                 tvStatus.setText(isSoundEffectEnabled ? t("ON") : t("OFF"));
@@ -3901,10 +4025,95 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                buildVibrationSettingsUI(); // 🚀 Open the newly built vibration sub-menu!
+                buildVibrationSettingsUI();
             }
         });
         containerSettingsItems.addView(btnVibrateMenu);
+
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void buildConnectivityGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_CONNECTIVITY;
+        containerSettingsItems.removeAllViews();
+
+        LinearLayout btnWifiMenu = createSettingRow(t("Wi-Fi"), "〉 ");
+        btnWifiMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeScreen(STATE_WIFI);
+                clickFeedback();
+            }
+        });
+        containerSettingsItems.addView(btnWifiMenu);
+
+        LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
+        btnBtMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeScreen(STATE_BLUETOOTH);
+                clickFeedback();
+            }
+        });
+        containerSettingsItems.addView(btnBtMenu);
+
+        LinearLayout btnServerMenu = createSettingRow(t("Web Server"), "〉 ");
+        btnServerMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeScreen(STATE_WEBSERVER);
+                clickFeedback();
+            }
+        });
+        containerSettingsItems.addView(btnServerMenu);
+
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void buildDisplayInterfaceGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_DISPLAY;
+        containerSettingsItems.removeAllViews();
+
+        final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
+        btnTheme.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildThemeSelectorUI();
+            }
+        });
+        containerSettingsItems.addView(btnTheme);
+
+        LinearLayout btnBgMenu = createSettingRow("Background", "〉 ");
+        btnBgMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildBackgroundSettingsUI();
+            }
+        });
+        containerSettingsItems.addView(btnBgMenu);
+
+        final LinearLayout btnMenuVisibility = createSettingRow("Main Menu Items", t("Edit") + " 〉");
+        btnMenuVisibility.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildMainMenuVisibilitySettingsUI();
+
+                containerSettingsItems.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (containerSettingsItems.getChildCount() > 0) {
+                            containerSettingsItems.getChildAt(0).requestFocus();
+                        }
+                    }
+                }, 50);
+            }
+        });
+        containerSettingsItems.addView(btnMenuVisibility);
 
         final LinearLayout btnScreenOffCtrl = createSettingRow("Screen-Off Control",
                 isScreenOffControlEnabled ? t("ON") : t("OFF"));
@@ -3938,40 +4147,7 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnWheelLock);
-        // 🚀 [Modified theme settings button]
-        final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
-        btnTheme.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                // Pressing it no longer cycles — it now goes to the full theme list screen!
-                buildThemeSelectorUI();
-            }
-        });
-        containerSettingsItems.addView(btnTheme);
 
-// 🚀 [New engine] Entry point for the sub-menu that lets you individually show/hide main-screen buttons
-        final LinearLayout btnMenuVisibility = createSettingRow("Main Menu Items", t("Edit") + " 〉");
-        btnMenuVisibility.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildMainMenuVisibilitySettingsUI(); // Open the long-awaited individual-hide editor screen!
-
-                // 🚀 [Force initial-entry focus] As soon as the sub-menu opens, magnetically snap focus to item 0!
-                containerSettingsItems.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (containerSettingsItems.getChildCount() > 0) {
-                            containerSettingsItems.getChildAt(0).requestFocus();
-                        }
-                    }
-                }, 50); // Wait for the brief screen-transition moment (50ms) before locking focus in perfectly
-            }
-        });
-        containerSettingsItems.addView(btnMenuVisibility);
-
-        // 🚀 [Wheel-loop bug fix] Instantly refreshes the main-screen link chain!
         final LinearLayout btnLoopScrollToggle = createSettingRow("Wheel Loop Scroll", isLoopScrollOn ? t("ON") : t("OFF"));
         btnLoopScrollToggle.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3980,20 +4156,16 @@ public class MainActivity extends Activity {
                 isLoopScrollOn = !isLoopScrollOn;
                 ((TextView) btnLoopScrollToggle.getChildAt(1)).setText(isLoopScrollOn ? t("ON") : t("OFF"));
                 prefs.edit().putBoolean("loop_scroll_on", isLoopScrollOn).apply();
-
-                // 💡 [Core fix] The instant the switch is toggled, re-weave the main-screen focus chain in the background!
-               // applyThemeToMainMenu();
             }
         });
         containerSettingsItems.addView(btnLoopScrollToggle);
+
         final LinearLayout btnTimeout = createSettingRow("Screen Timeout", t(TIMEOUT_NAMES[currentTimeoutIndex]));
         btnTimeout.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
                 currentTimeoutIndex = (currentTimeoutIndex + 1) % TIMEOUT_VALUES.length;
-
-                // 🚀 [Fix complete] Make sure the text is always passed through the translator t() when it changes on button press too!
                 ((TextView) btnTimeout.getChildAt(1)).setText(t(TIMEOUT_NAMES[currentTimeoutIndex]));
 
                 try {
@@ -4007,13 +4179,158 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        // (existing timeout button code)
         containerSettingsItems.addView(btnTimeout);
 
+        LinearLayout btnBrightMenu = createSettingRow("Display Brightness", "〉 ");
+        btnBrightMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeScreen(STATE_BRIGHTNESS);
+                clickFeedback();
+            }
+        });
+        containerSettingsItems.addView(btnBrightMenu);
 
-        // (existing code for the Power Off menu etc. continues below...)
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
 
-        // createCategoryHeader("━ SYSTEM MENUS ━");
+    private void buildStorageLibraryGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_STORAGE;
+        containerSettingsItems.removeAllViews();
+
+        LinearLayout btnStorageMenu = createSettingRow("Storage", "〉 ");
+        btnStorageMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                changeScreen(STATE_STORAGE);
+                clickFeedback();
+            }
+        });
+        containerSettingsItems.addView(btnStorageMenu);
+
+        LinearLayout btnClearCache = createSettingRow("Clear Album Art & Info", "〉 ");
+        btnClearCache.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(t("Clear Cache & Track Info"))
+                        .setMessage(t("Delete all downloaded album covers and saved track information (Title/Artist)?"))
+                        .setPositiveButton(t("Clear"), new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    File coverFolder = new File("/storage/sdcard0/Y1_Covers");
+                                    int count = 0;
+                                    if (coverFolder.exists()) {
+                                        File[] files = coverFolder.listFiles();
+                                        if (files != null) {
+                                            for (File f : files) {
+                                                if (f.isFile() && f.delete())
+                                                    count++;
+                                            }
+                                        }
+                                    }
+
+                                    libraryCacheDb.clearAllMetaAndArt();
+
+                                    Toast.makeText(MainActivity.this, "Deleted " + count + " covers & cleared track info.",
+                                            Toast.LENGTH_SHORT).show();
+
+                                    ivAlbumArt.setImageResource(R.drawable.default_album);
+                                    ivPlayerBgBlur.setImageResource(0);
+                                    lastAlbumArtBytes = null;
+
+                                    if (!currentPlaylist.isEmpty()) {
+                                        File currentFile = currentPlaylist.get(currentIndex);
+                                        tvPlayerTitle.setText(currentFile.getName());
+                                        tvPlayerArtist.setText("Unknown Artist");
+                                    }
+
+                                    updateMainMenuBackground();
+                                    refreshNowPlayingPreview();
+                                } catch (Exception e) {
+                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        })
+                        .setNegativeButton(t("Cancel"), null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnClearCache);
+
+        LinearLayout btnRebuildCache = createSettingRow("Rebuild Library Cache", "〉 ");
+        btnRebuildCache.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(t("Rebuild Library Cache"))
+                        .setMessage(t("Re-scan every song and re-read its tags from scratch? This is slower than a normal scan but fixes a stale or incorrect cache."))
+                        .setPositiveButton(t("Rebuild"), new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                if (libraryCacheDb != null) libraryCacheDb.clear();
+                                startMediaLibraryScan();
+                            }
+                        })
+                        .setNegativeButton(t("Cancel"), null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnRebuildCache);
+
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
+
+    private void buildSystemGroupUI() {
+        currentSettingsDepth = 1;
+        currentSettingsGroup = GROUP_SYSTEM;
+        containerSettingsItems.removeAllViews();
+
+        LinearLayout btnTime = createSettingRow("Date & Time", "〉");
+        btnTime.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+
+                java.util.Calendar c = java.util.Calendar.getInstance();
+                dtYear = c.get(java.util.Calendar.YEAR);
+                dtMonth = c.get(java.util.Calendar.MONTH) + 1;
+                dtDay = c.get(java.util.Calendar.DAY_OF_MONTH);
+                dtHour = c.get(java.util.Calendar.HOUR_OF_DAY);
+                dtMinute = c.get(java.util.Calendar.MINUTE);
+
+                buildDateTimeUI();
+            }
+        });
+        containerSettingsItems.addView(btnTime);
+
+        String myVersionName = "1.0";
+        try {
+            myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+        }
+        String displayLang = com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName.replace(".json", "");
+        LinearLayout btnLangMenu = createSettingRow("Language", displayLang);
+        btnLangMenu.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildLanguageSelectorUI();
+            }
+        });
+        containerSettingsItems.addView(btnLangMenu);
+
+        LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
+        btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildUpdateSettingsUI();
+            }
+        });
+        containerSettingsItems.addView(btnUpdateCheck);
 
         LinearLayout btnPowerOff = createSettingRow("Power Off", "〉 ");
         btnPowerOff.setOnClickListener(new View.OnClickListener() {
@@ -4047,34 +4364,30 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnPowerOff);
-        // 🚀 [Added] Innovative switch button that instantly swaps to Rockbox without a reboot!
+
         LinearLayout btnSwitchRockbox = createSettingRow(t("Switch to Rockbox"), "〉 ");
         btnSwitchRockbox.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
 
-                // 🚀 1. First, safely check whether the Rockbox app is installed on the device!
                 boolean isRockboxInstalled = false;
                 try {
-                    // Query whether Rockbox's package name (org.rockbox) exists.
                     getPackageManager().getPackageInfo("org.rockbox", 0);
                     isRockboxInstalled = true;
                 } catch (android.content.pm.PackageManager.NameNotFoundException e) {
                     isRockboxInstalled = false;
                 }
 
-                // 🚀 2. If it isn't installed, show a warning popup and stop immediately.
                 if (!isRockboxInstalled) {
                         new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                                 .setTitle(t("Not Installed ⚠️"))
                                 .setMessage(t("Rockbox is not installed on this device.\nPlease install the Rockbox app (.apk) first."))
                                 .setPositiveButton(t("OK"), null)
                             .show();
-                    return; // Stop here! Don't run the switch-over code below.
+                    return;
                 }
 
-                // 🚀 3. If it is properly installed, attempt the switch as before.
                 new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                         .setTitle(t("Switch to Rockbox"))
                         .setMessage(t("Do you want to switch to Rockbox instantly without rebooting?"))
@@ -4083,7 +4396,6 @@ public class MainActivity extends Activity {
                                 try {
                                     Toast.makeText(MainActivity.this, "Switching to Rockbox...", Toast.LENGTH_SHORT).show();
 
-                                    // 💡 [Key technique] Enable Rockbox -> launch it -> disable the current launcher (JJ)
                                     String cmd = "pm enable org.rockbox && am start -n org.rockbox/.RockboxActivity && pm disable com.themoon.y1";
 
                                     Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
@@ -4098,236 +4410,12 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnSwitchRockbox);
-        LinearLayout btnServerMenu = createSettingRow(t("Web Server"), "〉 ");
-        btnServerMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_WEBSERVER);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnServerMenu);
 
-        LinearLayout btnWifiMenu = createSettingRow(t("Wi-Fi"), "〉 ");
-        btnWifiMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_WIFI);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnWifiMenu);
-        // 🚀 [Added 1] Toggle automatic internet lookup of album art and track info on/off
-        final LinearLayout btnAutoFetch = createSettingRow("Auto Fetch Album Art", isAutoFetchEnabled ? t("ON") : t("OFF"));
-        btnAutoFetch.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isAutoFetchEnabled = !isAutoFetchEnabled;
-                ((TextView) btnAutoFetch.getChildAt(1)).setText(isAutoFetchEnabled ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("auto_fetch", isAutoFetchEnabled).apply();
-                } catch (Exception e) {
-                }
-            }
-        });
-        containerSettingsItems.addView(btnAutoFetch);
-        // 🚀 [Fix] Wipe out both the album art images stored on the device and the saved track info (title, artist) at once!
-        LinearLayout btnClearCache = createSettingRow("Clear Album Art & Info", "〉 ");
-        btnClearCache.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Clear Cache & Track Info"))
-                        .setMessage(t("Delete all downloaded album covers and saved track information (Title/Artist)?"))
-                        .setPositiveButton(t("Clear"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    // 1. Delete the physical image file (album cover)
-                                    File coverFolder = new File("/storage/sdcard0/Y1_Covers");
-                                    int count = 0;
-                                    if (coverFolder.exists()) {
-                                        File[] files = coverFolder.listFiles();
-                                        if (files != null) {
-                                            for (File f : files) {
-                                                if (f.isFile() && f.delete())
-                                                    count++;
-                                            }
-                                        }
-                                    }
-
-                                    // 🚀 2. [Key addition] Also wipe the title, artist, and album-art info stored in the DB
-                                    libraryCacheDb.clearAllMetaAndArt();
-
-                                    Toast.makeText(MainActivity.this, "Deleted " + count + " covers & cleared track info.",
-                                            Toast.LENGTH_SHORT).show();
-
-                                    // 3. Reset the image left on the main screen back to the default icon.
-                                    ivAlbumArt.setImageResource(R.drawable.default_album);
-                                    ivPlayerBgBlur.setImageResource(0);
-                                    lastAlbumArtBytes = null;
-
-                                    // 🚀 4. [Added] Also immediately revert the currently playing track's title and artist back to the original file name
-                                    if (!currentPlaylist.isEmpty()) {
-                                        File currentFile = currentPlaylist.get(currentIndex);
-                                        tvPlayerTitle.setText(currentFile.getName());
-                                        tvPlayerArtist.setText("Unknown Artist");
-                                    }
-
-                                    updateMainMenuBackground();
-                                    refreshNowPlayingPreview();
-                                } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnClearCache);
-
-        // 🚀 Force a full re-scan that ignores the tag cache — useful if tags were edited
-        // externally or the cache is suspected to be stale.
-        LinearLayout btnRebuildCache = createSettingRow("Rebuild Library Cache", "〉 ");
-        btnRebuildCache.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Rebuild Library Cache"))
-                        .setMessage(t("Re-scan every song and re-read its tags from scratch? This is slower than a normal scan but fixes a stale or incorrect cache."))
-                        .setPositiveButton(t("Rebuild"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                if (libraryCacheDb != null) libraryCacheDb.clear();
-                                startMediaLibraryScan();
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnRebuildCache);
-
-        LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
-        btnBtMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_BLUETOOTH);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnBtMenu);
-
-        LinearLayout btnBrightMenu = createSettingRow("Display Brightness", "〉 ");
-        btnBrightMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_BRIGHTNESS);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnBrightMenu);
-
-        LinearLayout btnStorageMenu = createSettingRow("Storage", "〉 ");
-        btnStorageMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_STORAGE);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnStorageMenu);
-
-        // 🚀 [Fix] Merge the two scattered background features into a single sub-menu called 'Background Settings'!
-        LinearLayout btnBgMenu = createSettingRow("Background", "〉 ");
-        btnBgMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildBackgroundSettingsUI(); // 🚀 Show the background settings sub-menu built above!
-            }
-        });
-        containerSettingsItems.addView(btnBgMenu);
-
-        LinearLayout btnTime = createSettingRow("Date & Time", "〉");
-        btnTime.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-
-                // Read the system time first and store it in a temporary variable.
-                java.util.Calendar c = java.util.Calendar.getInstance();
-                dtYear = c.get(java.util.Calendar.YEAR);
-                dtMonth = c.get(java.util.Calendar.MONTH) + 1;
-                dtDay = c.get(java.util.Calendar.DAY_OF_MONTH);
-                dtHour = c.get(java.util.Calendar.HOUR_OF_DAY);
-                dtMinute = c.get(java.util.Calendar.MINUTE);
-
-                // Show the pretty new list screen we built.
-                buildDateTimeUI();
-            }
-        });
-        containerSettingsItems.addView(btnTime);
-        // 🚀 [Fix] On the main settings screen, just show my version briefly in the shell, and tapping it navigates to the sub-page!
-        String myVersionName = "1.0";
-        try {
-            myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception e) {
-        }
-// 🚀 1. Read the current device's airplane-mode state. (Global setting, based on Jelly Bean 4.2)
-        boolean isAirplaneModeOn = false;
-        try {
-            isAirplaneModeOn = android.provider.Settings.Global.getInt(getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
-        } catch (Exception e) {}
-// 🚀 [Detail fix] Only strip the ".json" suffix down to an empty string ("") when displaying it on screen!
-        String displayLang = com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName.replace(".json", "");
-        LinearLayout btnLangMenu = createSettingRow("Language", displayLang);
-        btnLangMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildLanguageSelectorUI(); // Open the language selector sub-menu
-            }
-        });
-        containerSettingsItems.addView(btnLangMenu);
-
-        LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
-        btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildUpdateSettingsUI(); // 🚀 Open the newly built sub-page instead of a popup!
-            }
-        });
-        containerSettingsItems.addView(btnUpdateCheck);
-
-        // 🚀 [Fix] Force-move to the correct position using the uncorrupted, safely backed-up index (targetFocusIndex)!
-        containerSettingsItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
-                    View target = containerSettingsItems.getChildAt(targetFocusIndex);
-                    target.requestFocus();
-
-                    // Force the ScrollView to find that button's position and scroll all the way down to it!
-                    if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
-                        ((android.widget.ScrollView) containerSettingsItems.getParent())
-                                .requestChildFocus(containerSettingsItems, target);
-                    }
-
-                    // Sync the variable state after the move is complete.
-                    lastSettingsFocusIndex = targetFocusIndex;
-                } else if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
-    } // end of buildSettingsUI function / end of buildSettingsUI function
+        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    }
     // 💡 [New] Screen dedicated to selecting a language pack
     private void buildLanguageSelectorUI() {
-        currentSettingsDepth = 1;
+        currentSettingsDepth = 2;
         containerSettingsItems.removeAllViews();
 
         final com.themoon.y1.managers.LanguageManager langMgr = com.themoon.y1.managers.LanguageManager.getInstance(this);
@@ -4696,7 +4784,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildUpdateSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 Main settings is depth 0
+        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
         containerSettingsItems.removeAllViews();
 
         // 1. Get my device's current version
@@ -4835,7 +4923,7 @@ public class MainActivity extends Activity {
     }
     // 💡 [New] Dedicated sub-menu for vibration ON/OFF and intensity control!
     private void buildVibrationSettingsUI() {
-        currentSettingsDepth = 1; // Tell the system we've left the main settings screen
+        currentSettingsDepth = 2; // Tell the system we've left the main settings screen
         containerSettingsItems.removeAllViews();
 
         // 1. Vibration power switch
@@ -4970,7 +5058,7 @@ public class MainActivity extends Activity {
     }
     // 💡 [Added] Sub-menu screen that combines setting and clearing the wallpaper into one
     private void buildBackgroundSettingsUI() {
-        currentSettingsDepth = 1; // 🚀 Main settings is depth 0
+        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
         containerSettingsItems.removeAllViews();
 
         // 1. Set-new-background button
@@ -7793,13 +7881,16 @@ public class MainActivity extends Activity {
                         applyThemeToMainMenu(); // 🚀 Added! Fully refresh the main screen when fully exiting the settings window!
                         changeScreen(STATE_MENU);
                     } else if (currentSettingsDepth == 1) {
-                        buildSettingsUI(); // If it's a sub-menu window (depth 1), go back one step to the main settings window!
+                        buildSettingsUI(); // If it's a group screen (depth 1), go back one step to the group-selector root!
                     } else if (currentSettingsDepth == 2) {
-                        // Handling for exiting an even deeper window (depth 2), like EQ
+                        // A leaf sub-menu directly under a group (depth 2) — go back one step to that group!
+                        routeBackToSettingsGroup();
+                    } else if (currentSettingsDepth == 3) {
+                        // Handling for exiting an even deeper window (depth 3), like EQ presets or the date/time picker
                         if (settingsSubMode == 2 || settingsSubMode == 3) {
                             buildEqualizerSettingsUI();
                         } else {
-                            buildSettingsUI();
+                            routeBackToSettingsGroup();
                         }
                     }
                     clickFeedback();
@@ -8494,7 +8585,7 @@ public class MainActivity extends Activity {
 
     // 💡 1. Main date/time settings screen (time-error and focus-lock bugs fully fixed version)
     private void buildDateTimeUI() {
-        currentSettingsDepth = 1; // 🚀 Main settings is depth 0
+        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
         containerSettingsItems.removeAllViews();
         // 🚀 [Fix] Wrap the 12-hour/24-hour text with t() so it also goes through the translator!
         String formatRightText = is24HourFormat ? t("24 Hour") : t("12 Hour");
@@ -8644,7 +8735,7 @@ public class MainActivity extends Activity {
 
     // 💡 2. Vertical list screen for selecting numbers (year/month/day/hour/minute)
     private void buildDateTimeSelectorUI(final String type, int min, int max, int currentValue) {
-        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
+        currentSettingsDepth = 3; // 🚀 Main settings is depth 0
         containerSettingsItems.removeAllViews();
 
         Button focusBtn = null;
@@ -9052,11 +9143,6 @@ public class MainActivity extends Activity {
     }
 
     // Extracts every zip in assets/themes/ to /storage/sdcard0/Y1_Themes/<zip-name-without-extension>.
-    // cyberpunk_dark.zip is Cyberpunk Neon's layout/config recolored to Dark (Default)'s palette
-    // (white/gray text, black overlay, sharp corners) with a cyan focus highlight kept as the one
-    // neon accent; its icon_*.png files are intentionally byte-identical copies of Dark (Default)'s
-    // res/drawable icons, not a new icon set, so the two themes look consistent on the right-side
-    // focus preview.
     private void installBundledThemes() {
         SharedPreferences prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
 
@@ -9126,7 +9212,7 @@ public class MainActivity extends Activity {
     }
     // Advanced EQ main sub-page builder
     private void buildEqualizerSettingsUI() {
-        currentSettingsDepth = 1;
+        currentSettingsDepth = 2;
         settingsSubMode = 2; // Activate the EQ sub-mode
         com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
         com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
@@ -9251,7 +9337,7 @@ public class MainActivity extends Activity {
 
     // Preset and profile selection window (Depth 2)
     private void buildEqProfileSelectorUI() {
-        currentSettingsDepth = 2;
+        currentSettingsDepth = 3;
         containerSettingsItems.removeAllViews();
 
         // 🚀 3. Translate when pulling out the list
@@ -9301,7 +9387,7 @@ public class MainActivity extends Activity {
     // 🚀 [Fully fixed] Graphic EQ studio with zero-pixel error and the focus-clipping bug resolved
     // =========================================================================
     private void buildGraphicEqualizerUI() {
-        currentSettingsDepth = 2;
+        currentSettingsDepth = 3;
         settingsSubMode = 3;
         currentAdjustingBand = -1;
 
@@ -10121,7 +10207,7 @@ public class MainActivity extends Activity {
 
     // 💡 [Smart bug-fix complete] Removes the top header and keeps the focus lock intact while controlling the middle menu, in the editor sub-menu
     private void buildMainMenuVisibilitySettingsUI() {
-        currentSettingsDepth = 1;
+        currentSettingsDepth = 2;
         containerSettingsItems.removeAllViews();
 
         // ❌ Per the artist's request, completely and traceless removed the top category header text ("― SHOW / HIDE MENUS ―")!
@@ -10190,7 +10276,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.subsonic.SubsonicClient client = com.themoon.y1.subsonic.SubsonicClient.getInstance();
 
         if (client.getConfigVersion() != lastSeenNavidromeConfigVersion) {
-            // Server/user/pass changed via the PC Upload web UI since we last browsed —
+            // Server/user/pass changed via the Web Server web UI since we last browsed —
             // drop the old server's in-memory artist list so we don't show it as if
             // the new settings never took effect.
             lastSeenNavidromeConfigVersion = client.getConfigVersion();
@@ -10204,7 +10290,7 @@ public class MainActivity extends Activity {
 
         if (!client.isConfigured()) {
             showNavidromeMessage("NOT CONFIGURED",
-                    "Open the PC Upload page from your computer browser,\nthen fill in the Navidrome settings section.");
+                    "Open the Web Server page from your computer browser,\nthen fill in the Navidrome settings section.");
             return;
         }
 
