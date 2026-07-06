@@ -2600,7 +2600,7 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, t("Please turn ON Wi-Fi first"), Toast.LENGTH_SHORT).show();
                 return;
             }
-            webServer = new Y1WebServer(getApplicationContext(), rootFolder);
+            webServer = new Y1WebServer(getApplicationContext());
             webServer.start();
             isServerRunning = true;
         }

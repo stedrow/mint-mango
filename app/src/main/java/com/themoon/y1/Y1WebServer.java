@@ -2,7 +2,7 @@ package com.themoon.y1;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.net.wifi.WifiManager;
+import android.util.Log;
 import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
@@ -13,16 +13,19 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Y1WebServer extends Thread {
+    private static final String TAG = "Y1WebServer";
     private ServerSocket serverSocket;
     private boolean running = true;
-    private File rootFolder;
+    private final File rootFolder = new File("/storage/sdcard0"); // file manager serves the whole device, not just the app's music folder
     private Context context;
+    private final ExecutorService connectionPool = Executors.newFixedThreadPool(8);
 
-    public Y1WebServer(Context context, File originalRootFolder) {
+    public Y1WebServer(Context context) {
         this.context = context;
-        this.rootFolder = new File("/storage/sdcard0"); // 🚀 fixed to the device's entire root folder
     }
 
     public void run() {
@@ -30,22 +33,37 @@ public class Y1WebServer extends Thread {
             serverSocket = new ServerSocket(8080);
             while (running) {
                 Socket socket = serverSocket.accept();
-                new Thread(new RequestHandler(socket)).start();
+                connectionPool.execute(new RequestHandler(socket));
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            if (running) Log.e(TAG, "Server loop stopped", e);
+        }
     }
 
     public void stopServer() {
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){}
+        try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){ Log.w(TAG, "Error closing server socket", e); }
+        connectionPool.shutdownNow();
     }
 
+    // WifiManager.getConnectionInfo().getIpAddress() is a cached snapshot that can go stale
+    // after a DHCP lease renewal or reconnect, so read the live interface address instead.
     public String getLocalIpAddress() {
         try {
-            WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-            int ipAddress = wm.getConnectionInfo().getIpAddress();
-            return String.format(Locale.US, "%d.%d.%d.%d", (ipAddress & 0xff), (ipAddress >> 8 & 0xff), (ipAddress >> 16 & 0xff), (ipAddress >> 24 & 0xff));
-        } catch (Exception ex) { return "Unknown IP"; }
+            java.util.Enumeration<java.net.NetworkInterface> ifaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = ifaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress addr = addrs.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+            return "Unknown IP";
+        } catch (Exception ex) { Log.w(TAG, "Could not resolve local IP", ex); return "Unknown IP"; }
     }
 
     // Resolves a client-supplied relative path against rootFolder and rejects
@@ -509,8 +527,6 @@ public class Y1WebServer extends Thread {
                 }
 
                 // 5. [API] Read file (streaming, download, load code)
-
-                // 5. [API] Read file (streaming, download, load code)
                 else if (method.equals("GET") && path.startsWith("/api/file")) {
                     String q = path.split("\\?")[1];
                     String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
@@ -606,9 +622,10 @@ public class Y1WebServer extends Thread {
                 }
 
                 os.flush();
-            } catch (Exception e) {}
-            finally {
-                try { socket.close(); } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.w(TAG, "Request failed", e);
+            } finally {
+                try { socket.close(); } catch (Exception e) { /* socket already gone */ }
             }
         }
     }
