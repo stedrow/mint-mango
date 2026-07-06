@@ -10,11 +10,18 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HERE/build"
 
-adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
+# STOCK_LIB lets CI point at a stock libextjsr82.so extracted from a mounted
+# base-firmware image instead of requiring a physical Y1 over adb.
+if [ -n "${STOCK_LIB:-}" ]; then
+  echo ">> Using stock lib from $STOCK_LIB"
+  cp "$STOCK_LIB" "$HERE/build/libextjsr82_stock.so"
+else
+  adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1 (or set STOCK_LIB)." >&2; exit 1; }
+  adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
 
-echo ">> Pulling live /system/lib/libextjsr82.so"
-adb pull /system/lib/libextjsr82.so "$HERE/build/libextjsr82_stock.so" >/dev/null
+  echo ">> Pulling live /system/lib/libextjsr82.so"
+  adb pull /system/lib/libextjsr82.so "$HERE/build/libextjsr82_stock.so" >/dev/null
+fi
 
 echo ">> Checking python deps"
 python3 -c "import keystone, lief" 2>/dev/null || {

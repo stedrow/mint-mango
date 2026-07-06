@@ -1,0 +1,52 @@
+name: Build ROM
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-rom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r29
+          add-to-path: false
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip e2fsprogs
+          python3 -m pip install --quiet --break-system-packages keystone-engine lief
+
+      - name: Build launcher APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Build ROM images
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          chmod +x scripts/build-rom.sh scripts/airpods-rtpfix/build.sh scripts/airpods-aap/build.sh
+          scripts/build-rom.sh "${{ github.ref_name }}" app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ github.ref_name }}/*.zip
+          generate_release_notes: true

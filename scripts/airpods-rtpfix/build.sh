@@ -37,32 +37,40 @@ CLAMP="${CLAMP_BITPOOL:-0}"          # upstream ships this OFF for better audio
 VERBOSE=1
 [ "${QUIET:-0}" = "1" ] && VERBOSE=0
 
-# --- locate the NDK clang -----------------------------------------------------
+# --- locate the NDK clang (macOS Homebrew cask or Linux $ANDROID_NDK_HOME) ----
 NDK_CLANG="$(find /opt/homebrew/Caskroom/android-ndk /usr/local/Caskroom/android-ndk \
-  -path '*darwin-x86_64/bin/clang' 2>/dev/null | sort | tail -1 || true)"
+  "${ANDROID_NDK_HOME:-/nonexistent}" \
+  -path '*/bin/clang' 2>/dev/null | sort | tail -1 || true)"
 if [ -z "$NDK_CLANG" ]; then
-  echo "ERROR: NDK clang not found. Install with: brew install --cask android-ndk" >&2
+  echo "ERROR: NDK clang not found. Install with: brew install --cask android-ndk (or set ANDROID_NDK_HOME)" >&2
   exit 1
 fi
 NDK_SYSROOT="$(dirname "$(dirname "$NDK_CLANG")")/sysroot"
 
 LLD="$(command -v ld.lld || echo /opt/homebrew/opt/lld/bin/ld.lld)"
 if [ ! -x "$LLD" ]; then
-  echo "ERROR: ld.lld not found. Install with: brew install lld" >&2
+  # Fall back to the linker bundled with the same NDK toolchain as clang.
+  LLD="$(dirname "$NDK_CLANG")/ld.lld"
+fi
+if [ ! -x "$LLD" ]; then
+  echo "ERROR: ld.lld not found. Install with: brew install lld (or use the NDK's bundled lld)" >&2
   exit 1
 fi
 
-# --- fetch the device's own link inputs (once) --------------------------------
+# --- link inputs: pull from a connected device, or copy from a local source ---
+# DEVLIBS_SRC lets CI point at a mounted base-firmware image's /system/lib
+# instead of requiring a physical Y1 over adb (device pull is the local/dev path).
 if [ ! -f "$DEVLIBS/crtbegin_so.o" ]; then
-  echo ">> Pulling link inputs from the connected Y1 (needed once)..."
-  adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
   mkdir -p "$DEVLIBS"
-  for f in crtbegin_so.o crtend_so.o; do
-    adb pull "/system/lib/$f" "$DEVLIBS/$f" >/dev/null
-  done
-  for f in libc.so libdl.so liblog.so libm.so libstdc++.so libhardware_legacy.so; do
-    adb pull "/system/lib/$f" "$DEVLIBS/$f" >/dev/null
-  done
+  LIBS="crtbegin_so.o crtend_so.o libc.so libdl.so liblog.so libm.so libstdc++.so libhardware_legacy.so"
+  if [ -n "${DEVLIBS_SRC:-}" ]; then
+    echo ">> Copying link inputs from $DEVLIBS_SRC"
+    for f in $LIBS; do cp "$DEVLIBS_SRC/$f" "$DEVLIBS/$f"; done
+  else
+    echo ">> Pulling link inputs from the connected Y1 (needed once)..."
+    adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1 (or set DEVLIBS_SRC)." >&2; exit 1; }
+    for f in $LIBS; do adb pull "/system/lib/$f" "$DEVLIBS/$f" >/dev/null; done
+  fi
   echo ">> Cached device libs in $DEVLIBS"
 fi
 
