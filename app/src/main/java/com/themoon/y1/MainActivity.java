@@ -261,7 +261,6 @@ public class MainActivity extends Activity {
     private String plainLyrics = null;
 
     private boolean isVisualizerShowing = false;
-    public int currentAlbumColor = 0xFFFFFFFF; // Spectrum bar color
     private static final int STATE_MENU = 1;
     private static final int STATE_BROWSER = 2;
     private static final int STATE_PLAYER = 3;
@@ -7209,7 +7208,7 @@ public class MainActivity extends Activity {
                         int samplingRate) {
                     if (isVisualizerShowing && visualizerView != null
                             && visualizerView.getVisibility() == View.VISIBLE) {
-                        visualizerView.updateVisualizer(fft, currentAlbumColor);
+                        visualizerView.updateVisualizer(fft, samplingRate);
                     }
                 }
             }, android.media.audiofx.Visualizer.getMaxCaptureRate() / 2, false, true);
@@ -8882,15 +8881,6 @@ public class MainActivity extends Activity {
             optsCenter.inSampleSize = 2;
             android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeFile(imagePath, optsCenter);
             ivAlbumArt.setImageBitmap(bmpCenter);
-
-            // 🚀 [Fully fixed] Precisely picks out the color from the bottom-center of the album art with an eyedropper!
-            try {
-                int centerX = bmpCenter.getWidth() / 2;
-                int centerY = (int) (bmpCenter.getHeight() * 0.8); // Sample point slightly below dead center
-                currentAlbumColor = bmpCenter.getPixel(centerX, centerY) | 0xFF000000;
-            } catch (Exception e) {
-                currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-            }
 
             // Background blur processing
             android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();

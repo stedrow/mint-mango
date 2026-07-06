@@ -426,7 +426,6 @@ public class AudioPlayerManager {
 
         final File track = main.currentPlaylist.get(index);
         main.lastAlbumArtBytes = null;
-        main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
 
         if (!track.exists() || track.length() < 1024) {
             main.tvPlayerTitle.setText("Corrupted File");
@@ -504,19 +503,11 @@ public class AudioPlayerManager {
                     main.ivPlayerBgBlur.setImageBitmap(blurredBg);
                     if (sourceBg != blurredBg) sourceBg.recycle();
 
-                    try {
-                        int centerX = bmpCenter.getWidth() / 2;
-                        int centerY = (int) (bmpCenter.getHeight() * 0.8);
-                        main.currentAlbumColor = bmpCenter.getPixel(centerX, centerY) | 0xFF000000;
-                    } catch (Exception e) {
-                        main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-                    }
                 } catch (Throwable e) {}
             } else if (coverFile.exists()) {
                 main.applyCachedCoverArt(coverFile.getAbsolutePath());
             } else {
                 main.ivAlbumArt.setImageResource(R.drawable.default_album);
-                main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
                 main.ivPlayerBgBlur.setImageResource(0);
                 main.updateMainMenuBackground();
                 main.refreshNowPlayingPreview();
