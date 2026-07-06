@@ -238,6 +238,7 @@ public class MainActivity extends Activity {
     CustomAnalogClockView customAnalogClockView;
     private ImageView ivWidgetAlbum;
     private String lastBrowserFocusText = "";
+    private String lastMainMenuFocusAction = "";
     // 🚀 [Added] Title/artist variables dedicated to the album widget
     private TextView tvWidgetAlbumTitle;
     private TextView tvWidgetAlbumArtist;
@@ -2859,15 +2860,27 @@ public class MainActivity extends Activity {
         }
         if (state == STATE_MENU) {
             isPickingBackground = false;
-            View c = getCurrentFocus();
 
-            // 🚀 [Focus-vanish fix 1] Instead of the hidden legacy button (btnNowPlaying), find the real dynamically created button 0 (ID: 10000) and focus it!
-            if (c == null || c.getVisibility() != View.VISIBLE) {
-                View dynamicFirstBtn = findViewById(10000); // Fetch dynamic button 0
-                if (dynamicFirstBtn != null) {
-                    dynamicFirstBtn.requestFocus();
-                } else if (btnNowPlaying != null) {
-                    btnNowPlaying.requestFocus(); // Safety net in case it hasn't been assembled yet
+            // Try to restore focus to whichever main-menu button we left from. This must run
+            // unconditionally (not gated on current focus state): Android auto-transfers focus
+            // to the first focusable view the instant the previous screen's container goes GONE
+            // (a few lines above), so by now getCurrentFocus() already looks "valid" even though
+            // it's just the default first button, not a real user focus.
+            View lastFocused = !lastMainMenuFocusAction.isEmpty()
+                    ? layoutMainMenu.findViewWithTag(lastMainMenuFocusAction) : null;
+            lastMainMenuFocusAction = ""; // one-shot, so reset right after use
+            if (lastFocused != null) {
+                lastFocused.requestFocus();
+            } else {
+                View c = getCurrentFocus();
+                // 🚀 [Focus-vanish fix 1] Instead of the hidden legacy button (btnNowPlaying), find the real dynamically created button 0 (ID: 10000) and focus it!
+                if (c == null || c.getVisibility() != View.VISIBLE) {
+                    View dynamicFirstBtn = findViewById(10000); // Fetch dynamic button 0
+                    if (dynamicFirstBtn != null) {
+                        dynamicFirstBtn.requestFocus();
+                    } else if (btnNowPlaying != null) {
+                        btnNowPlaying.requestFocus(); // Safety net in case it hasn't been assembled yet
+                    }
                 }
             }
             refreshNowPlayingPreview();
@@ -3689,6 +3702,7 @@ public class MainActivity extends Activity {
 
         rowButton.addView(tvIcon);
         rowButton.addView(tvText);
+        rowButton.setTag(textLabel); // lets back-navigation re-find this row by its label, since it isn't a plain Button
 
         rowButton.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
             @Override
@@ -5490,7 +5504,9 @@ public class MainActivity extends Activity {
                 if (!lastBrowserFocusText.isEmpty()) {
                     for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
                         View v = containerBrowserItems.getChildAt(i);
-                        if (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText)) {
+                        boolean isMatch = (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText))
+                                || lastBrowserFocusText.equals(v.getTag());
+                        if (isMatch) {
                             v.requestFocus();
                             if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
                                 ((android.widget.ScrollView) containerBrowserItems.getParent())
@@ -6378,7 +6394,9 @@ public class MainActivity extends Activity {
                 if (!lastBrowserFocusText.isEmpty()) {
                     for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
                         View v = containerBrowserItems.getChildAt(i);
-                        if (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText)) {
+                        boolean isMatch = (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText))
+                                || lastBrowserFocusText.equals(v.getTag());
+                        if (isMatch) {
                             v.requestFocus();
                             if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
                                 ((android.widget.ScrollView) containerBrowserItems.getParent())
@@ -6924,6 +6942,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     clickFeedback();
+                    lastMainMenuFocusAction = el.action; // remember which main-menu button we left from, so back returns focus here
                     switch (el.action) {
                         case "OPEN_PLAYER": {
                             com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
@@ -7052,7 +7071,10 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     // 🚀 [Culprit of the focus-vanish bug caught!] Guard added so focus is only pulled back while looking at the main screen!
-                    if (currentScreenState == STATE_MENU) {
+                    // Only steal focus if nothing is already focused — otherwise this clobbers the
+                    // back-navigation focus restore that changeScreen() already applied synchronously.
+                    View cur = getCurrentFocus();
+                    if (currentScreenState == STATE_MENU && (cur == null || cur.getVisibility() != View.VISIBLE)) {
                         firstBtn.requestFocus();
 
                         android.view.ViewParent parent = firstBtn.getParent();
@@ -7694,6 +7716,7 @@ public class MainActivity extends Activity {
                     tvNavidromePath.setText("NAVIDROME  ▸  Artists");
                     buildNavidromeArtistsUI(lastNavidromeArtists);
                 } else {
+                    if (navidromeBackTarget == STATE_BROWSER) lastBrowserFocusText = t("Navidrome");
                     changeScreen(navidromeBackTarget);
                 }
                 return true;
