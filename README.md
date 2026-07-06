@@ -9,8 +9,9 @@
 <img width="480" height="360" alt="Screenshot_20260624_181513" src="https://github.com/user-attachments/assets/4ceb794c-fea9-4bea-a716-f1993ea29c67" />
 
 
-# JJ Launcher (MO-ON Launcher)
-for innioasis y1
+# Mint Mango Launcher
+
+A fork of [JJ Launcher (MO-ON Launcher)](https://github.com/ismileblue/y1_launcher) for the Innioasis Y1, adding Navidrome/Subsonic streaming, full AirPods Pro 2/3 support, per-theme background images, and additional themes.
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/Status-Beta-Orange?style=flat-square" alt="Status">
@@ -138,6 +139,12 @@ adb logcat | grep com.themoon.y1   # live logs from the launcher
 adb shell pm path com.themoon.y1   # confirm install location
 adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS  # fix Bluetooth errors
 ```
+
+---
+
+## 📦 ROM Releases
+
+Pushing a tag matching `v*` triggers [`.github/workflows/build-rom.yml`](.github/workflows/build-rom.yml), which builds flashable `rom.zip` (type A) and `rom_type_b.zip` (type B) images and attaches them to the GitHub release: the launcher APK, the AirPods RTP fix, and the AAP in-ear-detection patch are all baked into the [rockbox-y1](https://github.com/rockbox-y1/rockbox) base firmware — no manual adb install steps needed after flashing. See [`scripts/build-rom.sh`](scripts/build-rom.sh).
 
 ---
 
