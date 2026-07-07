@@ -52,10 +52,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import android.renderscript.Allocation;
-import android.renderscript.Element;
-import android.renderscript.RenderScript;
-import android.renderscript.ScriptIntrinsicBlur;
 
 
 import com.themoon.y1.adapters.CategoryListAdapter;
@@ -8930,13 +8926,7 @@ public class MainActivity extends Activity {
             equalizer.release();
             equalizer = null;
         }
-        synchronized (blurLock) {
-            if (blurRs != null) {
-                try { blurRs.destroy(); } catch (Exception ignored) { Log.d(TAG, "onDestroy failed", ignored); }
-                blurRs = null;
-                blurScript = null;
-            }
-        }
+        com.themoon.y1.managers.GaussianBlurManager.getInstance().destroy();
 
         try {
             unregisterReceiver(systemStatusReceiver);
@@ -9005,65 +8995,19 @@ public class MainActivity extends Activity {
         ivStatusBluetooth.setColorFilter(connected ? BT_ICON_COLOR_CONNECTED : BT_ICON_COLOR_ON);
     }
 
-    // 💡 High-quality Gaussian blur function using Android's hardware acceleration (RenderScript)!
-    // Creating and destroying a whole RenderScript context (plus the blur script) on every call
-    // is very expensive. Create them once and reuse; only the per-bitmap Allocations are
-    // transient. Blur calls are serialized (single track-load worker) so shared reuse is safe.
-    private RenderScript blurRs;
-    private ScriptIntrinsicBlur blurScript;
-    // A single RenderScript context is not safe for concurrent use, and this is called from
-    // both applyGaussianBlurAsync's thread and AudioPlayerManager's track-load worker -- so
-    // serialize access. Blur is infrequent (per track / per background change), so a lock is fine.
-    private final Object blurLock = new Object();
+    // Gaussian blur (RenderScript) lives in GaussianBlurManager -- see that class for details.
+    // Kept as a thin pass-through here since callers across the codebase (and AudioPlayerManager)
+    // already call MainActivity.applyGaussianBlur(...)/applyGaussianBlurAsync(...).
     public Bitmap applyGaussianBlur(Bitmap original) {
-        if (original == null)
-            return null;
-        synchronized (blurLock) {
-            Allocation inAlloc = null;
-            Allocation outAlloc = null;
-            try {
-                if (blurRs == null) {
-                    blurRs = RenderScript.create(this);
-                    blurScript = ScriptIntrinsicBlur.create(blurRs, Element.U8_4(blurRs));
-                    blurScript.setRadius(25f); // 💡 Blur intensity (0.0 ~ 25.0, 25 is max)
-                }
-                Bitmap output = Bitmap.createBitmap(original.getWidth(), original.getHeight(), Bitmap.Config.ARGB_8888);
-                inAlloc = Allocation.createFromBitmap(blurRs, original, Allocation.MipmapControl.MIPMAP_NONE,
-                        Allocation.USAGE_SCRIPT);
-                outAlloc = Allocation.createFromBitmap(blurRs, output);
-
-                blurScript.setInput(inAlloc);
-                blurScript.forEach(outAlloc);
-                outAlloc.copyTo(output);
-
-                return output;
-            } catch (Exception e) {
-                return original;
-            } finally {
-                // Free the transient native allocations; keep the shared context/script alive.
-                if (inAlloc != null) try { inAlloc.destroy(); } catch (Exception ignored) { Log.d(TAG, "applyGaussianBlur failed", ignored); }
-                if (outAlloc != null) try { outAlloc.destroy(); } catch (Exception ignored) { Log.d(TAG, "applyGaussianBlur failed", ignored); }
-            }
-        }
+        return com.themoon.y1.managers.GaussianBlurManager.getInstance().applyGaussianBlur(this, original);
     }
 
     private interface BlurResultCallback {
         void onBlurred(Bitmap blurred, Bitmap source);
     }
 
-    // The RenderScript blur pass itself (not just decode) is real work on this hardware — running
-    // it synchronously on every track change causes a visible hitch on skip/next/prev. Do the blur
-    // off the main thread and hand the result back via callback; the caller keeps the immediate
-    // (unblurred) foreground art update synchronous since that part is cheap.
     private void applyGaussianBlurAsync(final Bitmap source, final BlurResultCallback callback) {
-        if (source == null) {
-            callback.onBlurred(null, null);
-            return;
-        }
-        new Thread(() -> {
-            final Bitmap blurred = applyGaussianBlur(source);
-            runOnUiThread(() -> callback.onBlurred(blurred, source));
-        }).start();
+        com.themoon.y1.managers.GaussianBlurManager.getInstance().applyGaussianBlurAsync(this, source, callback::onBlurred);
     }
 
     // 💡 1. Main date/time settings screen (time-error and focus-lock bugs fully fixed version)
