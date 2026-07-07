@@ -305,7 +305,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout containerBrowserItems;
     public LinearLayout containerSettingsItems;
-    private LinearLayout containerBtItems, containerWifiItems;
+    public LinearLayout containerBtItems, containerWifiItems;
 
     private TextView tvStatusClock, tvStatusBattery;
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
@@ -331,8 +331,8 @@ public class MainActivity extends Activity {
     public ImageView ivMenuPreview, ivAlbumArt, ivPlayerBgBlur, ivPauseOverlay;
 
     private Button btnNowPlaying, btnPlay, btnSettings, btnBluetooth, btnRadio;
-    private Button btnScanBt, btnScanWifi;
-    private LinearLayout btnWifiWebServer;
+    public Button btnScanBt, btnScanWifi;
+    public LinearLayout btnWifiWebServer;
 
     private TextView tvKeyboardSsid, tvKeyboardInput;
     private TextView tvKeyPprev, tvKeyPrev, tvKeyCurrent, tvKeyNext, tvKeyNnext;
@@ -354,9 +354,9 @@ public class MainActivity extends Activity {
 
     private boolean wasWifiOnBeforeSleep = false;
     public int keyboardIndex = 0;
-    private String targetWifiSsid = "";
-    private String typedPassword = "";
-    private boolean isTargetWifiOpen = false;
+    public String targetWifiSsid = "";
+    public String typedPassword = "";
+    public boolean isTargetWifiOpen = false;
     // 💡 Variable that tracks whether the media scanner is currently working
     private boolean isMediaScanning = false;
     private AudioManager audioManager;
@@ -416,8 +416,8 @@ public class MainActivity extends Activity {
     public java.util.HashMap<View, ThemeManager.MenuElement> widgetViewRegistry = new java.util.HashMap<>();
     public int currentSystemBrightness = 255;
 
-    private List<String> foundBtDevices = new ArrayList<String>();
-    private List<String> foundWifiNetworks = new ArrayList<String>();
+    public List<String> foundBtDevices = new ArrayList<String>();
+    public List<String> foundWifiNetworks = new ArrayList<String>();
 
     private Y1WebServer webServer;
     public boolean isServerRunning = false;
@@ -936,7 +936,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().nudgeAudioReconnectForAirpods();
     }
 
-    private void connectBluetoothAudio(BluetoothDevice targetDevice) {
+    public void connectBluetoothAudio(BluetoothDevice targetDevice) {
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().connectBluetoothAudio(this, targetDevice);
     }
     // Inside the init function (called once when the app launches)
@@ -2913,455 +2913,27 @@ public class MainActivity extends Activity {
         updateKeyboardUI();
     }
 
+    // Bluetooth/Wi-Fi settings-screen UI construction lives in ConnectivityScreenManager -- see
+    // that class for details. Kept as thin pass-throughs here for call sites elsewhere in this
+    // Activity (the broadcast receiver, buildConnectivityGroupUI, the wifi keyboard flow).
     private void connectToWifi() {
-        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        if (wm == null) {
-            Toast.makeText(this, t("Wi-Fi is unavailable."), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        WifiConfiguration conf = new WifiConfiguration();
-        conf.SSID = "\"" + targetWifiSsid + "\"";
-        if (isTargetWifiOpen)
-            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-        else
-            conf.preSharedKey = "\"" + typedPassword + "\"";
-        int netId = wm.addNetwork(conf);
-        // addNetwork() returns -1 on failure (bad config, duplicate SSID, etc.) — this used to be
-        // ignored, so a bad password/config would silently show "Connecting..." with no error.
-        if (netId == -1) {
-            Toast.makeText(this, t("Failed to save this network. Please check the password and try again."), Toast.LENGTH_LONG).show();
-            return;
-        }
-        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
-        wm.disconnect();
-        wm.enableNetwork(netId, true);
-        wm.reconnect();
-        wm.saveConfiguration();
-        changeScreen(STATE_WIFI);
+        com.themoon.y1.managers.ConnectivityScreenManager.getInstance().connectToWifi(this);
     }
 
-    @android.annotation.SuppressLint("MissingPermission")
     private void startBluetoothScan() {
-        int currentFocusIndex = 0;
-        if (containerBtItems != null) {
-            for (int i = 0; i < containerBtItems.getChildCount(); i++) {
-                if (containerBtItems.getChildAt(i).hasFocus()) {
-                    currentFocusIndex = i;
-                    break;
-                }
-            }
-        }
-        final int targetFocusIndex = currentFocusIndex;
-
-        final BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
-        boolean isOn = false;
-        String statusText = "OFF";
-
-        if (ba != null) {
-            int state = ba.getState();
-            if (state == BluetoothAdapter.STATE_ON) {
-                isOn = true;
-                statusText = "ON";
-            } else if (state == BluetoothAdapter.STATE_TURNING_ON || state == BluetoothAdapter.STATE_TURNING_OFF) {
-                statusText = "Wait...";
-            }
-        }
-
-        containerBtItems.removeAllViews();
-
-        // 1. Power toggle button
-        final LinearLayout btnToggle = createSettingRow(t("Bluetooth Power"), t(statusText));
-        btnToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                if (ba != null) {
-                    if (ba.isEnabled())
-                        ba.disable();
-                    else
-                        ba.enable();
-                    ((TextView) btnToggle.getChildAt(1)).setText(t("Wait..."));
-                }
-            }
-        });
-        containerBtItems.addView(btnToggle);
-
-        if (!isOn) {
-            btnScanBt.setText(t("Bluetooth is OFF"));
-            if (btnScanBt.getParent() != null)
-                ((android.view.ViewGroup) btnScanBt.getParent()).removeView(btnScanBt);
-            containerBtItems.addView(btnScanBt);
-            restoreBluetoothFocus(targetFocusIndex);
-            return;
-        }
-
-        // 🚀 2. Fully implemented like the stock launcher: My Devices (PAIRED DEVICES) list
-        TextView tvPaired = new TextView(this);
-        tvPaired.setText("━ "+t("PAIRED DEVICES")+" ━");
-        tvPaired.setTextColor(0xBBFFFFFF);
-        tvPaired.setTextSize(14);
-        tvPaired.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        tvPaired.setPadding(10, 30, 10, 5);
-        containerBtItems.addView(tvPaired);
-
-        try {
-            java.util.Set<BluetoothDevice> pairedDevices = ba.getBondedDevices();
-            if (pairedDevices != null && pairedDevices.size() > 0) {
-                for (BluetoothDevice device : pairedDevices) {
-                    addPairedBluetoothItemToUI(device); // Call the UI dedicated to paired devices
-                }
-            } else {
-                TextView tvEmpty = new TextView(this);
-                tvEmpty.setText(t("No paired devices."));
-                tvEmpty.setTextColor(0xFF888888);
-                tvEmpty.setPadding(10, 10, 10, 10);
-                containerBtItems.addView(tvEmpty);
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "startBluetoothScan failed", e);
-        }
-
-        // 🚀 3. Newly found devices (AVAILABLE DEVICES) list
-        TextView tvAvailable = new TextView(this);
-        tvAvailable.setText("━ " + t("AVAILABLE DEVICES") + " ━");
-        tvAvailable.setTextColor(0xBBFFFFFF);
-        tvAvailable.setTextSize(14);
-        tvAvailable.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        tvAvailable.setPadding(10, 30, 10, 5);
-        containerBtItems.addView(tvAvailable);
-
-        btnScanBt.setText(t("Scanning..."));
-        foundBtDevices.clear();
-
-        if (btnScanBt.getParent() != null)
-            ((android.view.ViewGroup) btnScanBt.getParent()).removeView(btnScanBt);
-        containerBtItems.addView(btnScanBt);
-
-        if (ba.isDiscovering()) {
-            ba.cancelDiscovery();
-            new Handler().postDelayed(new Runnable() {
-                public void run() {
-                    ba.startDiscovery();
-                }
-            }, 500);
-        } else {
-            ba.startDiscovery();
-        }
-
-        restoreBluetoothFocus(targetFocusIndex);
+        com.themoon.y1.managers.ConnectivityScreenManager.getInstance().startBluetoothScan(this);
     }
 
-    // 🚀 [New] List and unpair menu dedicated to paired devices
-    private void addPairedBluetoothItemToUI(final BluetoothDevice device) {
-        String name = (device.getName() != null && !device.getName().isEmpty()) ? device.getName()
-                : "Unknown (" + device.getAddress() + ")";
-
-        boolean isConnected = com.themoon.y1.managers.BluetoothAudioManager.getInstance().isA2dpConnectedTo(device);
-
-        String prefix = isConnected ? "((♪)) [CONNECTED] " : "✔ ";
-        final Button btnDevice = createListButton(prefix + name);
-
-        if (isConnected) {
-            int themeColor = 0xFF00FFFF;
-            try {
-                themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-            } catch (Exception e) {
-                Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
-            }
-            btnDevice.setTextColor(themeColor);
-            btnDevice.setTypeface(null, android.graphics.Typeface.BOLD);
-        } else {
-            btnDevice.setTextColor(0xFF00FF00);
-        }
-
-        // 🚀 [Critical bug fix] Blow away the transparent sub-menu folder (LinearLayout) and attach directly to the list!
-
-        // 🚀 [Hybrid engine integration] Inject the audio-connect unicode ("\uE1B1") and white (0xFFFFFFFF).
-        // (Note: the return type changes from Button to android.view.View)
-        final android.view.View btnConnect = createListButtonWithIcon("\uE1B1", t("Connect Audio"), 0xFFFFFFFF);
-
-        btnConnect.setVisibility(View.GONE); // Hidden initially.
-        btnConnect.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                connectBluetoothAudio(device); // 🚀 Call the central engine!
-            }
-        });
-
-        // 🚀 [Hybrid engine integration] Inject the trash-can unicode ("\uE872") and red (0xFFFF5555).
-        // (Note: the return type changes from Button to android.view.View)
-        final android.view.View btnUnpair = createListButtonWithIcon("\uE872", t("Delete Device"), 0xFFFF5555);
-
-        btnUnpair.setVisibility(View.GONE); // Hidden initially.
-        btnUnpair.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                try {
-                    // Deleting the device is a deliberate "stop connecting to this" -- drop it as the
-                    // watchdog target and cancel any pending reconnect so we don't re-pair behind the user.
-                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().forgetTargetIfMatches(device);
-                    device.getClass().getMethod("removeBond").invoke(device);
-                    Toast.makeText(MainActivity.this, t("Device Deleted."), Toast.LENGTH_SHORT).show();
-                    startBluetoothScan(); // Refresh the screen after removal
-                } catch (Exception e) {
-                    Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
-                }
-            }
-        });
-
-        // Strips the invisibility cloak off the hidden sub-menu buttons when the parent button is clicked.
-        btnDevice.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                if (btnConnect.getVisibility() == View.GONE) {
-                    btnConnect.setVisibility(View.VISIBLE);
-                    btnUnpair.setVisibility(View.VISIBLE);
-
-                    // 💡 Makes the wheel cursor naturally land on the 'Connect Audio' button as soon as the sub-menu opens!
-                    btnConnect.post(new Runnable() {
-                        public void run() {
-                            btnConnect.requestFocus();
-                        }
-                    });
-                } else {
-                    btnConnect.setVisibility(View.GONE);
-                    btnUnpair.setVisibility(View.GONE);
-                }
-            }
-        });
-
-        // 🚀 To prevent index tangling, just stack them up in order when building the screen structure.
-        containerBtItems.addView(btnDevice);
-        containerBtItems.addView(btnConnect);
-        containerBtItems.addView(btnUnpair);
-    }
-
-    // 🚀 [New] Dedicated to newly scanned (Available) devices
     private void addBluetoothItemToUI(String name, final BluetoothDevice device, boolean isPaired) {
-        if (device.getBondState() == BluetoothDevice.BOND_BONDED)
-            return; // Ignore since paired devices are drawn above
-
-        final Button btnDevice = createListButton("🔍 " + name);
-
-        btnDevice.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                connectBluetoothAudio(device); // 🚀 Even if unpaired, the central engine handles pairing first automatically!
-            }
-        });
-
-        containerBtItems.addView(btnDevice, containerBtItems.getChildCount() - 1);
+        com.themoon.y1.managers.ConnectivityScreenManager.getInstance().addBluetoothItemToUI(this, name, device, isPaired);
     }
-
-    // 🚀 [Tool dedicated to focus restoration]
-    private void restoreBluetoothFocus(final int targetFocusIndex) {
-        containerBtItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (containerBtItems.getChildCount() > 0) {
-                    if (targetFocusIndex >= 0 && targetFocusIndex < containerBtItems.getChildCount()) {
-                        View target = containerBtItems.getChildAt(targetFocusIndex);
-                        if (target.isFocusable()) {
-                            target.requestFocus();
-                            return;
-                        }
-                    }
-                    containerBtItems.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
-    }
-
-    // 🚀 [Restore the most robust connection engine] Sub-menus and macros all removed!
 
     private void startWifiScan() {
-        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        boolean isOn = wm != null && wm.isWifiEnabled();
-        updateWifiUI(null);
-
-        if (isOn) {
-            btnScanWifi.setText(t("Scanning..."));
-            foundWifiNetworks.clear();
-            // 💡 Always force-move focus to the top power button!
-            if (containerWifiItems.getChildCount() > 0)
-                containerWifiItems.getChildAt(0).requestFocus();
-            wm.startScan();
-        } else {
-            btnScanWifi.setText(t("Wi-Fi is OFF"));
-            // 💡 Always force-move focus to the top power button!
-            if (containerWifiItems.getChildCount() > 0)
-                containerWifiItems.getChildAt(0).requestFocus();
-        }
+        com.themoon.y1.managers.ConnectivityScreenManager.getInstance().startWifiScan(this);
     }
 
     private void updateWifiUI(List<ScanResult> results) {
-        final WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        boolean isOn = false;
-        String statusText = "OFF";
-
-        if (wm != null) {
-            int state = wm.getWifiState();
-            if (state == WifiManager.WIFI_STATE_ENABLED) {
-                isOn = true;
-                statusText = "ON";
-            } else if (state == WifiManager.WIFI_STATE_ENABLING || state == WifiManager.WIFI_STATE_DISABLING) {
-                statusText = "Wait...";
-            }
-        }
-
-        View existingToggle = containerWifiItems.findViewById(999992);
-        if (existingToggle == null) {
-            final LinearLayout btnToggle = createSettingRow(t("Wi-Fi Power"), t(statusText));
-            btnToggle.setId(999992);
-            btnToggle.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    if (wm != null) {
-                        boolean isCurrentlyOn = wm.isWifiEnabled();
-                        if (isCurrentlyOn) {
-                            Toast.makeText(MainActivity.this, t("Turning Wi-Fi OFF..."), Toast.LENGTH_SHORT).show();
-                            wm.setWifiEnabled(false);
-                        } else {
-                            Toast.makeText(MainActivity.this, t("Turning Wi-Fi ON..."), Toast.LENGTH_SHORT).show();
-                            wm.setWifiEnabled(true);
-                        }
-                        TextView tvRight = (TextView) btnToggle.getChildAt(1);
-                        tvRight.setText(t("Wait..."));
-                        if (!btnToggle.hasFocus())
-                            tvRight.setTextColor(0xFFFFFF00);
-                    }
-                }
-            });
-            containerWifiItems.addView(btnToggle, 0);
-
-            btnWifiWebServer = createSettingRow(t("Web Server"), "〉 ");
-            btnWifiWebServer.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    changeScreen(STATE_WEBSERVER);
-                }
-            });
-            containerWifiItems.addView(btnWifiWebServer, 0);
-
-            if (btnScanWifi.getParent() != null) {
-                ((android.view.ViewGroup) btnScanWifi.getParent()).removeView(btnScanWifi);
-            }
-            containerWifiItems.addView(btnScanWifi);
-        } else {
-            LinearLayout btnToggle = (LinearLayout) existingToggle;
-            TextView tvRight = (TextView) btnToggle.getChildAt(1);
-            tvRight.setText(t(statusText));
-            if (!btnToggle.hasFocus()) {
-                if (statusText.equals("ON"))
-                    tvRight.setTextColor(0xFFFFFFFF);
-                else if (statusText.equals("OFF"))
-                    tvRight.setTextColor(0xFF888888);
-                else
-                    tvRight.setTextColor(0xFFFFFFFF);
-            }
-            for (int i = containerWifiItems.getChildCount() - 1; i >= 0; i--) {
-                View v = containerWifiItems.getChildAt(i);
-                if (v != btnScanWifi && v != btnWifiWebServer && v.getId() != 999992) {
-                    containerWifiItems.removeViewAt(i);
-                }
-            }
-            if (btnWifiWebServer.getParent() == null) {
-                containerWifiItems.addView(btnWifiWebServer, 0);
-            }
-        }
-
-        if (!isOn)
-            return;
-
-        if (results != null) {
-            foundWifiNetworks.clear();
-            WifiManager manager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            WifiInfo wifiInfo = manager.getConnectionInfo();
-            String connectedSSID = "";
-            if (wifiInfo != null && wifiInfo.getSSID() != null) {
-                connectedSSID = wifiInfo.getSSID().replace("\"", "");
-            }
-
-            // 🚀 Priority 1: Find the currently connected Wi-Fi first and place it at the top!
-            for (ScanResult result : results) {
-                if (result.SSID != null && !result.SSID.isEmpty() && !foundWifiNetworks.contains(result.SSID)) {
-                    if (result.SSID.equals(connectedSSID)) {
-                        foundWifiNetworks.add(result.SSID);
-                        addWifiItemToUI(result.SSID, result.capabilities, true);
-                    }
-                }
-            }
-
-            // 🚀 Priority 2: List the rest of the unconnected miscellaneous Wi-Fi networks below it
-            for (ScanResult result : results) {
-                if (result.SSID != null && !result.SSID.isEmpty() && !foundWifiNetworks.contains(result.SSID)) {
-                    foundWifiNetworks.add(result.SSID);
-                    addWifiItemToUI(result.SSID, result.capabilities, false);
-                }
-            }
-        }
-    }
-
-    // 💡 Function reworked to directly receive the connection state (isConnected) as a parameter
-    private void addWifiItemToUI(final String ssid, String capabilities, final boolean isConnected) {
-        final boolean isOpen = !capabilities.contains("WPA") && !capabilities.contains("WEP");
-        String lockIcon = isOpen ? "📶 " : "🔒 ";
-
-        // Give connected devices a nice Apple-style checkmark (✔) instead of plain text!
-        String prefix = isConnected ? "✔ " : "";
-
-        Button btnWifi = createListButton(prefix + lockIcon + ssid);
-
-        if (isConnected) {
-            btnWifi.setTextColor(0xFF00FF00); // Eye-catching green!
-            btnWifi.setTypeface(null, android.graphics.Typeface.BOLD); // Emphasize with bold text!
-        }
-
-        btnWifi.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                if (isConnected) {
-                    return;
-                }
-
-                WifiManager manager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                boolean isSaved = false;
-                int savedNetId = -1;
-                try {
-                    List<WifiConfiguration> configuredNetworks = manager.getConfiguredNetworks();
-                    if (configuredNetworks != null) {
-                        for (WifiConfiguration conf : configuredNetworks) {
-                            if (conf.SSID != null && conf.SSID.equals("\"" + ssid + "\"")) {
-                                isSaved = true;
-                                savedNetId = conf.networkId;
-                                break;
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    Log.d(TAG, "addWifiItemToUI failed", e);
-                }
-
-                if (isSaved && savedNetId != -1) {
-                    Toast.makeText(MainActivity.this, t("Connecting to saved network..."), Toast.LENGTH_SHORT).show();
-                    manager.disconnect();
-                    manager.enableNetwork(savedNetId, true);
-                    manager.reconnect();
-                } else {
-                    targetWifiSsid = ssid;
-                    isTargetWifiOpen = isOpen;
-                    changeScreen(STATE_WIFI_KEYBOARD);
-                }
-            }
-        });
-        containerWifiItems.addView(btnWifi);
+        com.themoon.y1.managers.ConnectivityScreenManager.getInstance().updateWifiUI(this, results);
     }
 
     public void createCategoryHeader(String title) {
