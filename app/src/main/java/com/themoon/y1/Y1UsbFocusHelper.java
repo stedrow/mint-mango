@@ -87,7 +87,7 @@ public final class Y1UsbFocusHelper {
             Log.d(TAG, "USB host connected, starting focus-reclaim polling");
             hostConnected = true;
             consecutiveFailures = 0;
-            bringToFront();
+            bringToFrontAsync();
             startPolling();
         }
     }
@@ -102,7 +102,7 @@ public final class Y1UsbFocusHelper {
                 consecutiveFailures = 0;
                 delay = POLL_INTERVAL_STABLE_MS;
             } else {
-                bringToFront();
+                bringToFrontAsync();
                 consecutiveFailures++;
                 // Reclaim keeps failing (e.g. a legitimate system dialog holding focus, or the
                 // reclaim call itself being rejected) -- stop hammering moveTaskToFront/startActivity
@@ -124,6 +124,17 @@ public final class Y1UsbFocusHelper {
         polling = false;
         consecutiveFailures = 0;
         handler.removeCallbacks(pollRunnable);
+    }
+
+    /**
+     * moveTaskToFront/startActivity are ordinary Binder IPCs that don't require the calling
+     * thread to be the main thread -- but they block on system_server, which can occasionally
+     * stall on this hardware (observed once during testing: a single startActivity() call on
+     * the main thread blocked long enough to trigger an ANR). Run them off the main thread so
+     * a slow system_server can never freeze the UI here.
+     */
+    private void bringToFrontAsync() {
+        new Thread(this::bringToFront, "Y1UsbFocusReclaim").start();
     }
 
     private void bringToFront() {
