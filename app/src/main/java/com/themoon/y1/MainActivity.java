@@ -121,30 +121,10 @@ public class MainActivity extends Activity {
 
     // 🚀 [New] "Wheel lock" to prevent pocket misfires — once the screen turns on (real hardware wake)
     // all button input is ignored until the wheel has been turned a certain number of clicks.
-    private boolean isWheelLockEnabled = false; // Settings toggle (default OFF)
-    private boolean isWheelLockActive = false; // whether it is currently locked and waiting
-    private int wheelUnlockProgress = 0;
-    // Half as many segments as the ring now only sweeps a half circle (180°) instead of
-    // a full one — keeps each wedge the same angular width as before, so filling the
-    // shorter arc only takes half the wheel rotation instead of a full turn.
-    private static final int WHEEL_UNLOCK_THRESHOLD = 4;
+    // State machine lives in WheelLockManager; this Activity only builds the overlay View tree
+    // and routes dispatchKeyEvent()/screen-wake into it.
     private LinearLayout layoutWheelLockOverlay;
     private com.themoon.y1.views.WheelLockRingView wheelLockRing;
-    // Remembers the last tick direction (0 = none yet) so reversing direction doesn't count toward progress
-    private int lastWheelDirection = 0;
-    // Timer that resets progress if the wheel stops turning (no further tick) before the unlock completes
-    private final Handler wheelLockHandler = new Handler();
-    private static final long WHEEL_UNLOCK_RELEASE_TIMEOUT_MS = 500;
-    private final Runnable wheelLockReleaseResetRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (isWheelLockActive && wheelUnlockProgress < WHEEL_UNLOCK_THRESHOLD) {
-                wheelUnlockProgress = 0;
-                lastWheelDirection = 0;
-                if (wheelLockRing != null) wheelLockRing.resetProgress();
-            }
-        }
-    };
 
     // 🚀 [New] Direct-shortcut back-navigation return-path tracker!
     private int backTargetForPlayer = STATE_BROWSER;
@@ -609,35 +589,6 @@ public class MainActivity extends Activity {
         }
     }
     
-    // 🚀 [Wheel lock] Called right after the hardware screen wake (ACTION_SCREEN_ON) — until the wheel has
-    // been turned enough, all key input is blocked at the source in dispatchKeyEvent.
-    private void activateWheelLock() {
-        isWheelLockActive = true;
-        wheelUnlockProgress = 0;
-        lastWheelDirection = 0;
-        wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
-        if (layoutWheelLockOverlay != null) {
-            if (wheelLockRing != null) wheelLockRing.resetProgress();
-            layoutWheelLockOverlay.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void deactivateWheelLock() {
-        isWheelLockActive = false;
-        wheelUnlockProgress = 0;
-        lastWheelDirection = 0;
-        wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
-        if (layoutWheelLockOverlay != null) {
-            layoutWheelLockOverlay.setVisibility(View.GONE);
-        }
-    }
-
-    private void updateWheelLockProgress() {
-        if (wheelLockRing != null) {
-            wheelLockRing.setProgress(wheelUnlockProgress);
-        }
-    }
-
     public void turnOffScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         if (fm.isPowerUp || activePlayer == 1) {
@@ -881,7 +832,8 @@ public class MainActivity extends Activity {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
                 autoManageWifiPower(false); // 🚀 [Exiting power-saving mode]
-                if (isWheelLockEnabled) activateWheelLock();
+                if (com.themoon.y1.managers.WheelLockManager.getInstance().isEnabled())
+                    com.themoon.y1.managers.WheelLockManager.getInstance().activate();
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -1532,7 +1484,6 @@ public class MainActivity extends Activity {
 
         android.widget.FrameLayout wheelLockRingFrame = new android.widget.FrameLayout(this);
         wheelLockRing = new com.themoon.y1.views.WheelLockRingView(this);
-        wheelLockRing.setSegments(WHEEL_UNLOCK_THRESHOLD);
         android.widget.FrameLayout.LayoutParams ringLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
         wheelLockRingFrame.addView(wheelLockRing, ringLp);
 
@@ -1567,6 +1518,7 @@ public class MainActivity extends Activity {
         root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        com.themoon.y1.managers.WheelLockManager.getInstance().bindViews(layoutWheelLockOverlay, wheelLockRing);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         // 🚀 [Officially registered with the system] Mounts a receiver so button signals can be received even with the screen off!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
@@ -1674,7 +1626,7 @@ public class MainActivity extends Activity {
         }
 
         try {
-            isWheelLockEnabled = prefs.getBoolean("wheel_lock_on_wake", false);
+            com.themoon.y1.managers.WheelLockManager.getInstance().setEnabled(prefs.getBoolean("wheel_lock_on_wake", false));
         } catch (Exception e) {
             Log.d(TAG, "onCreate failed", e);
         }
@@ -4460,16 +4412,17 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnScreenOffCtrl);
 
-        final LinearLayout btnWheelLock = createSettingRow("Lock Wheel on Wake", isWheelLockEnabled ? t("ON") : t("OFF"));
+        final com.themoon.y1.managers.WheelLockManager wheelLockManager = com.themoon.y1.managers.WheelLockManager.getInstance();
+        final LinearLayout btnWheelLock = createSettingRow("Lock Wheel on Wake", wheelLockManager.isEnabled() ? t("ON") : t("OFF"));
         btnWheelLock.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                isWheelLockEnabled = !isWheelLockEnabled;
+                wheelLockManager.setEnabled(!wheelLockManager.isEnabled());
                 TextView tvStatus = (TextView) btnWheelLock.getChildAt(1);
-                tvStatus.setText(isWheelLockEnabled ? t("ON") : t("OFF"));
+                tvStatus.setText(wheelLockManager.isEnabled() ? t("ON") : t("OFF"));
                 try {
-                    prefs.edit().putBoolean("wheel_lock_on_wake", isWheelLockEnabled).apply();
+                    prefs.edit().putBoolean("wheel_lock_on_wake", wheelLockManager.isEnabled()).apply();
                 } catch (Exception e) {
                     Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
                 }
@@ -8536,32 +8489,10 @@ public class MainActivity extends Activity {
     }
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (isWheelLockActive) {
-            // 🚀 [Wheel lock] Nothing gets through except turning the wheel (21/22) —
-            // whatever button gets pressed and however it happens inside a pocket, it's all absorbed here.
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                int keyCode = event.getKeyCode();
-                if (keyCode == 21 || keyCode == 22) {
-                    // Reversing direction invalidates prior progress — restart the count in the new direction
-                    if (lastWheelDirection != 0 && lastWheelDirection != keyCode) {
-                        wheelUnlockProgress = 0;
-                    }
-                    lastWheelDirection = keyCode;
-                    wheelUnlockProgress++;
-                    updateWheelLockProgress();
-
-                    // While still turning, push the reset timer back; if the wheel stops before the
-                    // unlock completes (within the timeout), progress resets.
-                    wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
-                    if (wheelUnlockProgress >= WHEEL_UNLOCK_THRESHOLD) {
-                        deactivateWheelLock();
-                        clickFeedback();
-                    } else {
-                        wheelLockHandler.postDelayed(wheelLockReleaseResetRunnable, WHEEL_UNLOCK_RELEASE_TIMEOUT_MS);
-                    }
-                }
-            }
-            return true;
+        // 🚀 [Wheel lock] Nothing gets through except turning the wheel (21/22) — whatever button
+        // gets pressed and however it happens inside a pocket, it's all absorbed here.
+        if (com.themoon.y1.managers.WheelLockManager.getInstance().isActive()) {
+            return com.themoon.y1.managers.WheelLockManager.getInstance().handleKeyEvent(event);
         }
         if (isFakeScreenOff) {
             int keyCode = event.getKeyCode();
@@ -8869,7 +8800,7 @@ public class MainActivity extends Activity {
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);
-        wheelLockHandler.removeCallbacks(wheelLockReleaseResetRunnable);
+        com.themoon.y1.managers.WheelLockManager.getInstance().cancelPendingReset();
         qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
         doubleClickHandler.removeCallbacks(singleClickRunnable);
         radioFreqHandler.removeCallbacks(hideRadioFreqTask);
