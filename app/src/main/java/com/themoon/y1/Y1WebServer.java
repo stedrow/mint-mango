@@ -19,6 +19,58 @@ import java.util.concurrent.Executors;
 
 public class Y1WebServer extends Thread {
     private static final String TAG = "Y1WebServer";
+
+    /** Package-visible (not private) so it's unit-testable without a running server/socket. */
+    static final class RangeResult {
+        final long start;
+        final long end;
+        final boolean partial;
+
+        RangeResult(long start, long end, boolean partial) {
+            this.start = start;
+            this.end = end;
+            this.partial = partial;
+        }
+    }
+
+    /**
+     * Parses an HTTP "Range: bytes=start-end" header (including a suffix range "bytes=-N" for
+     * the last N bytes) against a known file length. Returns a full-file, non-partial result for
+     * a null/absent header or anything malformed -- callers should always fall back to serving
+     * the whole file rather than erroring out on a Range header they can't parse.
+     */
+    static RangeResult parseRange(String rangeHeader, long fileLen) {
+        long start = 0;
+        long end = fileLen - 1;
+        boolean partial = false;
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            String spec = rangeHeader.substring(6).trim();
+            int dash = spec.indexOf('-');
+            if (dash >= 0) {
+                String startStr = spec.substring(0, dash).trim();
+                String endStr = spec.substring(dash + 1).trim();
+                try {
+                    if (startStr.isEmpty() && !endStr.isEmpty()) {
+                        // Suffix range "bytes=-N" => the LAST N bytes of the file.
+                        long n = Long.parseLong(endStr);
+                        if (n > fileLen) n = fileLen;
+                        start = fileLen - n;
+                        end = fileLen - 1;
+                    } else {
+                        if (!startStr.isEmpty()) start = Long.parseLong(startStr);
+                        if (!endStr.isEmpty()) end = Long.parseLong(endStr);
+                        if (end > fileLen - 1) end = fileLen - 1;
+                    }
+                    if (start >= 0 && start <= end) partial = true;
+                } catch (NumberFormatException nfe) {
+                    partial = false;
+                    start = 0;
+                    end = fileLen - 1;
+                }
+            }
+        }
+        return new RangeResult(start, end, partial);
+    }
     private ServerSocket serverSocket;
     private boolean running = true;
     private final File rootFolder = new File("/storage/sdcard0"); // file manager serves the whole device, not just the app's music folder
@@ -564,35 +616,10 @@ public class Y1WebServer extends Thread {
 
                         // Honour a "Range: bytes=start-[end]" request so browser audio seeks
                         // fetch only the requested slice (206) instead of re-streaming from 0.
-                        long start = 0;
-                        long end = fileLen - 1;
-                        boolean partial = false;
-                        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                            String spec = rangeHeader.substring(6).trim();
-                            int dash = spec.indexOf('-');
-                            if (dash >= 0) {
-                                String startStr = spec.substring(0, dash).trim();
-                                String endStr = spec.substring(dash + 1).trim();
-                                try {
-                                    if (startStr.isEmpty() && !endStr.isEmpty()) {
-                                        // Suffix range "bytes=-N" => the LAST N bytes of the file.
-                                        long n = Long.parseLong(endStr);
-                                        if (n > fileLen) n = fileLen;
-                                        start = fileLen - n;
-                                        end = fileLen - 1;
-                                    } else {
-                                        if (!startStr.isEmpty()) start = Long.parseLong(startStr);
-                                        if (!endStr.isEmpty()) end = Long.parseLong(endStr);
-                                        if (end > fileLen - 1) end = fileLen - 1;
-                                    }
-                                    if (start >= 0 && start <= end) partial = true;
-                                } catch (NumberFormatException nfe) {
-                                    partial = false;
-                                    start = 0;
-                                    end = fileLen - 1;
-                                }
-                            }
-                        }
+                        RangeResult range = parseRange(rangeHeader, fileLen);
+                        long start = range.start;
+                        long end = range.end;
+                        boolean partial = range.partial;
 
                         String header;
                         if (partial) {
