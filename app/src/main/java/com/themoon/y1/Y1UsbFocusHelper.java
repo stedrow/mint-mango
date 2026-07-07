@@ -28,6 +28,9 @@ public final class Y1UsbFocusHelper {
     private static final int POLL_INTERVAL_MS = 400;
     /** Poll rate once we've held focus for a tick — saves CPU during normal playback. */
     private static final int POLL_INTERVAL_STABLE_MS = 1000;
+    /** After this many back-to-back reclaim failures, stop hammering and fall back to a slow poll. */
+    private static final int MAX_CONSECUTIVE_FAILURES = 5;
+    private static final int POLL_INTERVAL_BACKED_OFF_MS = 5000;
 
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -35,6 +38,7 @@ public final class Y1UsbFocusHelper {
     private boolean usbRegistered;
     private boolean hostConnected;
     private boolean polling;
+    private int consecutiveFailures;
 
     public Y1UsbFocusHelper(Activity activity) {
         this.activity = activity;
@@ -82,6 +86,7 @@ public final class Y1UsbFocusHelper {
         if (host && !hostConnected) {
             Log.d(TAG, "USB host connected, starting focus-reclaim polling");
             hostConnected = true;
+            consecutiveFailures = 0;
             bringToFront();
             startPolling();
         }
@@ -92,10 +97,20 @@ public final class Y1UsbFocusHelper {
         public void run() {
             if (!polling) return;
             boolean hadFocus = activity.hasWindowFocus();
-            if (!hadFocus) {
+            int delay;
+            if (hadFocus) {
+                consecutiveFailures = 0;
+                delay = POLL_INTERVAL_STABLE_MS;
+            } else {
                 bringToFront();
+                consecutiveFailures++;
+                // Reclaim keeps failing (e.g. a legitimate system dialog holding focus, or the
+                // reclaim call itself being rejected) -- stop hammering moveTaskToFront/startActivity
+                // every 400ms and fall back to a slow poll so this can't peg a single-core CPU.
+                delay = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+                        ? POLL_INTERVAL_BACKED_OFF_MS : POLL_INTERVAL_MS;
             }
-            handler.postDelayed(this, hadFocus ? POLL_INTERVAL_STABLE_MS : POLL_INTERVAL_MS);
+            handler.postDelayed(this, delay);
         }
     };
 
@@ -107,6 +122,7 @@ public final class Y1UsbFocusHelper {
 
     private void stopPolling() {
         polling = false;
+        consecutiveFailures = 0;
         handler.removeCallbacks(pollRunnable);
     }
 
