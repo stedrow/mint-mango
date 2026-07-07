@@ -38,6 +38,9 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
+      - name: Verify release build (minifyEnabled/R8) still compiles
+        run: ./gradlew assembleRelease
+
       - name: Build ROM images
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
