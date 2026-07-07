@@ -489,7 +489,7 @@ public class MainActivity extends Activity {
     private android.graphics.Bitmap widgetDefaultAlbumBitmap = null;
     private boolean widgetAlbumShowingDefault = false;
     private String lastWidgetClockText = null;
-    private int lastWidgetClockSize = -1;
+    private float lastWidgetClockSize = -1f;
     private float cachedDensity = 0f;
     private int lastKnownBatteryPct = -1;
     private boolean lastKnownBatteryCharging = false;
