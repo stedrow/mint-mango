@@ -26,5 +26,6 @@ adb shell 'PID=$(ps | grep mtkbt | grep -v grep | head -1 | awk "{print \$2}");
 echo
 echo "== Live log (play a track to the AirPods; Ctrl-C to stop) =="
 echo "   BTRTPFIX lines = timestamps being rewritten (the fix working)."
+echo "   BTLSTO lines   = link-supervision timeout shortened on connect (fast drop recovery)."
 adb logcat -c
-adb logcat -v time -s BTRTPFIX BTDUMP BTCTRL
+adb logcat -v time -s BTRTPFIX BTLSTO BTDUMP BTCTRL

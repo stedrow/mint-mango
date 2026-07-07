@@ -17,10 +17,13 @@
 #   brew install android-platform-tools  # adb
 #
 # Usage:
-#   ./build.sh                 # recommended build (RTP fix on, bitpool clamp off)
+#   ./build.sh                 # recommended build (RTP fix on, bitpool clamp off,
+#                              #   link-supervision timeout shortened to 4s)
 #   CLAMP_BITPOOL=1 ./build.sh # also clamp SBC bitpool 53->35 (lower quality;
 #                              #   only if audio still drops on the plain fix)
 #   QUIET=1 ./build.sh         # disable verbose BTDUMP/BTCTRL logging
+#   LSTO_SLOTS=8000 ./build.sh # tune the supervision timeout (0.625ms slots; 8000=5s)
+#   LINK_SUPERVISION_TIMEOUT=0 ./build.sh  # leave the stock ~20s timeout untouched
 #
 # Output: ./build/libbluetoothdrv.so
 set -euo pipefail
@@ -36,6 +39,8 @@ RTP_FIX=1
 CLAMP="${CLAMP_BITPOOL:-0}"          # upstream ships this OFF for better audio
 VERBOSE=1
 [ "${QUIET:-0}" = "1" ] && VERBOSE=0
+LSTO="${LINK_SUPERVISION_TIMEOUT:-1}"  # shorten the ACL supervision timeout for fast drop recovery
+LSTO_SLOTS="${LSTO_SLOTS:-8000}"       # 0.625ms slots; 8000 = 5s (default is 0x7D00 = 20s)
 
 # --- locate the NDK clang (macOS Homebrew cask or Linux $ANDROID_NDK_HOME) ----
 NDK_CLANG="$(find /opt/homebrew/Caskroom/android-ndk /usr/local/Caskroom/android-ndk \
@@ -76,7 +81,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE)"
+echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE LSTO=$LSTO LSTO_SLOTS=$LSTO_SLOTS)"
 "$NDK_CLANG" --target=armv7a-linux-androideabi21 \
   -isystem "$NDK_SYSROOT/usr/include" \
   -isystem "$NDK_SYSROOT/usr/include/arm-linux-androideabi" \
@@ -84,6 +89,8 @@ echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE)"
   -DENABLE_RTP_TIMESTAMP_FIX="$RTP_FIX" \
   -DENABLE_BT_SETCONFIG_REWRITE="$CLAMP" \
   -DENABLE_VERBOSE_BT_MEDIA_LOG="$VERBOSE" \
+  -DENABLE_LINK_SUPERVISION_TIMEOUT="$LSTO" \
+  -DLINK_SUPERVISION_TIMEOUT_SLOTS="$LSTO_SLOTS" \
   -c "$SRC" -o "$OUT_DIR/proxy.o"
 
 echo ">> Linking against device ABI"

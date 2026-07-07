@@ -69,6 +69,17 @@ BTRTPFIX index=0 len=... seq=... frame_count=5 bitpool=0x23 old_ts=... new_ts=0 
 `new_ts` starting at 0 and climbing by `frame_count × 128` each packet is the
 fix rewriting the stream. If you hear audio, you're done.
 
+You should also see one `BTLSTO` line each time the AirPods connect, confirming
+the supervision timeout was shortened:
+
+```
+BTLSTO index=0 handle=0x00b set link_supervision_timeout slots=8000 (~5000ms)
+```
+
+To confirm the recovery end-to-end: with a track playing, cover the top of the
+Y1 with your hand (or pocket it) until audio drops, then uncover it — it should
+reconnect on its own within a few seconds instead of needing a manual Connect.
+
 ## Build variants
 
 `build.sh` defaults to the recommended configuration: **RTP timestamp fix on,
@@ -79,6 +90,28 @@ and isn't needed once timestamps are fixed).
 | --- | --- |
 | `CLAMP_BITPOOL=1` | Also clamp SBC max bitpool 53→35. Only try this if audio still drops on the plain fix. Lower quality. |
 | `QUIET=1` | Disable verbose `BTDUMP`/`BTCTRL` packet logging (leaves `BTRTPFIX` on). Use for a "production" build once verified. |
+| `LSTO_SLOTS=6400` | Tune the shortened link-supervision timeout (units: 0.625 ms slots; `6400` = 4 s). Lower it for faster recovery; raise it if brief signal fades (or a Bluetooth-settings-screen inquiry scan) cause needless full reconnects. Default `8000` = 5 s. |
+| `LINK_SUPERVISION_TIMEOUT=0` | Leave the controller's stock ~20 s supervision timeout untouched (disables the connectivity-recovery behavior below). |
+
+## Connectivity recovery (link-supervision timeout)
+
+The RTP fix above makes AirPods *play*; this second behavior makes them
+*recover* quickly after a signal drop. Near-field body attenuation — a hand over
+the Y1's antenna, or the Y1 in a pocket — drops the 2.4 GHz link even at close
+range. That's physics, not software, so the proxy can't prevent the drop. What
+it *can* fix is the recovery: the MediaTek controller's default ACL
+link-supervision timeout is ~20 s (`0x7D00`), so after the radio link is
+physically gone the stack still reports the AirPods as connected for up to 20 s
+— audio is silent, Bluetooth settings still says "connected", and the user has
+to manually tap Connect.
+
+Because the proxy sits on the raw H4 HCI transport (`mtk_bt_write` /
+`mtk_bt_read`), it watches for the `Connection_Complete` event, grabs the new
+connection handle, and injects an `HCI_Write_Link_Supervision_Timeout`
+(opcode `0x0C37`) that shrinks the window to ~4 s. A dropout is then detected in
+a few seconds, and the launcher's reconnect watchdog reconnects automatically —
+no manual tap. The injected command's `Command_Complete` is swallowed on the
+read path so the host stack never sees an event for a command it didn't send.
 
 ## Files
 
