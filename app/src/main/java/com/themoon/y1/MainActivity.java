@@ -127,8 +127,8 @@ public class MainActivity extends Activity {
     private com.themoon.y1.views.WheelLockRingView wheelLockRing;
 
     // 🚀 [New] Direct-shortcut back-navigation return-path tracker!
-    private int backTargetForPlayer = STATE_BROWSER;
-    private int backTargetForUtility = STATE_SETTINGS;
+    public int backTargetForPlayer = STATE_BROWSER;
+    public int backTargetForUtility = STATE_SETTINGS;
     // 🚀 [New] Guard that prevents a fake click event from firing when the virtual blackout wakes up
     public boolean ignoreNextKeyUp = false;
     // 🚀 [New] Variables for radio control
@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
     public boolean isRadioScanning = false;
     public java.util.List<Float> savedRadioStations = new java.util.ArrayList<>();
 
-    private static final int BROWSER_COVER_FLOW = 9;
+    public static final int BROWSER_COVER_FLOW = 9;
     private java.util.List<SongItem> uniqueAlbumList = new java.util.ArrayList<>();
     private int currentCoverFlowIndex = 0;
 
@@ -179,13 +179,13 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New tool] Left/right saved-channel jump feature for hardware buttons
-    private void tuneToNextSavedRadioChannel(boolean isNext) {
+    public void tuneToNextSavedRadioChannel(boolean isNext) {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().tuneToNextSavedChannel(this, isNext);
     }
     // 🚀 [New] Memory slot to hold the Material Icons font
     private android.graphics.Typeface materialIconFont = null;
     public boolean isLongPressConsumed = false; // 🚀 Added long-press guard variable
-    private boolean isSeekPerformed = false;
+    public boolean isSeekPerformed = false;
     private long lastSeekTime = 0;
     // 🚀 [New] Global audio effect variables and profile state management
     public android.media.audiofx.BassBoost bassBoost;
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
     public int currentVirtualizerStep = 0;  // 0: OFF, 1: Weak, 2: Normal, 3: Strong
     public String currentEqProfile = "preset_0"; // preset_0~X or custom_name
     public int[] customBandLevels = new int[32]; // Cache bank for custom tuning values
-    private int settingsSubMode = 0;         // 0: general, 1: date/time, 2: equalizer routing
+    public int settingsSubMode = 0;         // 0: general, 1: date/time, 2: equalizer routing
     public int currentAudioSessionId = -1;  // 🚀 [Added] Variable to remember the audio session ID currently in use
     private int currentAdjustingBand = -1;   // 🚀 [Added] Remembers which frequency is currently being adjusted in the Graphic EQ.
     private boolean isWidgetFocusImageOn = false; // 🚀 [Added] Power variable for the focus-image widget
@@ -207,7 +207,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [New engine control variable] List-box hide and loop-scroll switch
 
-    private boolean isLoopScrollOn = true; // 💡 Set to true by default so infinite loop scrolling works!
+    public boolean isLoopScrollOn = true; // 💡 Set to true by default so infinite loop scrolling works!
     private TextView tvWidgetClock;
     // 🚀 [Fix] Renamed to the horizontal Bar class!
     private WidgetBatteryBarView widgetBatteryView;
@@ -215,15 +215,15 @@ public class MainActivity extends Activity {
     CircularBatteryView customCircularBatteryView;
     CustomAnalogClockView customAnalogClockView;
     private ImageView ivWidgetAlbum;
-    private String lastBrowserFocusText = "";
+    public String lastBrowserFocusText = "";
     private String lastMainMenuFocusAction = "";
     // 🚀 [Added] Title/artist variables dedicated to the album widget
     private TextView tvWidgetAlbumTitle;
     private TextView tvWidgetAlbumArtist;
     // 💡 [Added] Variables dedicated to fast index jump (alphabet scroll)
-    private List<String> currentScrollIndexList = new ArrayList<>();
-    private long lastWheelTime = 0;
-    private int wheelFastCount = 0;
+    public List<String> currentScrollIndexList = new ArrayList<>();
+    public long lastWheelTime = 0;
+    public int wheelFastCount = 0;
     public static MainActivity instance;
     public long lastTrackChangeTime = 0; // 🚀 Guard variable to block duplicate key signals from the device
     // 💡 [Added] Audio spectrum related variables
@@ -239,22 +239,22 @@ public class MainActivity extends Activity {
     private String plainLyrics = null;
 
     private boolean isVisualizerShowing = false;
-    private static final int STATE_MENU = 1;
-    private static final int STATE_BROWSER = 2;
-    private static final int STATE_PLAYER = 3;
+    public static final int STATE_MENU = 1;
+    public static final int STATE_BROWSER = 2;
+    public static final int STATE_PLAYER = 3;
     public static final int STATE_SETTINGS = 4;
-    private static final int STATE_BLUETOOTH = 5;
-    private static final int STATE_WIFI = 6;
-    private static final int STATE_WIFI_KEYBOARD = 7;
-    private static final int STATE_BRIGHTNESS = 8;
-    private static final int STATE_STORAGE = 9;
-    private static final int STATE_WEBSERVER = 10;
-    private static final int STATE_NAVIDROME = 11;
+    public static final int STATE_BLUETOOTH = 5;
+    public static final int STATE_WIFI = 6;
+    public static final int STATE_WIFI_KEYBOARD = 7;
+    public static final int STATE_BRIGHTNESS = 8;
+    public static final int STATE_STORAGE = 9;
+    public static final int STATE_WEBSERVER = 10;
+    public static final int STATE_NAVIDROME = 11;
     // 💡 Media library browser state management variables
-    private static final int BROWSER_ROOT = 0;
-    private static final int BROWSER_FOLDER = 1;
-    private static final int BROWSER_ARTISTS = 2;
-    private static final int BROWSER_ALBUMS = 3;
+    public static final int BROWSER_ROOT = 0;
+    public static final int BROWSER_FOLDER = 1;
+    public static final int BROWSER_ARTISTS = 2;
+    public static final int BROWSER_ALBUMS = 3;
     public static final int BROWSER_VIRTUAL_SONGS = 4;
     // 💡 [Added] Blacklist that remembers "poison files" that were corrupted and crashed the app
     private java.util.Set<String> blacklist = new java.util.HashSet<>();
@@ -267,16 +267,16 @@ public class MainActivity extends Activity {
     private ImageView ivStatusPlay;
 
     // 💡 Added near the media library browser state management variables
-    private static final int BROWSER_FAVORITES = 5;
+    public static final int BROWSER_FAVORITES = 5;
     // 🚀 [New virtual browser mode dedicated to native M3U]
-    private static final int BROWSER_PLAYLISTS = 6;
-    private static final int BROWSER_M3U_SONGS = 7;
-    private static final int BROWSER_AUDIOBOOKS = 8; // 🚀 [Added] Activates the audiobook browser state
+    public static final int BROWSER_PLAYLISTS = 6;
+    public static final int BROWSER_M3U_SONGS = 7;
+    public static final int BROWSER_AUDIOBOOKS = 8; // 🚀 [Added] Activates the audiobook browser state
     // 🚀 [New constants] Loads the year and genre state switches with unique, non-overlapping numbers.
-    private static final int BROWSER_YEARS = 10;
-    private static final int BROWSER_GENRES = 11;
+    public static final int BROWSER_YEARS = 10;
+    public static final int BROWSER_GENRES = 11;
     // 🚀 [New] Cover flow state constants and data storage
-//    private static final int BROWSER_COVER_FLOW = 9;
+//    public static final int BROWSER_COVER_FLOW = 9;
 //    private java.util.List<SongItem> uniqueAlbumList = new java.util.ArrayList<>();
 //    private int currentCoverFlowIndex = 0;
     private File currentM3uFile = null; // Address of the M3U file the user is currently viewing
@@ -291,9 +291,9 @@ public class MainActivity extends Activity {
     private int totalAudioFiles = 0;
     private int scannedAudioFiles = 0;
     // 💡 [Ultra-fast engine] Recycler ListView (to handle thousands of tracks) alongside the existing ScrollView
-    private android.widget.ListView listVirtualSongs;
+    public android.widget.ListView listVirtualSongs;
     private View scrollViewBrowser;
-    private boolean isScreenOffControlEnabled = false;
+    public boolean isScreenOffControlEnabled = false;
     public boolean isAutoFetchEnabled = true; // 🚀 [Added] Default value for the automatic internet lookup switch
     public static List<SongItem> customLibrary = new ArrayList<>();
     public static List<SongItem> audiobookLibrary = new ArrayList<>(); // 🚀 New bucket dedicated to audiobooks!
@@ -321,21 +321,22 @@ public class MainActivity extends Activity {
     private View layoutBrightnessMode, layoutStorageMode, layoutWebServerMode;
     private View layoutNavidromeMode;
     private LinearLayout containerNavidromeItems;
-    private TextView tvNavidromePath, tvNavidromeStatus;
+    public TextView tvNavidromePath;
+    private TextView tvNavidromeStatus;
 
     // Navidrome browse state
-    private static final int NAV_ARTISTS = 0;
-    private static final int NAV_ALBUMS  = 1;
-    private static final int NAV_SONGS   = 2;
-    private int navidromeBrowseDepth = NAV_ARTISTS;
-    private com.themoon.y1.subsonic.SubsonicArtist selectedNavidromeArtist;
+    public static final int NAV_ARTISTS = 0;
+    public static final int NAV_ALBUMS  = 1;
+    public static final int NAV_SONGS   = 2;
+    public int navidromeBrowseDepth = NAV_ARTISTS;
+    public com.themoon.y1.subsonic.SubsonicArtist selectedNavidromeArtist;
     private com.themoon.y1.subsonic.SubsonicAlbum  selectedNavidromeAlbum;
     private java.util.List<com.themoon.y1.subsonic.SubsonicSong> lastNavidromeSongs = new java.util.ArrayList<>();
-    private java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
+    public java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
     private boolean isNavidromeLoading = false;
-    private boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
+    public boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
     private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the Web Server web UI
-    private int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
+    public int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
 
     // Navidrome download queue — one transfer at a time (the ~190kbps link can't
     // share), with progress shown in tv_navidrome_status
@@ -393,7 +394,7 @@ public class MainActivity extends Activity {
     private TextView tvKeyboardSsid, tvKeyboardInput;
     private TextView tvKeyPprev, tvKeyPrev, tvKeyCurrent, tvKeyNext, tvKeyNnext;
 
-    private final String[] KEYBOARD_CHARS = {
+    public final String[] KEYBOARD_CHARS = {
             "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
             "v", "w", "x", "y", "z",
             "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
@@ -409,15 +410,15 @@ public class MainActivity extends Activity {
 
 
     private boolean wasWifiOnBeforeSleep = false;
-    private int keyboardIndex = 0;
+    public int keyboardIndex = 0;
     private String targetWifiSsid = "";
     private String typedPassword = "";
     private boolean isTargetWifiOpen = false;
     // 💡 Variable that tracks whether the media scanner is currently working
     private boolean isMediaScanning = false;
     private AudioManager audioManager;
-    private File rootFolder = new File("/storage/sdcard0/Music");
-    private File currentFolder = rootFolder;
+    public File rootFolder = new File("/storage/sdcard0/Music");
+    public File currentFolder = rootFolder;
     public List<File> originalPlaylist = new ArrayList<File>();
     public List<File> currentPlaylist = new ArrayList<File>();
     public int currentIndex = 0;
@@ -431,7 +432,7 @@ public class MainActivity extends Activity {
     private boolean isSoundEffectEnabled = true;
     private boolean isSpeakerDisabled = false;
     private boolean isVibrationEnabled = true;
-    private boolean isPickingBackground = false;
+    public boolean isPickingBackground = false;
 
     // 💡 Variable that remembers the last-played album art
     public byte[] lastAlbumArtBytes = null;
@@ -456,7 +457,7 @@ public class MainActivity extends Activity {
     private static final int GROUP_PLAYBACK = 0, GROUP_SOUND = 1, GROUP_CONNECTIVITY = 2, GROUP_DISPLAY = 3, GROUP_STORAGE = 4, GROUP_SYSTEM = 5;
     private int currentSettingsGroup = GROUP_PLAYBACK;
     private boolean isScreenSleeping = false;
-    private long lastScreenOnTime = 0;
+    public long lastScreenOnTime = 0;
     // 💡 [Added] Custom battery view variable
     private BatteryIconView batteryIconView;
     private int currentTimeoutIndex = 1;
@@ -470,13 +471,13 @@ public class MainActivity extends Activity {
 
     // 🚀 [Added] Unified registry to globally manage every widget's memory
     public java.util.HashMap<View, ThemeManager.MenuElement> widgetViewRegistry = new java.util.HashMap<>();
-    private int currentSystemBrightness = 255;
+    public int currentSystemBrightness = 255;
 
     private List<String> foundBtDevices = new ArrayList<String>();
     private List<String> foundWifiNetworks = new ArrayList<String>();
 
     private Y1WebServer webServer;
-    private boolean isServerRunning = false;
+    public boolean isServerRunning = false;
     private int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
     // 🚀 Append parentheses to fully separate this into a key distinct from the equalizer's Normal!
     private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
@@ -529,9 +530,9 @@ public class MainActivity extends Activity {
         }
     };
     // 🚀 [Added] Bank of variables for global double-click and root power control
-    private android.os.Handler doubleClickHandler = new android.os.Handler();
-    private long lastCenterUpTime = 0;
-    private Runnable singleClickRunnable = new Runnable() {
+    public android.os.Handler doubleClickHandler = new android.os.Handler();
+    public long lastCenterUpTime = 0;
+    public Runnable singleClickRunnable = new Runnable() {
         @Override
         public void run() {
             try { handleCenterShortClick(); } catch (Exception e) { Log.d(TAG, "tuneToNextSavedRadioChannel failed", e); }
@@ -543,7 +544,7 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [Smart Wi-Fi power-saving engine]
-    private void autoManageWifiPower(boolean isGoingToSleep) {
+    public void autoManageWifiPower(boolean isGoingToSleep) {
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wm == null) return;
 
@@ -2601,7 +2602,7 @@ public class MainActivity extends Activity {
         }
     }
     // 💡 [Fix complete] Main-screen theme applier. Added a call to the dynamic rendering engine!
-    private void applyThemeToMainMenu() {
+    public void applyThemeToMainMenu() {
         // The default album placeholder is theme-dependent; drop the cache so the next
         // refreshWidgets() re-fetches it for the newly applied theme.
         widgetDefaultAlbumBitmap = null;
@@ -2755,7 +2756,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void toggleWebServer() {
+    public void toggleWebServer() {
         if (isServerRunning) {
             if (webServer != null)
                 webServer.stopServer();
@@ -3106,7 +3107,7 @@ public class MainActivity extends Activity {
         tvBrightnessVal.setText(percent + "%");
     }
 
-    private void updateBrightness(int newBrightness) {
+    public void updateBrightness(int newBrightness) {
         currentSystemBrightness = newBrightness;
         pbBrightness.setProgress(currentSystemBrightness);
         int percent = (int) (((float) currentSystemBrightness / 255.0f) * 100);
@@ -3177,7 +3178,7 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [Direct link success] Bypasses the focus system to jump directly into the song list of the centered album!
-    private void handleCenterShortClick() {
+    public void handleCenterShortClick() {
         if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_COVER_FLOW) {
             if (uniqueAlbumList != null && !uniqueAlbumList.isEmpty() && currentCoverFlowIndex >= 0 && currentCoverFlowIndex < uniqueAlbumList.size()) {
                 clickFeedback();
@@ -3234,7 +3235,7 @@ public class MainActivity extends Activity {
         updateKeyboardUI();
     }
 
-    private void updateKeyboardUI() {
+    public void updateKeyboardUI() {
         int len = KEYBOARD_CHARS.length;
         int idxPprev = (keyboardIndex - 2 + len) % len;
         int idxPrev = (keyboardIndex - 1 + len) % len;
@@ -3957,7 +3958,7 @@ public class MainActivity extends Activity {
         return btn;
     }
 
-    private void buildSettingsUI() {
+    public void buildSettingsUI() {
         currentSettingsDepth = 0; // 🚀 Main settings is depth 0
 
         // 🚀 [Safeguard] Fully clears the radio UI flag when entering the general settings screen.
@@ -4056,7 +4057,7 @@ public class MainActivity extends Activity {
         }, 50);
     } // end of buildSettingsUI function
 
-    private void routeBackToSettingsGroup() {
+    public void routeBackToSettingsGroup() {
         switch (currentSettingsGroup) {
             case GROUP_PLAYBACK: buildPlaybackGroupUI(); break;
             case GROUP_SOUND: buildSoundVibrationGroupUI(); break;
@@ -4661,7 +4662,7 @@ public class MainActivity extends Activity {
 
         if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
     }
-    private void buildRadioUI() {
+    public void buildRadioUI() {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().build(this);
     }
 
@@ -5245,7 +5246,7 @@ public class MainActivity extends Activity {
     }
     // 💡 2. Library main router (with the custom scan button applied)
     // 💡 Existing code modified
-    private void buildFileBrowserUI() {
+    public void buildFileBrowserUI() {
         if (scrollViewBrowser != null)
             scrollViewBrowser.setVisibility(View.VISIBLE);
         if (listVirtualSongs != null)
@@ -5399,7 +5400,7 @@ public class MainActivity extends Activity {
     }
 
     // 💡 3. Extract artist/album categories from the local DB (ultra-fast engine applied!)
-    private void buildVirtualCategories(final String type) {
+    public void buildVirtualCategories(final String type) {
         // Only block on a scan that's still in progress if there's no cached library to show
         // yet at all — a background reconciliation scan shouldn't hide already-available data.
         if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
@@ -5477,7 +5478,7 @@ public class MainActivity extends Activity {
     } // end of buildVirtualCategories function
       // 💡 [Added] Function that ignores leading special characters in a name and extracts only the pure first letter
 
-    private char getInitialChar(String text) {
+    public char getInitialChar(String text) {
         if (text == null || text.isEmpty())
             return '#';
         String clean = text.replace("📁 ", "").replace("👤 ", "")
@@ -5511,7 +5512,7 @@ public class MainActivity extends Activity {
     // 🚀 [Stock 3D engine 1] Screen build
     // 🚀 [Stock 3D engine 1] Screen build (invisibility-cloak bug fully fixed version)
 // 🚀 [Stock 3D engine 1] Screen build (dynamic slot allocation version)
-    private void buildCoverFlowUI() {
+    public void buildCoverFlowUI() {
         currentBrowserMode = BROWSER_COVER_FLOW;
         if (scrollViewBrowser != null) scrollViewBrowser.setVisibility(View.VISIBLE);
         if (listVirtualSongs != null) listVirtualSongs.setVisibility(View.GONE);
@@ -5927,7 +5928,7 @@ public class MainActivity extends Activity {
     private long lastCoverFlowTime = 0; // 🚀 Time-machine variable for smart speed shifting
 
     // 🚀 [Stock 3D engine 5] Ultra-fast sliding engine (fully variable-count-aware geometry)
-    private void scrollCoverFlow(boolean isNext) {
+    public void scrollCoverFlow(boolean isNext) {
         int total = uniqueAlbumList.size();
         if(total == 0) return;
 
@@ -7364,7 +7365,7 @@ public class MainActivity extends Activity {
             }
         }
         // 🚀 [Bug cause removed] Perfectly removed one unnecessary stray closing brace '}' that was here!
-    private void adjustVolume(boolean up) {
+    public void adjustVolume(boolean up) {
         int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         if (up && currentVol < maxVol)
@@ -7415,7 +7416,7 @@ public class MainActivity extends Activity {
 
     // Shared by both the screen-off-control path and the normal player path in onKeyDown:
     // first press starts long-press tracking, repeats seek by seekMs at most every 300ms.
-    private boolean handleMediaSeekKeyRepeat(KeyEvent event, int seekMs) {
+    public boolean handleMediaSeekKeyRepeat(KeyEvent event, int seekMs) {
         if (event.getRepeatCount() == 0) {
             event.startTracking();
             isSeekPerformed = false;
@@ -7432,902 +7433,26 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        boolean isScreenOn = true;
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 20)
-                isScreenOn = pm.isInteractive();
-            else
-                isScreenOn = pm.isScreenOn();
-        } catch (Exception e) {
-            Log.d(TAG, "onKeyDown failed", e);
-        }
-
-        boolean isWakingUp = !isScreenOn || ((event.getFlags() & KeyEvent.FLAG_WOKE_HERE) != 0)
-                || (System.currentTimeMillis() - lastScreenOnTime < 500);
-
-        if (isWakingUp) {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                if (event.getRepeatCount() == 0) {
-                    event.startTracking();
-                }
-                return true;
-            }
-
-            // 🚀 [Screen-off control radio interceptor inserted]
-            if (isScreenOffControlEnabled && activePlayer == 1) {
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                    tuneToNextSavedRadioChannel(true);
-                    clickFeedback();
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                    tuneToNextSavedRadioChannel(false);
-                    clickFeedback();
-                    return true;
-                }
-            }
-
-            if (isScreenOffControlEnabled && currentScreenState == STATE_PLAYER) {
-                if (keyCode == 21) {
-                    // 🚀 Guard: block volume adjustments for 0.3 seconds (300ms) right after a track skip!
-                    if (System.currentTimeMillis() - lastTrackChangeTime > 300) {
-                        adjustVolume(false);
-                        clickFeedback();
-                    }
-                    return true;
-                }
-                if (keyCode == 22) {
-                    if (System.currentTimeMillis() - lastTrackChangeTime > 300) {
-                        adjustVolume(true);
-                        clickFeedback();
-                    }
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                    return handleMediaSeekKeyRepeat(event, -10000);
-                }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                    return handleMediaSeekKeyRepeat(event, 10000);
-                }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-
-//                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-//                    clickFeedback();
-                    return true;
-                }
-            }
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            if (event.getRepeatCount() == 0) {
-                event.startTracking(); // 🚀 [Core technique] Start watching (tracking) for a long press.
-            }
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
-                || keyCode == 86) {
-//            if (event.getRepeatCount() == 0) {
-//
-//
-//                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-//
-//            }
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-            return handleMediaSeekKeyRepeat(event, 10000);
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-            return handleMediaSeekKeyRepeat(event, -10000);
-        }
-
-        if (currentScreenState == STATE_WIFI_KEYBOARD) {
-            if (keyCode == 21) {
-                keyboardIndex = (keyboardIndex - 1 + KEYBOARD_CHARS.length) % KEYBOARD_CHARS.length;
-                updateKeyboardUI();
-                clickFeedback();
-                return true;
-            }
-            if (keyCode == 22) {
-                keyboardIndex = (keyboardIndex + 1) % KEYBOARD_CHARS.length;
-                updateKeyboardUI();
-                clickFeedback();
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                changeScreen(STATE_WIFI);
-                clickFeedback();
-                return true;
-            }
-            return true;
-        }
-
-        if (currentScreenState == STATE_PLAYER) {
-            if (keyCode == 21) {
-                adjustVolume(false);
-                clickFeedback();
-                return true;
-            }
-            if (keyCode == 22) {
-                adjustVolume(true);
-                clickFeedback();
-                return true;
-            }
-
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                // 🚀 [Return-path specified] Always go back precisely to the screen we came from, not the browser!
-                changeScreen(backTargetForPlayer);
-                clickFeedback();
-                return true;
-            }
-            return true;
-        }
-
-        if (currentScreenState == STATE_BRIGHTNESS) {
-            if (keyCode == 21) {
-                currentSystemBrightness = Math.max(10, currentSystemBrightness - 15);
-                updateBrightness(currentSystemBrightness);
-                clickFeedback();
-                return true;
-            }
-            if (keyCode == 22) {
-                currentSystemBrightness = Math.min(255, currentSystemBrightness + 15);
-                updateBrightness(currentSystemBrightness);
-                clickFeedback();
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                // 🚀 [Return-path specified]
-                changeScreen(backTargetForUtility);
-                clickFeedback();
-                return true;
-            }
-            return true;
-        }
-
-        if (currentScreenState == STATE_STORAGE) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                // 🚀 [Return-path specified]
-                changeScreen(backTargetForUtility);
-                clickFeedback();
-                return true;
-            }
-            return true;
-        }
-
-        if (currentScreenState == STATE_NAVIDROME) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
-                clickFeedback();
-                if (navidromeBrowseDepth == NAV_SONGS) {
-                    navidromeBrowseDepth = NAV_ALBUMS;
-                    buildNavidromeUI();
-                } else if (navidromeBrowseDepth == NAV_ALBUMS) {
-                    navidromeBrowseDepth = NAV_ARTISTS;
-                    selectedNavidromeArtist = null;
-                    buildNavidromeUI();
-                } else if (isNavidromeLetterView) {
-                    // Letter picker → back to the artist list without refetching
-                    tvNavidromePath.setText("NAVIDROME  ▸  Artists");
-                    buildNavidromeArtistsUI(lastNavidromeArtists);
-                } else {
-                    if (navidromeBackTarget == STATE_BROWSER) lastBrowserFocusText = t("Navidrome");
-                    changeScreen(navidromeBackTarget);
-                }
-                return true;
-            }
-        }
-
-        if (currentScreenState == STATE_WEBSERVER) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                clickFeedback();
-                if (isServerRunning) {
-                    new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                            .setTitle(t("Server is Running"))
-                            .setMessage(
-                                    t("The Web Server is still active. Do you want to shut it down completely and exit?"))
-                            .setPositiveButton(t("Stop Server"), new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dialog, int which) {
-                                    toggleWebServer();
-                                    changeScreen(backTargetForUtility); // 🚀 Return!
-                                }
-                            })
-                            .setNegativeButton(t("Keep Running"), new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dialog, int which) {
-                                    changeScreen(backTargetForUtility); // 🚀 Return!
-                                }
-                            })
-                            .show();
-                } else {
-                    changeScreen(backTargetForUtility); // 🚀 Return!
-                }
-                return true;
-            }
-        }
-
-        if (currentScreenState == STATE_MENU || currentScreenState == STATE_BROWSER
-                || currentScreenState == STATE_SETTINGS || currentScreenState == STATE_BLUETOOTH
-                || currentScreenState == STATE_WIFI || currentScreenState == STATE_NAVIDROME) {
-
-            // 🚀 [Stock cover-flow wheel control fully overhauled]
-            if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_COVER_FLOW) {
-                if (keyCode == 21) { // turning the wheel up (left)
-                    scrollCoverFlow(false);
-                    clickFeedback();
-                    return true;
-                }
-                if (keyCode == 22) { // turning the wheel down (right)
-                    scrollCoverFlow(true);
-                    clickFeedback();
-                    return true;
-                }
-            }
-
-            // (existing code unchanged) 🚀 In addition to the existing BACK key, pressing the top button (19) always goes back one step...
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
-                clickFeedback();
-                if (currentScreenState == STATE_BROWSER) {
-                    if (isPickingBackground) {
-                        if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
-                            isPickingBackground = false;
-                            changeScreen(STATE_MENU);
-                        } else {
-                            currentFolder = currentFolder.getParentFile();
-                            buildFileBrowserUI();
-                        }
-                    } else {
-                        // 💡 [Bug fully fixed] Precisely remember (in lastBrowserFocusText) which room we just came out of!
-                        if (currentBrowserMode == BROWSER_ROOT) {
-                            changeScreen(STATE_MENU);
-                        } else if (currentBrowserMode == BROWSER_COVER_FLOW) {
-                            // 🚀 [Smart direct-exit sensor installed]
-                            // If there's no memory (lastBrowserFocusText) of the previous browser menu, then we came straight in from the main menu!
-                            if (lastBrowserFocusText == null || lastBrowserFocusText.trim().isEmpty()) {
-                                changeScreen(STATE_MENU); // 🟢 Return directly to the main screen immediately, just like the other shortcuts!
-                            } else {
-                                // If we came in through the proper path via the library menu, return to the parent menu as usual
-                                currentBrowserMode = BROWSER_ROOT;
-                                buildFileBrowserUI();
-                            }
-                        } else if (currentBrowserMode == BROWSER_FOLDER) {
-                            // 🚀 [Bug fix] Smartly checks whether we've reached the top-level folder, according to the current mode (music/audiobook).
-                            boolean isAtFolderRoot = false;
-                            if (isAudiobookLibraryMode) {
-                                if (currentFolder.getAbsolutePath().equals(audiobookRootFolder.getAbsolutePath())) {
-                                    isAtFolderRoot = true;
-                                }
-                            } else {
-                                if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
-                                    isAtFolderRoot = true;
-                                }
-                            }
-
-                            // Pressing back at either mode's top-level folder or the device's overall root folder returns to the library main screen (BROWSER_ROOT)!
-                            if (isAtFolderRoot || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
-                                currentBrowserMode = BROWSER_ROOT;
-                                lastBrowserFocusText = t("Folders");
-                                buildFileBrowserUI();
-                            } else {
-                                String exitedName = currentFolder.getName(); // Remember the name of the folder we just left!
-                                currentFolder = currentFolder.getParentFile();
-                                if (currentFolder == null) {
-                                    changeScreen(STATE_MENU);
-                                } else {
-                                    lastBrowserFocusText = exitedName;
-                                    buildFileBrowserUI();
-                                }
-                            }
-                        } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
-                            // 🚀 [Path-recovery 3] If the tag is cover-flow, always send it back to the cover-flow screen.
-                            if (virtualQueryType.equals("COVER_FLOW_ALBUM")) {
-                                currentBrowserMode = BROWSER_COVER_FLOW;
-                                buildCoverFlowUI();
-                            } else {
-                                // Existing general routing logic
-                                currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
-                                        : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
-                                if (currentBrowserMode == BROWSER_ROOT) {
-                                    lastBrowserFocusText = t("All Songs");
-                                    buildFileBrowserUI();
-                                } else {
-                                    buildVirtualCategories(virtualQueryType);
-                                }
-                            }
-                        } else if (currentBrowserMode == BROWSER_ARTISTS) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText =t("Artists");
-                            buildFileBrowserUI();
-                        } else if (currentBrowserMode == BROWSER_FAVORITES) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText =t("My Favorites");
-                            buildFileBrowserUI();
-                        } else if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("All Audiobooks");
-                            buildFileBrowserUI();
-                        } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Playlists");
-                            buildFileBrowserUI();
-                        } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
-                            currentBrowserMode = BROWSER_PLAYLISTS;
-                            buildM3uPlaylistUI();
-                        } else if (currentBrowserMode == BROWSER_ALBUMS) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Albums");
-                            buildFileBrowserUI();
-                        }
-                        // 🚀 [Add the code below here to open up the exit path!]
-                        else if (currentBrowserMode == BROWSER_YEARS) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Years"); // 💡 Set so the wheel focus automatically locks onto the 'Years' button when leaving!
-                            buildFileBrowserUI();
-                        } else if (currentBrowserMode == BROWSER_GENRES) {
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = t("Genres"); // 💡 Set so the wheel focus automatically locks onto the 'Genres' button when leaving!
-                            buildFileBrowserUI();
-                        }
-                    }
-                } else if (currentScreenState == STATE_BLUETOOTH || currentScreenState == STATE_WIFI) {
-                    changeScreen(backTargetForUtility);
-                } else if (currentScreenState == STATE_SETTINGS) {
-
-                    // 🚀 [Step 1] If in the radio settings sub-page mode, first escape to the radio main player mode!
-                    if (isRadioUIShowing && isRadioSettingsMode) {
-                        isRadioSettingsMode = false;
-                        isRadioAdjustingFreq = false;
-                        buildRadioUI();
-                        clickFeedback();
-                        return true;
-                    }
-
-                    // 🚀 [Bug completely fixed] Pressing back on the radio main player screen instantly jumps back to the home (main) screen!
-                    if (isRadioUIShowing) {
-                        isRadioUIShowing = false;
-                        isRadioSettingsMode = false;
-                        isRadioAdjustingFreq = false;
-                        applyThemeToMainMenu(); // 🚀 Added! Refresh when returning to main from radio
-                        changeScreen(STATE_MENU);
-                        clickFeedback();
-                        return true;
-                    }
-
-                    isRadioUIShowing = false;
-
-                    // 🚀 [Routing cleanup fully restored] Figures out the depth and returns to the correct parent menu accordingly!
-                    if (currentSettingsDepth == 0) {
-                        applyThemeToMainMenu(); // 🚀 Added! Fully refresh the main screen when fully exiting the settings window!
-                        changeScreen(STATE_MENU);
-                    } else if (currentSettingsDepth == 1) {
-                        buildSettingsUI(); // If it's a group screen (depth 1), go back one step to the group-selector root!
-                    } else if (currentSettingsDepth == 2) {
-                        // A leaf sub-menu directly under a group (depth 2) — go back one step to that group!
-                        routeBackToSettingsGroup();
-                    } else if (currentSettingsDepth == 3) {
-                        // Handling for exiting an even deeper window (depth 3), like EQ presets or the date/time picker
-                        if (settingsSubMode == 2 || settingsSubMode == 3) {
-                            buildEqualizerSettingsUI();
-                        } else {
-                            routeBackToSettingsGroup();
-                        }
-                    }
-                    clickFeedback();
-                    return true;
-                }
-                return true;
-            }
-            // 🚀 [Overwrite from here!] While the ultra-fast ListView is active, hand the wheel signal off to the system's native smooth-scroll engine!
-            if (currentScreenState == STATE_BROWSER && listVirtualSongs != null
-                    && listVirtualSongs.getVisibility() == View.VISIBLE) {
-
-                long now = System.currentTimeMillis();
-                if (now - lastWheelTime < 40 && wheelFastCount < 2) {
-                    lastWheelTime = now;
-                    return true;
-                }
-                boolean isFastScroll = false;
-
-                // 💡 [Automatic engine] If the wheel spins 3+ clicks in a row within 0.05 seconds (50ms), trigger 'fast-jump mode'!
-                if (now - lastWheelTime < 50) {
-                    wheelFastCount++;
-                    if (wheelFastCount >= 3)
-                        isFastScroll = true;
-                } else {
-                    wheelFastCount = 0; // Reset instantly if turned slowly
-                }
-                lastWheelTime = now;
-
-                if (isFastScroll && !currentScrollIndexList.isEmpty()) {
-                    // 🚀🚀 [Fast-jump mode] Scroll in big chunks by alphabet (first letter)!
-                    int currentPos = listVirtualSongs.getSelectedItemPosition();
-                    if (currentPos < 0)
-                        currentPos = 0;
-                    char currentChar = getInitialChar(currentScrollIndexList.get(currentPos));
-                    int targetPos = currentPos;
-
-                    if (keyCode == 22) { // wheel flicked down (find the next letter)
-                        for (int i = currentPos + 1; i < currentScrollIndexList.size(); i++) {
-                            if (getInitialChar(currentScrollIndexList.get(i)) != currentChar) {
-                                targetPos = i;
-                                break;
-                            }
-                        }
-                    } else if (keyCode == 21) { // wheel flicked up (find the start of the previous letter)
-                        char targetChar = currentChar;
-                        boolean foundPrevChar = false;
-                        for (int i = currentPos - 1; i >= 0; i--) {
-                            char c = getInitialChar(currentScrollIndexList.get(i));
-                            if (!foundPrevChar && c != currentChar) {
-                                foundPrevChar = true;
-                                targetChar = c;
-                            }
-                            if (foundPrevChar && c != targetChar) {
-                                targetPos = i + 1;
-                                break;
-                            }
-                            if (i == 0)
-                                targetPos = 0;
-                        }
-                    }
-                    listVirtualSongs.setSelection(targetPos);
-                    clickFeedback();
-                    return true;
-                } else {
-                    // 🐢🐢 [Normal-drive mode] Move slowly and precisely one track at a time, as usual!
-                    if (keyCode == 21) {
-                        int currentPos = listVirtualSongs.getSelectedItemPosition();
-                        if (currentPos <= 0) {
-                            // 🚀 [Loop-scroll condition control] Only jump instantly to the very last track when looping is enabled.
-                            if (isLoopScrollOn) {
-                                final int lastPos = listVirtualSongs.getCount() - 1;
-                                listVirtualSongs.setSelection(lastPos);
-                                listVirtualSongs.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        int visiblePos = lastPos - listVirtualSongs.getFirstVisiblePosition();
-                                        if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
-                                            listVirtualSongs.getChildAt(visiblePos).requestFocus();
-                                        }
-                                    }
-                                });
-                            }
-                        } else {
-                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
-                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP));
-                        }
-                        clickFeedback();
-                        return true;
-                    }
-                    if (keyCode == 22) {
-                        int currentPos = listVirtualSongs.getSelectedItemPosition();
-                        if (currentPos == listVirtualSongs.getCount() - 1) {
-                            // 🚀 [Loop-scroll condition control] Only jump back instantly to the very first track when looping is enabled.
-                            if (isLoopScrollOn) {
-                                listVirtualSongs.setSelection(0);
-                                listVirtualSongs.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        if (listVirtualSongs.getChildCount() > 0)
-                                            listVirtualSongs.getChildAt(0).requestFocus();
-                                    }
-                                });
-                            }
-                        } else {
-                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
-                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
-                        }
-                        clickFeedback();
-                        return true;
-                    }
-                }
-            }
-            View c = getCurrentFocus();
-            if (c != null) {
-                if (keyCode == 21) { // wheel turned up (UP)
-
-                    // 🚀 [Radio wheel control] Flicker fully eliminated version
-                    if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
-                        if (!isRadioSettingsMode) {
-                            adjustVolume(false);
-                            return true;
-                        } else if (isRadioAdjustingFreq) {
-                            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                            float newFreq = fm.currentFreq - 0.1f;
-                            if (newFreq < 87.5f) newFreq = 108.0f;
-                            if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
-                            showRadioFreqPopup(newFreq);
-                            buildRadioUI();
-                            return true;
-                        }
-                    }
-
-                    // 🚀 [Main-menu control fully conquered] On the main screen, always force focus to move strictly through the index order we assembled!
-                    if (currentScreenState == STATE_MENU) {
-                        int targetId = c.getNextFocusUpId();
-                        if (targetId != View.NO_ID) {
-                            View target = findViewById(targetId);
-                            if (target != null) {
-                                target.requestFocus();
-                                clickFeedback();
-                                return true;
-                            }
-                        }
-                    } else {
-                        android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
-                        if (parent instanceof LinearLayout) {
-                            int index = parent.indexOfChild(c);
-                            boolean moved = false;
-                            for (int i = index - 1; i >= 0; i--) {
-                                View n = parent.getChildAt(i);
-                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                    n.requestFocus();
-                                    moved = true;
-                                    break;
-                                }
-                            }
-                            if (!moved && isLoopScrollOn) {
-                                for (int i = parent.getChildCount() - 1; i > index; i--) {
-                                    View n = parent.getChildAt(i);
-                                    if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                        n.requestFocus();
-                                        break;
-                                    }
-                                }
-                            }
-                        } else {
-                            int targetId = c.getNextFocusUpId();
-                            if (targetId != View.NO_ID) {
-                                View target = findViewById(targetId);
-                                if (target != null) {
-                                    target.requestFocus();
-                                    clickFeedback();
-                                    return true;
-                                }
-                            }
-                            View n = c.focusSearch(View.FOCUS_UP);
-                            if (n != null) n.requestFocus();
-                        }
-                    }
-                    clickFeedback();
-                    return true;
-                }
-                if (keyCode == 22) { // wheel turned down (DOWN)
-
-                    // 🚀 [Radio wheel control] Flicker fully eliminated version
-                    if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
-                        if (!isRadioSettingsMode) {
-                            adjustVolume(true);
-                            return true;
-                        } else if (isRadioAdjustingFreq) {
-                            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                            float newFreq = fm.currentFreq + 0.1f;
-                            if (newFreq > 108.0f) newFreq = 87.5f;
-                            if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
-                            showRadioFreqPopup(newFreq);
-                            buildRadioUI();
-                            return true;
-                        }
-                    }
-
-                    // 🚀 [Main-menu control fully conquered] On the main screen, always force focus to move strictly through the index order we assembled!
-                    if (currentScreenState == STATE_MENU) {
-                        int targetId = c.getNextFocusDownId();
-                        if (targetId != View.NO_ID) {
-                            View target = findViewById(targetId);
-                            if (target != null) {
-                                target.requestFocus();
-                                clickFeedback();
-                                return true;
-                            }
-                        }
-                    } else {
-                        android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
-                        if (parent instanceof LinearLayout) {
-                            int index = parent.indexOfChild(c);
-                            boolean moved = false;
-                            for (int i = index + 1; i < parent.getChildCount(); i++) {
-                                View n = parent.getChildAt(i);
-                                if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                    n.requestFocus();
-                                    moved = true;
-                                    break;
-                                }
-                            }
-                            if (!moved && isLoopScrollOn) {
-                                for (int i = 0; i < index; i++) {
-                                    View n = parent.getChildAt(i);
-                                    if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
-                                        n.requestFocus();
-                                        break;
-                                    }
-                                }
-                            }
-                        } else {
-                            int targetId = c.getNextFocusDownId();
-                            if (targetId != View.NO_ID) {
-                                View target = findViewById(targetId);
-                                if (target != null) {
-                                    target.requestFocus();
-                                    clickFeedback();
-                                    return true;
-                                }
-                            }
-                            View n = c.focusSearch(View.FOCUS_DOWN);
-                            if (n != null) n.requestFocus();
-                        }
-                    }
-                    clickFeedback();
-                    return true;
-                }
-            } else {
-                // 🚀 [Focus-jump bug fully resolved] Right after first entering the screen, focus is temporarily absent (null),
-                // and this completely blocks the system from ambiguously warping to some bottom button the moment the user first clicks the wheel.
-                if (keyCode == 21 || keyCode == 22) {
-                    android.view.View firstBtn = findViewById(10000); // Target the unique ID of button 0 (Now Playing)
-                    if (firstBtn != null) {
-                        firstBtn.requestFocus(); // Force it back to button 0!
-                        clickFeedback();
-                        return true; // 💡 Consume the event here to stop it from jumping to the wrong button.
-                    }
-                }
-            }
-            return super.onKeyDown(keyCode, event);
-        }
-
-        return super.onKeyDown(keyCode, event);
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        return com.themoon.y1.managers.KeyEventRouter.getInstance().dispatchKeyEvent(this, event);
     }
     @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        // 🚀 [Wheel lock] Nothing gets through except turning the wheel (21/22) — whatever button
-        // gets pressed and however it happens inside a pocket, it's all absorbed here.
-        if (com.themoon.y1.managers.WheelLockManager.getInstance().isActive()) {
-            return com.themoon.y1.managers.WheelLockManager.getInstance().handleKeyEvent(event);
-        }
-        if (isFakeScreenOff) {
-            int keyCode = event.getKeyCode();
-
-            // 💡 1. The moment the button is pressed (ACTION_DOWN)
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                // Silently isolate and block the leftover repeated signal that occurs when the hand hasn't lifted yet after a long press
-                if ((keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) && event.getRepeatCount() > 0) {
-                    return true;
-                }
-
-                // 🚀 [Screen-off control integration] While in virtual-blackout state, pressing left/right changes the frequency without waking the screen, keeping it off!
-                if (isScreenOffControlEnabled && activePlayer == 1) {
-                    if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                        tuneToNextSavedRadioChannel(true);
-                        clickFeedback();
-                        return true; // 💡 Break the signal here so it doesn't fall through to the screen-wake routine.
-                    }
-                    if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                        tuneToNextSavedRadioChannel(false);
-                        clickFeedback();
-                        return true;
-                    }
-                }
-
-                // If any other key is pressed, kick off the screen-wake steering!
-                isFakeScreenOff = false;
-                autoManageWifiPower(false); // 🚀 [Exiting power-saving mode]
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        // Instantly restore the hardware backlight brightness
-                        try {
-                            WindowManager.LayoutParams lp = getWindow().getAttributes();
-                            lp.screenBrightness = currentSystemBrightness / 255.0f;
-                            getWindow().setAttributes(lp);
-                        } catch (Exception e) {
-                            Log.d(TAG, "dispatchKeyEvent failed", e);
-                        }
-
-                        // Run a smooth cinematic fade-in animation
-                        // (vsync-synced property animator instead of a manual 25ms Handler loop)
-                        layoutLoadingOverlay.animate().cancel();
-                        layoutLoadingOverlay.animate()
-                                .alpha(0.0f)
-                                .setDuration(325)
-                                .withEndAction(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        if (isFinishing() || isDestroyed()) return;
-                                        layoutLoadingOverlay.setVisibility(View.GONE);
-                                        layoutLoadingOverlay.setBackgroundColor(0xDD000000); // Reset to the semi-transparent loading-screen color
-                                        if (pbLoadingProgress != null) pbLoadingProgress.setVisibility(View.VISIBLE);
-                                        if (currentScreenState == STATE_SETTINGS) buildRadioUI();
-                                    }
-                                })
-                                .start();
-                    }
-                });
-                clickFeedback();
-            }
-
-            // 🚀 [Core technique] All key actions (press, release — everything) that occur in the blackout state
-            // are made to completely vanish here, never reaching lower views (like the radio option buttons)!
-            return true;
-        }
-        return super.dispatchKeyEvent(event);
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        return com.themoon.y1.managers.KeyEventRouter.getInstance().onKeyDown(this, keyCode, event);
     }
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-//        if (ignoreNextKeyUp) {
-//            ignoreNextKeyUp = false; // Release the guard
-//            return true; // 💡 Consume the event here so it doesn't flow down to handleCenterShortClick() etc. below!
-//        }
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        boolean isScreenOn = true;
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 20)
-                isScreenOn = pm.isInteractive();
-            else
-                isScreenOn = pm.isScreenOn();
-        } catch (Exception e) {
-            Log.d(TAG, "onKeyUp failed", e);
-        }
-
-        boolean isWakingUp = !isScreenOn || ((event.getFlags() & KeyEvent.FLAG_WOKE_HERE) != 0)
-                || (System.currentTimeMillis() - lastScreenOnTime < 500);
-
-        if (isWakingUp) {
-            return true;
-        }
-
-        // 💡 [Key blocking zone] On 'release' of a wheel action (21, 22) or back (BACK)
-        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 21 || keyCode == 22) {
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            // 🚀 [Guard] If a long press (screen-off or playlist popup) has already been handled, skip the short-click routine
-            if (isLongPressConsumed) {
-                isLongPressConsumed = false;
-                return true;
-            }
-
-            if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
-                // 🚀 [Smart short-click branching] On the player screen, the long-press was given to screen-off,
-                // so a double-click opens the quick menu (playback/queue/Wi-Fi/Bluetooth shortcuts,
-                // including favorite toggle) instead of firing play/pause a second time.
-                if (currentScreenState == STATE_PLAYER) {
-                    long now = System.currentTimeMillis();
-                    if (now - lastCenterUpTime < 300) {
-                        doubleClickHandler.removeCallbacks(singleClickRunnable);
-                        lastCenterUpTime = 0; // Reset the timer
-                        clickFeedback();
-                        showQuickMenu();
-                    } else {
-                        lastCenterUpTime = now;
-                        doubleClickHandler.postDelayed(singleClickRunnable, 300);
-                    }
-                } else {
-                    // 🚀 On every other screen (main menu selection, settings logic, library lists, etc.),
-                    // there's no 0.3-second wait — a full one-touch, lightning-fast click fires instantly, removing any lag.
-                    try { handleCenterShortClick(); } catch (Exception e) { Log.d(TAG, "onKeyUp failed", e); }
-                }
-            }
-            return true;
-        }
-        // 🚀 [Bug fully fixed] Smart, fully cleaned-up control scheme for the bottom hardware play/stop button!
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86 || keyCode == 126 || keyCode == 127) {
-            if (event.getRepeatCount() == 0) {
-                com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-
-                // 💡 [Top-priority rule] If the user is currently looking at the 'music player screen (STATE_PLAYER)',
-                // open the gate so the "always play/pause the music player" command works regardless of the radio's state!
-                if (currentScreenState == STATE_PLAYER) {
-                    if (fm.isPowerUp) {
-                        fm.powerDown(); // If the radio was making sound, silently turn it off first.
-                    }
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                    activePlayer = 0; // Force control back to the music player!
-                }
-                // 💡 On any other general screen (main menu, settings, etc.), follow the originally designed activePlayer rule.
-                else if (activePlayer == 1) {
-                    if (fm.isPowerUp) {
-//                        fm.powerDown();
-                    } else {
-                        // 🚀 [Error fix] Changed so playOrPauseMusic() only runs when music is actually playing!
-                        com.themoon.y1.managers.AudioPlayerManager amInstance = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                        if (amInstance.isPlaying()) {
-                            amInstance.playOrPauseMusic();
-                        }
-                        // Give the music player a moment to actually pause before the FM chip claims the
-                        // audio session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                            fm.powerUpAsync(fm.currentFreq, success -> {
-                                if (!success) {
-                                    android.widget.Toast.makeText(this, "Radio Error: " + fm.lastError, android.widget.Toast.LENGTH_SHORT).show();
-                                }
-                                updateGlobalStatusPlayIcon();
-                                if (currentScreenState == STATE_SETTINGS) buildRadioUI();
-                            });
-                        }, 50);
-                        clickFeedback();
-                        return true;
-                    }
-                    if (currentScreenState == STATE_SETTINGS) buildRadioUI();
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
-                }
-
-                updateGlobalStatusPlayIcon(); // Sync the top status bar's play/stop image
-                clickFeedback();
-            }
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-            if (!isSeekPerformed) {
-                if (activePlayer == 1) {
-                    tuneToNextSavedRadioChannel(true); // 🚀 Just cleanly call the engine!
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
-                }
-                clickFeedback();
-            }
-            return true;
-        }
-
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-            if (!isSeekPerformed) {
-                if (activePlayer == 1) {
-                    tuneToNextSavedRadioChannel(false); // 🚀 Just cleanly call the engine!
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
-                }
-                clickFeedback();
-            }
-            return true;
-        }
-
-        return super.onKeyUp(keyCode, event);
+        return com.themoon.y1.managers.KeyEventRouter.getInstance().onKeyUp(this, keyCode, event);
     }
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            clickFeedback();
-            isLongPressConsumed = true; // Blocks the short click from firing again on release
-
-            // 🚀 [Branch 1] The main screen, player screen, settings screen, and other system windows always trigger screen-off!
-            if (currentScreenState == STATE_MENU || currentScreenState == STATE_PLAYER || currentScreenState == STATE_SETTINGS
-                    || currentScreenState == STATE_BLUETOOTH || currentScreenState == STATE_WIFI || currentScreenState == STATE_BRIGHTNESS
-                    || currentScreenState == STATE_STORAGE || currentScreenState == STATE_WEBSERVER) {
-
-                turnOffScreen();
-                return true;
-            }
-            // 🚀 [Branch 2] Weighing up the exception handling when entering the library (Browser) screen
-            else if (currentScreenState == STATE_BROWSER) {
-                // Check whether the current browser is showing a screen that lists pure tracks/files
-                boolean isFileVisible = (currentBrowserMode == BROWSER_FOLDER
-                        || currentBrowserMode == BROWSER_VIRTUAL_SONGS
-                        || currentBrowserMode == BROWSER_FAVORITES
-                        || currentBrowserMode == BROWSER_M3U_SONGS
-                        || currentBrowserMode == BROWSER_AUDIOBOOKS);
-
-                if (isFileVisible) {
-                    // 💡 [Per request] When files are visible, exclude it from the screen-off targets and keep the existing "playlist popup (long press)" behavior!
-                    View c = getCurrentFocus();
-                    if (c != null) {
-                        c.performLongClick();
-                    }
-                } else {
-                    // 💡 On a root menu or artist/album category window with no files visible, conveniently let screen-off work!
-                    turnOffScreen();
-                }
-                return true;
-            }
-        }
-        return super.onKeyLongPress(keyCode, event);
+        return com.themoon.y1.managers.KeyEventRouter.getInstance().onKeyLongPress(this, keyCode, event);
     }
+
+    public boolean superDispatchKeyEvent(KeyEvent event) { return super.dispatchKeyEvent(event); }
+    public boolean superOnKeyDown(int keyCode, KeyEvent event) { return super.onKeyDown(keyCode, event); }
+    public boolean superOnKeyUp(int keyCode, KeyEvent event) { return super.onKeyUp(keyCode, event); }
+    public boolean superOnKeyLongPress(int keyCode, KeyEvent event) { return super.onKeyLongPress(keyCode, event); }
     // AapService only (re)starts from the A2DP CONNECTION_STATE_CHANGED broadcast, which fires on
     // a state transition. If Android kills this process while AirPods are already connected, the
     // process comes back with no AAP session and no new broadcast to trigger one (the state never
@@ -9127,7 +8252,7 @@ public class MainActivity extends Activity {
         }
     }
     // Advanced EQ main sub-page builder
-    private void buildEqualizerSettingsUI() {
+    public void buildEqualizerSettingsUI() {
         currentSettingsDepth = 2;
         settingsSubMode = 2; // Activate the EQ sub-mode
         com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
@@ -9488,7 +8613,7 @@ public class MainActivity extends Activity {
         }, 50);
     }
     // 🚀 [Native engine 1] Build the M3U list screen
-    private void buildM3uPlaylistUI() {
+    public void buildM3uPlaylistUI() {
         if (scrollViewBrowser != null) scrollViewBrowser.setVisibility(View.VISIBLE);
         if (listVirtualSongs != null) listVirtualSongs.setVisibility(View.GONE);
         containerBrowserItems.removeAllViews();
@@ -10002,7 +9127,7 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New engine] Full-screen popup controller for real-time wheel-driven frequency adjustment
-    private void showRadioFreqPopup(float freq) {
+    public void showRadioFreqPopup(float freq) {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().showFreqPopup(this, freq);
     }
     // 🚀 [Ultimate architecture complete] Dynamic layout engine that switches in real time purely by looking at the parent_id relationships between objects, with no hardcoded terms
@@ -10161,7 +9286,7 @@ public class MainActivity extends Activity {
     //  NAVIDROME BROWSER
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private void buildNavidromeUI() {
+    public void buildNavidromeUI() {
         com.themoon.y1.subsonic.SubsonicClient client = com.themoon.y1.subsonic.SubsonicClient.getInstance();
 
         if (client.getConfigVersion() != lastSeenNavidromeConfigVersion) {
@@ -10284,7 +9409,7 @@ public class MainActivity extends Activity {
         containerNavidromeItems.addView(tv);
     }
 
-    private void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
+    public void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
         buildNavidromeArtistsUI(artists, null);
     }
 
@@ -10575,7 +9700,7 @@ public class MainActivity extends Activity {
 
     /** Double-click center on Now Playing: playback/queue/Wi-Fi/Bluetooth shortcuts without
      *  leaving the player screen (center long-press is already claimed by screen-off there). */
-    private void showQuickMenu() {
+    public void showQuickMenu() {
         String favPath = getCurrentTrackPathForFavorites();
         final boolean isFav = favPath != null && favoritePaths.contains(favPath);
 
