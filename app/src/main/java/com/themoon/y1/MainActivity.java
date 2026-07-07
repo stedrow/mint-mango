@@ -180,33 +180,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [New tool] Left/right saved-channel jump feature for hardware buttons
     private void tuneToNextSavedRadioChannel(boolean isNext) {
-        com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-        if (savedRadioStations.isEmpty()) {
-            Toast.makeText(this, t("No saved channels."), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        float target = savedRadioStations.get(0);
-        if (isNext) {
-            for (float f : savedRadioStations) {
-                if (f > fm.currentFreq) { target = f; break; }
-            }
-        } else {
-            target = savedRadioStations.get(savedRadioStations.size() - 1);
-            for (int i = savedRadioStations.size() - 1; i >= 0; i--) {
-                if (savedRadioStations.get(i) < fm.currentFreq) { target = savedRadioStations.get(i); break; }
-            }
-        }
-        if (fm.isPowerUp) fm.tune(target);
-        else fm.currentFreq = target;
-
-        // 🚀 [Fix complete] Blocks full reloads and, on the player screen, only runs an ultra-fast partial refresh to prevent flicker!
-        if (currentScreenState == STATE_SETTINGS) {
-            if (isRadioUIShowing && !isRadioSettingsMode) {
-                updateRadioMainPlayerUI();
-            } else {
-                buildRadioUI();
-            }
-        }
+        com.themoon.y1.managers.FmRadioUiManager.getInstance().tuneToNextSavedChannel(this, isNext);
     }
     // 🚀 [New] Memory slot to hold the Material Icons font
     private android.graphics.Typeface materialIconFont = null;
@@ -268,7 +242,7 @@ public class MainActivity extends Activity {
     private static final int STATE_MENU = 1;
     private static final int STATE_BROWSER = 2;
     private static final int STATE_PLAYER = 3;
-    private static final int STATE_SETTINGS = 4;
+    public static final int STATE_SETTINGS = 4;
     private static final int STATE_BLUETOOTH = 5;
     private static final int STATE_WIFI = 6;
     private static final int STATE_WIFI_KEYBOARD = 7;
@@ -312,8 +286,8 @@ public class MainActivity extends Activity {
 
     public int consecutiveErrorCount = 0;
     // 🚀 [Added] Variables for displaying scan progress
-    private ProgressBar pbLoadingProgress;
-    private TextView tvLoadingProgress;
+    public ProgressBar pbLoadingProgress;
+    public TextView tvLoadingProgress;
     private int totalAudioFiles = 0;
     private int scannedAudioFiles = 0;
     // 💡 [Ultra-fast engine] Recycler ListView (to handle thousands of tracks) alongside the existing ScrollView
@@ -332,15 +306,16 @@ public class MainActivity extends Activity {
     public boolean isRadioSettingsMode = false; // determines whether we are in settings mode within the radio
     public boolean isRadioAdjustingFreq = false;
 
-    private int lastRadioFocusIndex = 1;
+    public int lastRadioFocusIndex = 1;
     // (Volume-only variables and the complex focus index are no longer needed, so they were boldly removed!)
     private boolean isCustomScanning = false;
     public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
     public com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
-    private int currentScreenState = STATE_MENU;
+    public int currentScreenState = STATE_MENU;
     // 💡 Temporary variable for the custom date/time settings
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
-    private View layoutMainMenu, layoutBrowserMode, layoutSettingsMode;
+    private View layoutMainMenu, layoutBrowserMode;
+    public View layoutSettingsMode;
     private View layoutBluetoothMode, layoutWifiMode, layoutWifiKeyboard;
     private View layoutPlayerMode, layoutVolumeOverlay;
     private View layoutBrightnessMode, layoutStorageMode, layoutWebServerMode;
@@ -384,7 +359,8 @@ public class MainActivity extends Activity {
     private android.net.wifi.WifiManager.WifiLock navidromeDownloadWifiLock;
     private String currentNavidromeCoverArtId; // guards against stale async art landing on a newer track
 
-    private LinearLayout containerBrowserItems, containerSettingsItems;
+    private LinearLayout containerBrowserItems;
+    public LinearLayout containerSettingsItems;
     private LinearLayout containerBtItems, containerWifiItems;
 
     private TextView tvStatusClock, tvStatusBattery;
@@ -407,7 +383,7 @@ public class MainActivity extends Activity {
     private TextView tvServerStatus, tvServerIp;
     private Button btnServerToggle;
     // 🚀 [Added] Advanced loading indicator overlay that covers the whole screen
-    private LinearLayout layoutLoadingOverlay;
+    public LinearLayout layoutLoadingOverlay;
     public ImageView ivMenuPreview, ivAlbumArt, ivPlayerBgBlur, ivPauseOverlay;
 
     private Button btnNowPlaying, btnPlay, btnSettings, btnBluetooth, btnRadio;
@@ -476,7 +452,7 @@ public class MainActivity extends Activity {
     public int currentEqPresetIndex = 0;
 
     private int lastSettingsFocusIndex = 0;
-    private int currentSettingsDepth = 1;
+    public int currentSettingsDepth = 1;
     private static final int GROUP_PLAYBACK = 0, GROUP_SOUND = 1, GROUP_CONNECTIVITY = 2, GROUP_DISPLAY = 3, GROUP_STORAGE = 4, GROUP_SYSTEM = 5;
     private int currentSettingsGroup = GROUP_PLAYBACK;
     private boolean isScreenSleeping = false;
@@ -638,59 +614,9 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New engine] Lossless engine that swaps only the frequency and candy-capsule color at ultra speed without a reload
-    private LinearLayout layoutRadioCandyContainer;
+    public LinearLayout layoutRadioCandyContainer;
 
     // 🚀 [New engine] Lossless engine that swaps only the frequency and candy-capsule color at ultra speed without a reload (left-edge escape bug fully fixed)
-    private void updateRadioMainPlayerUI() {
-        final com.themoon.y1.managers.FmRadioManager fmManager = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-
-        // 1. Pinpoint-refresh only the main large frequency display text
-        TextView tvFreq = (TextView) containerSettingsItems.findViewWithTag("radio_main_freq_text");
-        if (tvFreq != null) {
-            tvFreq.setText(String.format(java.util.Locale.US, "%.1f MHz", fmManager.currentFreq));
-            tvFreq.setTextColor(fmManager.isPowerUp ? (ThemeManager.getListButtonFocusedBg() | 0xFF000000) : 0xFF888888);
-        }
-
-        // 2. Silently refresh only the background and text color of the pills inside the candy pouch
-        if (layoutRadioCandyContainer != null) {
-            int themeHighlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-            float density = getResources().getDisplayMetrics().density;
-            for (int i = 0; i < layoutRadioCandyContainer.getChildCount(); i++) {
-                final View child = layoutRadioCandyContainer.getChildAt(i);
-                if (child instanceof TextView && child.getTag() instanceof Float) {
-                    TextView tvCandy = (TextView) child;
-                    float stationFreq = (Float) child.getTag();
-                    android.graphics.drawable.GradientDrawable candyBg = new android.graphics.drawable.GradientDrawable();
-                    candyBg.setCornerRadius(20 * density);
-
-                    if (Math.abs(fmManager.currentFreq - stationFreq) < 0.05f) {
-                        candyBg.setColor(themeHighlightColor);
-                        tvCandy.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-
-                        layoutRadioCandyContainer.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                android.view.ViewParent parent = layoutRadioCandyContainer.getParent();
-                                if (parent instanceof android.widget.HorizontalScrollView) {
-                                    android.widget.HorizontalScrollView hsv = (android.widget.HorizontalScrollView) parent;
-                                    int scrollX = child.getLeft() - (hsv.getWidth() / 2) + (child.getWidth() / 2);
-
-                                    // 🚀 [Core guard] If the scroll calculation goes negative, force it to 0 (leftmost) to permanently prevent the first channel from being cut off!
-                                    if (scrollX < 0) scrollX = 0;
-
-                                    hsv.smoothScrollTo(scrollX, 0);
-                                }
-                            }
-                        });
-                    } else {
-                        candyBg.setColor(ThemeManager.getListButtonNormalBg());
-                        tvCandy.setTextColor(ThemeManager.getTextColorSecondary());
-                    }
-                    tvCandy.setBackground(candyBg);
-                }
-            }
-        }
-    }
     // 🚀 [Core technique 1] A "global screen-off sensor" mounted directly on every button!
     public View.OnLongClickListener globalScreenOffLongClickListener = new View.OnLongClickListener() {
         @Override
@@ -2542,7 +2468,7 @@ public class MainActivity extends Activity {
     }
     // 💡 [Overhaul complete] Reliable full-screen loading popup & screen-off prevention engine
     // 💡 [Overhaul complete] Reliable full-screen loading popup & screen-off prevention engine
-    private void showLoadingPopup() {
+    public void showLoadingPopup() {
         if (layoutLoadingOverlay != null) {
             // 🚀 [Fix 3] Also ensures the popup's opacity is fully set to 100% when showing the auto-scan screen!
             layoutLoadingOverlay.setAlpha(1.0f);
@@ -3818,7 +3744,7 @@ public class MainActivity extends Activity {
         containerSettingsItems.addView(tv);
     }
 
-    private LinearLayout createSettingRow(String leftText, String rightText) {
+    public LinearLayout createSettingRow(String leftText, String rightText) {
         final LinearLayout layout = new LinearLayout(this);
         layout.setSoundEffectsEnabled(false);
         layout.setOrientation(LinearLayout.HORIZONTAL);
@@ -4736,338 +4662,7 @@ public class MainActivity extends Activity {
         if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
     }
     private void buildRadioUI() {
-        currentSettingsDepth = 1;
-        isRadioUIShowing = true; // 🚀 Tell the system I'm currently on the radio screen!
-        containerSettingsItems.removeAllViews();
-
-        // 🚀 Fully block/hide the ghost "Settings" title at the top
-        android.view.ViewGroup settingsGroup = (android.view.ViewGroup) layoutSettingsMode;
-        if (settingsGroup != null && settingsGroup.getChildCount() > 0 && settingsGroup.getChildAt(0) instanceof TextView) {
-            settingsGroup.getChildAt(0).setVisibility(View.GONE);
-        }
-
-        final com.themoon.y1.managers.FmRadioManager fmManager = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-
-        if (savedRadioStations.isEmpty()) {
-            try {
-                String savedStationsStr = prefs.getString("radio_stations", "");
-                if (!savedStationsStr.isEmpty()) {
-                    for(String s : savedStationsStr.split(",")) savedRadioStations.add(Float.parseFloat(s));
-                }
-            } catch (Exception e) {
-                Log.d(TAG, "buildRadioUI failed", e);
-            }
-        }
-
-        final float density = getResources().getDisplayMetrics().density;
-
-        // ==========================================================
-        // 🎧 [Mode 1] Default player mode (🔮 neon highlight glow + bottom alignment)
-        // ==========================================================
-        if (!isRadioSettingsMode) {
-
-            // Advanced outer frame panel setup
-            android.widget.FrameLayout freqPanel = new android.widget.FrameLayout(this);
-            android.widget.LinearLayout.LayoutParams panelLp = new android.widget.LinearLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-            panelLp.setMargins((int)(15 * density), (int)(30 * density), (int)(15 * density), (int)(15 * density));
-            freqPanel.setLayoutParams(panelLp);
-
-            android.graphics.drawable.GradientDrawable panelBg = new android.graphics.drawable.GradientDrawable();
-            panelBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-            panelBg.setCornerRadius(18 * density);
-
-            int themeHighlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-
-            if (fmManager.isPowerUp) {
-                int backlitColor = (themeHighlightColor & 0x00FFFFFF) | 0x42000000;
-                panelBg.setColor(backlitColor);
-                panelBg.setStroke((int)(4 * density), themeHighlightColor);
-            } else {
-                panelBg.setColor(0x15FFFFFF);
-                panelBg.setStroke((int)(1 * density), 0x33FFFFFF);
-            }
-            freqPanel.setBackground(panelBg);
-
-            // Large digital frequency text view
-            final android.widget.TextView tvFreq = new android.widget.TextView(this);
-            tvFreq.setTag("radio_main_freq_text");
-            tvFreq.setText(String.format(java.util.Locale.US, "%.1f MHz", fmManager.currentFreq));
-            tvFreq.setTextColor(fmManager.isPowerUp ? themeHighlightColor : 0xFF888888);
-            tvFreq.setTextSize(54);
-            tvFreq.setGravity(android.view.Gravity.CENTER);
-            tvFreq.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-            tvFreq.setPadding(0, (int)(38 * density), 0, (int)(38 * density));
-
-            freqPanel.addView(tvFreq);
-            containerSettingsItems.addView(freqPanel);
-
-            // 🍬 Horizontally scrolling pill channel container
-            if (!savedRadioStations.isEmpty()) {
-                android.widget.HorizontalScrollView hzScroll = new android.widget.HorizontalScrollView(this);
-                hzScroll.setHorizontalScrollBarEnabled(false);
-                hzScroll.setClipChildren(false);
-                hzScroll.setClipToPadding(false);
-                // 💡 This option needs to be on for channels to center nicely when there are only a few (1-3)!
-                hzScroll.setFillViewport(true);
-                hzScroll.setPadding(0, 15, 0, 15);
-
-                android.widget.LinearLayout candyContainer = new android.widget.LinearLayout(this);
-                candyContainer.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-
-                // 🚀 [Fix 1] Allow full CENTER alignment instead of just CENTER_VERTICAL.
-                candyContainer.setGravity(android.view.Gravity.CENTER);
-
-                for (int i = 0; i < savedRadioStations.size(); i++) {
-                    float stationFreq = savedRadioStations.get(i);
-
-                    android.widget.TextView tvCandy = new android.widget.TextView(this);
-                    tvCandy.setText(String.format(java.util.Locale.US, "%.1f", stationFreq));
-                    tvCandy.setTextSize(18f);
-                    tvCandy.setGravity(android.view.Gravity.CENTER);
-                    tvCandy.setPadding((int)(14*density), (int)(6*density), (int)(14*density), (int)(6*density));
-                    tvCandy.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-                    tvCandy.setTag(stationFreq);
-
-                    android.graphics.drawable.GradientDrawable candyBg = new android.graphics.drawable.GradientDrawable();
-                    candyBg.setCornerRadius(20 * density);
-
-                    if (Math.abs(fmManager.currentFreq - stationFreq) < 0.05f) {
-                        candyBg.setColor(themeHighlightColor);
-                        tvCandy.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-
-                        final android.view.View targetChild = tvCandy;
-                        final android.widget.HorizontalScrollView finalHzScroll = hzScroll;
-                        hzScroll.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                int scrollX = targetChild.getLeft() - (finalHzScroll.getWidth() / 2) + (targetChild.getWidth() / 2);
-                                if (scrollX < 0) scrollX = 0; // safety guard
-                                finalHzScroll.scrollTo(scrollX, 0);
-                            }
-                        });
-                    } else {
-                        candyBg.setColor(ThemeManager.getListButtonNormalBg());
-                        tvCandy.setTextColor(ThemeManager.getTextColorSecondary());
-                    }
-
-                    tvCandy.setBackground(candyBg);
-
-                    android.widget.LinearLayout.LayoutParams candyLp = new android.widget.LinearLayout.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                    candyLp.setMargins((int)(6*density), 0, (int)(6*density), 0);
-                    tvCandy.setLayoutParams(candyLp);
-
-                    candyContainer.addView(tvCandy);
-                }
-
-                // 🚀 [Fix 2 key point!] Completely drop MATCH_PARENT and CENTER_HORIZONTAL, switch to WRAP_CONTENT!
-                // This way, even as more items are added, the left wall (0px point) doesn't collapse and it correctly scrolls to the right only.
-                android.widget.FrameLayout.LayoutParams containerLp = new android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
-
-                // ❌ Absolutely forbidden: containerLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-
-                hzScroll.addView(candyContainer, containerLp);
-
-                // 🚀 [Bug fix complete] Snap the fully assembled horizontal-scroll pouch onto the main screen!
-                containerSettingsItems.addView(hzScroll);
-
-                layoutRadioCandyContainer = candyContainer;
-            }
-
-            // Weighted spacer for the bottom control layout
-            android.view.View spacer = new android.view.View(this);
-            android.widget.LinearLayout.LayoutParams spacerLp = new android.widget.LinearLayout.LayoutParams(0, 0, 1.0f);
-            spacer.setLayoutParams(spacerLp);
-            containerSettingsItems.addView(spacer);
-
-            // 3. Settings-mode entry button (docked at the very bottom)
-            android.widget.Button btnSettings = createListButton(t("Radio Settings"));
-            btnSettings.setGravity(android.view.Gravity.CENTER);
-
-            android.widget.LinearLayout.LayoutParams settingsLp = (android.widget.LinearLayout.LayoutParams) btnSettings.getLayoutParams();
-            if (settingsLp != null) {
-                settingsLp.bottomMargin = (int)(15 * density);
-                btnSettings.setLayoutParams(settingsLp);
-            }
-
-            btnSettings.setOnClickListener(v -> {
-                clickFeedback();
-                isRadioSettingsMode = true;
-                buildRadioUI();
-            });
-            containerSettingsItems.addView(btnSettings);
-
-            containerSettingsItems.postDelayed(() -> {
-                if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1).requestFocus();
-                }
-            }, 50);
-
-        }
-        // ==========================================================
-        // ⚙️ [Mode 2] Settings sub-page mode (existing logic fully preserved)
-        // ==========================================================
-        else {
-            android.widget.Button btnClose = createListButton(t("Close Settings"));
-            btnClose.setTextColor(0xFFFF8800);
-            btnClose.setOnClickListener(v -> {
-                clickFeedback();
-                isRadioSettingsMode = false;
-                isRadioAdjustingFreq = false;
-                buildRadioUI();
-            });
-            containerSettingsItems.addView(btnClose);
-
-            final android.widget.LinearLayout btnPower = createSettingRow("Radio Power", fmManager.isPowerUp ? t("ON") : t("OFF"));
-            btnPower.setOnLongClickListener(globalScreenOffLongClickListener);
-            btnPower.setOnClickListener(v -> {
-                clickFeedback();
-                if (fmManager.isPowerUp) {
-                    fmManager.powerDown();
-                    isRadioAdjustingFreq = false;
-                    updateGlobalStatusPlayIcon();
-                    buildRadioUI();
-                } else {
-                    com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                    if (am.isPlaying()) am.playOrPauseMusic();
-                    // Give playback a moment to actually pause before the FM chip claims the audio
-                    // session; posted with a delay instead of Thread.sleep so the UI thread isn't blocked.
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        fmManager.powerUpAsync(fmManager.currentFreq, success -> {
-                            if (success) activePlayer = 1;
-                            else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
-                            updateGlobalStatusPlayIcon();
-                            buildRadioUI();
-                        });
-                    }, 100);
-                }
-            });
-            containerSettingsItems.addView(btnPower);
-
-            String freqRightText = isRadioAdjustingFreq ? t("[ ADJUSTING ]") : t("Click to Tune");
-            final android.widget.LinearLayout btnTune = createSettingRow("Tune Frequency", freqRightText);
-            if (isRadioAdjustingFreq) ((android.widget.TextView)btnTune.getChildAt(1)).setTextColor(0xFFFF8800);
-            btnTune.setOnLongClickListener(globalScreenOffLongClickListener);
-            btnTune.setOnClickListener(v -> {
-                clickFeedback();
-                isRadioAdjustingFreq = !isRadioAdjustingFreq;
-                buildRadioUI();
-            });
-            containerSettingsItems.addView(btnTune);
-
-            boolean isSaved = savedRadioStations.contains(fmManager.currentFreq);
-            final android.widget.LinearLayout btnSaveFreq = createSettingRow("Save Channel", isSaved ? "★ " + t("SAVED") : "☆ " + t("SAVE"));
-            if (isSaved) ((android.widget.TextView)btnSaveFreq.getChildAt(1)).setTextColor(0xFFFF8800);
-            btnSaveFreq.setOnLongClickListener(globalScreenOffLongClickListener);
-            btnSaveFreq.setOnClickListener(v -> {
-                clickFeedback();
-                if (isSaved) {
-                    savedRadioStations.remove(Float.valueOf(fmManager.currentFreq));
-                    android.widget.Toast.makeText(MainActivity.this, t("Removed from saved channels."), android.widget.Toast.LENGTH_SHORT).show();
-                } else {
-                    savedRadioStations.add(fmManager.currentFreq);
-                    java.util.Collections.sort(savedRadioStations);
-                    android.widget.Toast.makeText(MainActivity.this, t("Channel saved!"), android.widget.Toast.LENGTH_SHORT).show();
-                }
-                StringBuilder sb = new StringBuilder();
-                for(int i=0; i<savedRadioStations.size(); i++) {
-                    sb.append(savedRadioStations.get(i));
-                    if(i < savedRadioStations.size()-1) sb.append(",");
-                }
-                prefs.edit().putString("radio_stations", sb.toString()).apply();
-                buildRadioUI();
-            });
-            containerSettingsItems.addView(btnSaveFreq);
-
-            final android.widget.LinearLayout btnAutoScan = createSettingRow("Auto Scan All", t("Start") + " >");
-            btnAutoScan.setOnLongClickListener(globalScreenOffLongClickListener);
-            btnAutoScan.setOnClickListener(v -> {
-                clickFeedback();
-                if (!fmManager.isPowerUp) {
-                    android.widget.Toast.makeText(MainActivity.this, t("Please turn on Radio Power first!"), android.widget.Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                if (isRadioScanning) return;
-
-                isRadioScanning = true;
-                showLoadingPopup();
-
-                new Thread(() -> {
-                    float fakeFreq = 87.5f;
-                    int progress = 0;
-                    while (isRadioScanning) {
-                        final int p = progress;
-                        final float f = fakeFreq;
-                        runOnUiThread(() -> {
-                            if (pbLoadingProgress != null) {
-                                pbLoadingProgress.setIndeterminate(false);
-                                pbLoadingProgress.setProgress(p);
-                            }
-                            if (tvLoadingProgress != null) {
-
-                                tvLoadingProgress.setText(String.format(java.util.Locale.US, t("Scanning FM Frequencies...\nSearching around %.1f MHz"), f));                            }
-                        });
-                        try { Thread.sleep(70); } catch (Exception e) { Log.d(TAG, "buildRadioUI failed", e); }
-                        progress += 1;
-                        if (progress > 100) progress = 0;
-                        fakeFreq += 0.1f;
-                        if (fakeFreq > 108.0f) fakeFreq = 87.5f;
-                    }
-                }).start();
-
-                new Thread(() -> {
-                    final float[] foundStations = fmManager.autoScan();
-                    isRadioScanning = false;
-
-                    runOnUiThread(() -> {
-                        if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(android.view.View.GONE);
-                        if (tvLoadingProgress != null) tvLoadingProgress.setText(t("Preparing to scan...\nPlease wait."));
-
-                        if (foundStations != null && foundStations.length > 0) {
-                            savedRadioStations.clear();
-                            for (float f : foundStations) savedRadioStations.add(f);
-                            java.util.Collections.sort(savedRadioStations);
-
-                            StringBuilder sb = new StringBuilder();
-                            for(int i=0; i<savedRadioStations.size(); i++) {
-                                sb.append(savedRadioStations.get(i));
-                                if(i < savedRadioStations.size()-1) sb.append(",");
-                            }
-                            prefs.edit().putString("radio_stations", sb.toString()).apply();
-                            android.widget.Toast.makeText(MainActivity.this, t("Scan Complete!\nFound")+" " + foundStations.length + t("channels.\nTuning to")+" " + foundStations[0] + "MHz", android.widget.Toast.LENGTH_LONG).show();
-                            fmManager.tune(foundStations[0]);
-                        } else {
-                            android.widget.Toast.makeText(MainActivity.this, t("No stations found.")+" (" + fmManager.lastError + ")", android.widget.Toast.LENGTH_LONG).show();
-                        }
-                        buildRadioUI();
-                    });
-                }).start();
-            });
-            containerSettingsItems.addView(btnAutoScan);
-
-            final android.widget.LinearLayout btnSpeaker = createSettingRow("Audio Output", fmManager.isSpeakerOn ? t("Speaker") : t("Earphones"));
-            btnSpeaker.setOnLongClickListener(globalScreenOffLongClickListener);
-            btnSpeaker.setOnClickListener(v -> {
-                clickFeedback();
-                fmManager.setSpeaker(!fmManager.isSpeakerOn);
-                buildRadioUI();
-            });
-            containerSettingsItems.addView(btnSpeaker);
-
-            containerSettingsItems.postDelayed(() -> {
-                int targetIdx = lastRadioFocusIndex;
-                if (isRadioAdjustingFreq) {
-                    targetIdx = 2;
-                }
-                if (targetIdx >= 0 && targetIdx < containerSettingsItems.getChildCount()) {
-                    containerSettingsItems.getChildAt(targetIdx).requestFocus();
-                } else if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
-                }
-            }, 50);
-        }
+        com.themoon.y1.managers.FmRadioUiManager.getInstance().build(this);
     }
 
     private void buildUpdateSettingsUI() {
@@ -8803,7 +8398,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.WheelLockManager.getInstance().cancelPendingReset();
         qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
         doubleClickHandler.removeCallbacks(singleClickRunnable);
-        radioFreqHandler.removeCallbacks(hideRadioFreqTask);
+        com.themoon.y1.managers.FmRadioUiManager.getInstance().cancelPendingReset();
         cancelAudioReconnect();
         releaseNavidromeDownloadLocks();
 
@@ -10407,39 +10002,8 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New engine] Full-screen popup controller for real-time wheel-driven frequency adjustment
-    private android.os.Handler radioFreqHandler = new android.os.Handler();
-    private Runnable hideRadioFreqTask = new Runnable() {
-        @Override
-        public void run() {
-            if (layoutLoadingOverlay != null) {
-                layoutLoadingOverlay.setVisibility(View.GONE); // Close the popup
-                if (pbLoadingProgress != null) pbLoadingProgress.setVisibility(View.VISIBLE); // Restore the progress bar's original state
-            }
-        }
-    };
-
     private void showRadioFreqPopup(float freq) {
-        if (layoutLoadingOverlay != null) {
-            radioFreqHandler.removeCallbacks(hideRadioFreqTask);
-
-            // 🚀 [Fix 1] Invisible-man bug fixed: force-restore the opacity back to 100% after the virtual blackout mode had set it to 0%!
-            layoutLoadingOverlay.setAlpha(1.0f);
-            layoutLoadingOverlay.setVisibility(View.VISIBLE);
-
-            if (pbLoadingProgress != null) {
-                pbLoadingProgress.setVisibility(View.VISIBLE);
-                int progress = (int) (((freq - 87.5f) / 20.5f) * 100);
-                pbLoadingProgress.setProgress(progress);
-            }
-
-            if (tvLoadingProgress != null) {
-                tvLoadingProgress.setTextSize(24f);
-                // 🚀 [Fix 2] Revive the text-output engine that had been accidentally commented out (//) and left dormant!
-                tvLoadingProgress.setText(String.format(java.util.Locale.US, t("Tuning Frequency...\n\n%.1f MHz"), freq));
-            }
-
-            radioFreqHandler.postDelayed(hideRadioFreqTask, 1500);
-        }
+        com.themoon.y1.managers.FmRadioUiManager.getInstance().showFreqPopup(this, freq);
     }
     // 🚀 [Ultimate architecture complete] Dynamic layout engine that switches in real time purely by looking at the parent_id relationships between objects, with no hardcoded terms
     private void updateFocusPreviewLiveContent(ThemeManager.MenuElement focusedElement) {
