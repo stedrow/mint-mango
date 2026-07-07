@@ -74,36 +74,100 @@ a "safe" extraction breaks something.
   MainActivity instance as a method parameter instead of trying to own that state, and widened
   visibility on several shared fields/helpers from private to public. First extraction that
   needed real hardware (FM chip) to verify on-device; turned out the test device has it.
+- `managers/KeyEventRouter` — dispatchKeyEvent()/onKeyDown()/onKeyUp()/onKeyLongPress(), ~900
+  lines combined (PR #11). The connective tissue candidate itself: no clean boundary at all (it
+  reaches into browser navigation, settings depth, radio, Navidrome, web server, wheel-lock,
+  screen-off, volume — nearly everything), so it used the same MainActivity-instance-as-parameter
+  pattern as FmRadioUiManager, at much larger scale (~30 fields/methods/constants widened from
+  private to public, compile-error driven). MainActivity kept the four Activity-lifecycle
+  overrides as one-line delegates plus superOnKeyDown()/superDispatchKeyEvent()/superOnKeyUp()/
+  superOnKeyLongPress() helpers, since a non-Activity class can't call super.onKeyDown() etc.
+  Verified on-device across nearly every screen state (menu, Bluetooth, Wi-Fi + password
+  keyboard, web server + its AlertDialog, music library in every browse mode, player, settings
+  depth chain, radio wheel-tune). Long-press screen-off and the double-click quick-menu window
+  were reviewed by inspection only (this device's adb `input` predates `--longpress`), since
+  they're unmodified code carried over verbatim.
+- `managers/SettingsUiManager` — the whole Settings tree: depth-0 group list, all six group
+  screens, and their leaf sub-pages (theme selector, language selector, update checker,
+  vibration, widgets, background picker, date/time, equalizer/graphic EQ) (PR #12). ~1700 lines
+  across 19 methods, same MainActivity-instance-as-parameter pattern as the two above. Built via
+  a scripted extraction (line-range copy + compile-error-driven `a.` prefixing, iterated to
+  convergence) rather than fully by hand, given the size -- worked cleanly but needed a few manual
+  fixups afterward (missing imports for `Intent`/`DialogInterface`/`Settings`/`R`, `switch` case
+  labels needing `MainActivity.GROUP_X` instead of `a.GROUP_X` since a compile-time constant must
+  be referenced through the class, not an instance). Verified on-device across every group and
+  leaf screen including both AlertDialog confirmation flows (clear cache, power off) and the
+  network-hitting system-update checker.
+- `managers/BluetoothAudioManager` — the reflection-based A2DP connection engine: proxy
+  lifecycle, connect/pair/disconnect, exponential-backoff reconnect watchdog, AAP ear-detection
+  listener (PR #13). Unlike the four extractions above, this one had a genuinely clean field
+  boundary (globalA2dp/targetDeviceForAudio/isBtConnectingState/backoff state were private to
+  the engine itself) -- compiled clean on the first try, no iteration needed. The giant
+  intent-broadcast receiver and Bluetooth-screen UI builders stayed in MainActivity (not part of
+  "connection management"); those call sites now go through the manager's public API. Verified
+  on real AirPods hardware per the roadmap's non-negotiable: connect, full Bluetooth power-off
+  (clean teardown), power-on (proxy rebind + watchdog auto-reconnect with zero manual
+  intervention).
+- `managers/NavidromeManager` — Navidrome/Subsonic browse screens (artists/albums/songs,
+  letter-jump index) and the one-at-a-time download queue (wake/wifi locks, transfer, library
+  registration, cover art caching, retry) (PR #14). ~730 lines across 29 methods. Genuinely clean
+  field boundary like BluetoothAudioManager for the download-queue state; a handful of fields
+  stayed in MainActivity because KeyEventRouter already touches them directly
+  (navidromeBrowseDepth/selectedNavidromeArtist/isNavidromeLetterView/lastNavidromeArtists/
+  navidromeBackTarget) plus the onCreate() view bindings. Built via the same scripted extraction
+  as SettingsUiManager -- caught a real mistake mid-pass: the first attempt deleted one
+  contiguous span from the first Navidrome method to the last, which silently also deleted
+  unrelated interleaved methods (showQuickMenu, showRadioFreqPopup, setupAudiobookProgress) that
+  happened to sit between two non-contiguous Navidrome clusters. Caught immediately by the
+  resulting compile errors, reverted, redone with each method's verified range deleted
+  individually. **Lesson for future scripted extractions: never delete first-start to
+  last-end as one span -- always delete each verified per-method range separately, even when
+  it means more edits.** Verified against a real Navidrome server: browsing, real streaming
+  playback with quality-info badges, and a full download completing end-to-end.
+- `managers/ConnectivityScreenManager` — Bluetooth and Wi-Fi settings-screen UI construction:
+  device/network scan lists, pairing/connect click handlers, focus restoration after a rebuild
+  (PR #15). ~450 lines across 8 methods. The connection engines already lived elsewhere
+  (BluetoothAudioManager for A2DP reflection calls; Wi-Fi has no reflection engine, just plain
+  WifiManager calls) -- this was purely the two screens' UI-construction half, same role as
+  FmRadioUiManager/SettingsUiManager. No clean field boundary (view bindings from onCreate()),
+  MainActivity-instance parameter. 3 of the 8 methods (addPairedBluetoothItemToUI,
+  restoreBluetoothFocus, addWifiItemToUI) had no external callers and were deleted outright
+  rather than kept as pass-throughs. Verified against real Bluetooth (AirPods) and Wi-Fi
+  hardware: power on/off/on cycles, paired-device sub-menu, real network scan with correct
+  locked/open icons and connected-network-first sort.
 
 ## Next candidates, ranked by isolation / risk
-
-Field+method occurrence counts are from before the extractions above — use as a rough
-"how much to move" gauge, not a precise LOC count.
 
 ### 1. Wheel-lock overlay — DONE, see above.
 
 ### 2. FM radio UI — DONE, see above.
 
-### Not yet scoped (larger, more entangled — don't attempt without dedicated review)
-- **Settings UI** (~15 sub-pages, each building its own `LinearLayout` tree with click
-  listeners closing over dozens of MainActivity fields). This is the single biggest chunk of
-  MainActivity's line count but has the least natural boundary — nearly every setting reads or
-  writes some other subsystem's state directly. The FM radio extraction confirmed this: even a
-  single sub-page needed half a dozen MainActivity fields/helpers widened to public. Extracting
-  this well probably means extracting the *other* subsystems first (EQ UI naturally follows once
-  `AudioEffectManager`'s UI-facing surface is cleaner, Bluetooth UI naturally follows a
-  Bluetooth-manager extraction, etc.) so Settings shrinks on its own rather than being tackled as
-  one giant page-by-page project.
-- **Bluetooth connection management** (`globalA2dp`, the reflection-based
-  connect/disconnect/getConnectionState calls). Correctness-critical and touches the same
-  reflection code item (d) already deferred pending AirPods hardware access — don't extract
-  this without also being able to runtime-verify AirPods reconnect, for the same reason caching
-  the reflected Methods was deferred.
-- **Key-event routing** (`onKeyDown`/`dispatchKeyEvent`, ~700+ lines between them). This is the
-  connective tissue between nearly every other subsystem (wheel-lock, screen-off control, media
-  keys, settings navigation) — extract everything that currently plugs into it *first*, then
-  this file shrinks to routing logic almost by itself. The wheel-lock extraction already pulled
-  its slice out of `dispatchKeyEvent()`'s top gate; the remaining routing logic is what's left.
+### 3. Key-event routing — DONE, see above.
+
+### 4. Settings UI — DONE, see above.
+
+### 5. Bluetooth connection management — DONE, see above.
+
+### 6. Navidrome browsing + download engine — DONE, see above.
+
+### 7. Bluetooth/Wi-Fi screen UI — DONE, see above.
+
+### Not yet scoped
+Every subsystem originally identified in this roadmap has been extracted, plus two more found
+along the way (Navidrome, Bluetooth/Wi-Fi screen UI). MainActivity is still a large
+single-Activity HOME launcher (Settings' remaining UI-construction glue, Music library browser,
+theming application, the whole onCreate) -- that's expected and not itself a problem; see
+"Current state" at the top. Future passes should pick a fresh subsystem the same way these were
+picked: grep for a clean-ish field boundary, check call-site count, and follow the pattern below.
+
+## Known cosmetic issue, unrelated to extraction work (spotted during Settings UI testing)
+
+Several `AlertDialog.Builder` confirmation dialogs (Power Off, Clear Cache & Track Info, Web
+Server "is running" prompt, Wi-Fi save-failed) use `android.R.style.Theme_DeviceDefault_Dialog_Alert`
+and render with the stock Android white dialog look instead of the app's theme. This is
+pre-existing (not introduced by any extraction — the style constant was carried over verbatim in
+every pass) and should be a follow-up: either theme these via a custom dialog style, or swap them
+for in-app-themed overlay views like the rest of the UI.
 
 ## Non-negotiables for any future extraction pass
 
