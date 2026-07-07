@@ -630,7 +630,7 @@ public class AudioPlayerManager {
                     return;
                 }
                 applyPreparedTrack(main, track, index, useLegacy, safeFileName, coverFile,
-                        finalTitle, finalArtist, hasValidTags, finalArtBytes, centerBmp, blurBmp, savedPos);
+                        finalTitle, finalArtist, hasValidTags, finalArtBytes, centerBmp, blurBmp, savedPos, myGen);
             }
         });
     }
@@ -638,14 +638,14 @@ public class AudioPlayerManager {
     /**
      * Runs on the UI thread. Applies the title/artist/art UI and starts the audio engine.
      * ExoPlayer is built on (and asserts) the main thread, and prepare() is asynchronous, so
-     * this stays responsive for MP3/WAV. The FLAC MediaPlayer.prepare() is still synchronous
-     * here — see the note in the summary for why it was left on the UI thread.
+     * this stays responsive for MP3/WAV. The FLAC MediaPlayer uses prepareAsync() too (see
+     * below) so setDataSource/prepare no longer block the UI thread for either engine.
      */
     private void applyPreparedTrack(MainActivity main, File track, int index, boolean useLegacy,
                                     String safeFileName, File coverFile,
                                     String t, String a, boolean hasValidTags,
                                     byte[] artBytes, android.graphics.Bitmap centerBmp,
-                                    android.graphics.Bitmap blurBmp, int savedPos) {
+                                    android.graphics.Bitmap blurBmp, int savedPos, final int myGen) {
         // ── Title / artist ──
         if (t != null && !t.trim().isEmpty()) main.tvPlayerTitle.setText(t);
         else main.tvPlayerTitle.setText(safeFileName);
@@ -700,24 +700,31 @@ public class AudioPlayerManager {
                     try { currentFileInputStream.close(); } catch (Exception e) {}
                 }
                 currentFileInputStream = new java.io.FileInputStream(track);
+                final MediaPlayer preparingPlayer = legacyPlayer;
+                preparingPlayer.setOnPreparedListener(mp -> {
+                    // A newer load superseded this one (rapid skip) while prepareAsync was in
+                    // flight -- drop the stale completion instead of starting/seeking a track
+                    // that's no longer current.
+                    if (myGen != loadGeneration.get() || mp != legacyPlayer) return;
+                    applyPlayerVolumeState(); // 💡 A new MediaPlayer always starts at volume 1.0, so reapply the mute state
+
+                    // 🚀 [core logic 1] Right before playback, check if this is an audiobook and force-jump to the saved position!
+                    if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
+                        mp.seekTo(savedPos);
+                    }
+
+                    if (!main.isPausedByHand) mp.start();
+
+                    if (AudioEffectManager.getInstance() != null) AudioEffectManager.getInstance().applyAudioEffects();
+                    main.setupVisualizer();
+
+                    int duration = mp.getDuration();
+                    int s = (duration / 1000) % 60;
+                    int m = (duration / (1000 * 60)) % 60;
+                    main.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                });
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
-                legacyPlayer.prepare(); // 💡 loaded and ready!
-                applyPlayerVolumeState(); // 💡 A new MediaPlayer always starts at volume 1.0, so reapply the mute state
-
-                // 🚀 [core logic 1] Right before playback, check if this is an audiobook and force-jump to the saved position!
-                if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
-                    legacyPlayer.seekTo(savedPos);
-                }
-
-                if (!main.isPausedByHand) legacyPlayer.start();
-
-                if (AudioEffectManager.getInstance() != null) AudioEffectManager.getInstance().applyAudioEffects();
-                main.setupVisualizer();
-
-                int duration = legacyPlayer.getDuration();
-                int s = (duration / 1000) % 60;
-                int m = (duration / (1000 * 60)) % 60;
-                main.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                legacyPlayer.prepareAsync(); // 💡 non-blocking -- rest of the setup happens in the listener above
 
             } else {
                 // MP3/WAV: ultra-fast ExoPlayer
