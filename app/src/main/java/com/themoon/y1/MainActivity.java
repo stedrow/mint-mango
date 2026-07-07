@@ -248,7 +248,7 @@ public class MainActivity extends Activity {
 //    private int currentCoverFlowIndex = 0;
     private File currentM3uFile = null; // Address of the M3U file the user is currently viewing
     // 🚀 [Added] Variables dedicated to favorites
-    private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
+    public java.util.Set<String> favoritePaths = new java.util.HashSet<>();
     private TextView tvPlayerFavoriteStatus;
 
     public int consecutiveErrorCount = 0;
@@ -287,9 +287,9 @@ public class MainActivity extends Activity {
     private View layoutPlayerMode, layoutVolumeOverlay;
     private View layoutBrightnessMode, layoutStorageMode, layoutWebServerMode;
     private View layoutNavidromeMode;
-    private LinearLayout containerNavidromeItems;
+    public LinearLayout containerNavidromeItems;
     public TextView tvNavidromePath;
-    private TextView tvNavidromeStatus;
+    public TextView tvNavidromeStatus;
 
     // Navidrome browse state
     public static final int NAV_ARTISTS = 0;
@@ -297,35 +297,11 @@ public class MainActivity extends Activity {
     public static final int NAV_SONGS   = 2;
     public int navidromeBrowseDepth = NAV_ARTISTS;
     public com.themoon.y1.subsonic.SubsonicArtist selectedNavidromeArtist;
-    private com.themoon.y1.subsonic.SubsonicAlbum  selectedNavidromeAlbum;
-    private java.util.List<com.themoon.y1.subsonic.SubsonicSong> lastNavidromeSongs = new java.util.ArrayList<>();
     public java.util.List<com.themoon.y1.subsonic.SubsonicArtist> lastNavidromeArtists = new java.util.ArrayList<>();
-    private boolean isNavidromeLoading = false;
     public boolean isNavidromeLetterView = false; // letter-jump picker showing instead of artist list
-    private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the Web Server web UI
     public int navidromeBackTarget = STATE_MENU;  // where the back button exits to (main menu or Music library)
-
-    // Navidrome download queue — one transfer at a time (the ~190kbps link can't
-    // share), with progress shown in tv_navidrome_status
-    private static class NavidromeDownloadItem {
-        final com.themoon.y1.subsonic.SubsonicSong song;
-        final boolean transcoded; // true = MP3 192kbps, false = original file
-        int retryCount = 0; // bumped on each failed attempt, reset never — item is discarded once exhausted
-        NavidromeDownloadItem(com.themoon.y1.subsonic.SubsonicSong song, boolean transcoded) {
-            this.song = song;
-            this.transcoded = transcoded;
-        }
-    }
-    private static final int MAX_NAVIDROME_DOWNLOAD_RETRIES = 2; // up to 3 attempts total per track
-    private final java.util.ArrayDeque<NavidromeDownloadItem> navidromeDownloadQueue = new java.util.ArrayDeque<>();
-    private boolean isNavidromeDownloading = false;
-    private int navidromeQueueTotal = 0;
-    private int navidromeQueueDone = 0;
-    // Keep CPU + WiFi awake while the queue runs — otherwise transfers stall
-    // and time out as soon as the screen sleeps
-    private android.os.PowerManager.WakeLock navidromeDownloadWakeLock;
-    private android.net.wifi.WifiManager.WifiLock navidromeDownloadWifiLock;
-    private String currentNavidromeCoverArtId; // guards against stale async art landing on a newer track
+    // Everything else Navidrome-specific (selected album, download queue, wake/wifi locks, etc.)
+    // lives in NavidromeManager -- see that class for the field-level rationale.
 
     private LinearLayout containerBrowserItems;
     public LinearLayout containerSettingsItems;
@@ -336,10 +312,10 @@ public class MainActivity extends Activity {
 
     public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
     // 🚀 [Variables dedicated to the capsule UI]
-    private LinearLayout layoutAudioQualityContainer;
-    private TextView tvQualityExt;
-    private TextView tvQualityFormat;
-    private TextView tvQualityBitrate;
+    public LinearLayout layoutAudioQualityContainer;
+    public TextView tvQualityExt;
+    public TextView tvQualityFormat;
+    public TextView tvQualityBitrate;
 
     public TextView tvPlayerTrackCount;
     private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 Changed from TextView to ImageView!
@@ -486,8 +462,8 @@ public class MainActivity extends Activity {
         }
     };
     // 🚀 [New] 5-second auto-hide timer engine for the pill UI
-    private Handler qualityInfoHandler = new Handler();
-    private Runnable hideQualityInfoTask = new Runnable() {
+    public Handler qualityInfoHandler = new Handler();
+    public Runnable hideQualityInfoTask = new Runnable() {
         @Override
         public void run() {
             // When the timer fires, fully hides the pill container from the screen!
@@ -1783,7 +1759,7 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 navidromeBrowseDepth = NAV_ARTISTS;
                 selectedNavidromeArtist = null;
-                selectedNavidromeAlbum = null;
+                com.themoon.y1.managers.NavidromeManager.getInstance().clearSelectedAlbum();
                 isNavidromeLetterView = false;
                 navidromeBackTarget = STATE_MENU;
                 changeScreen(STATE_NAVIDROME);
@@ -3943,7 +3919,7 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     navidromeBrowseDepth = NAV_ARTISTS;
                     selectedNavidromeArtist = null;
-                    selectedNavidromeAlbum = null;
+                    com.themoon.y1.managers.NavidromeManager.getInstance().clearSelectedAlbum();
                     isNavidromeLetterView = false;
                     navidromeBackTarget = STATE_BROWSER;
                     changeScreen(STATE_NAVIDROME);
@@ -5547,7 +5523,7 @@ public class MainActivity extends Activity {
                         case "OPEN_NAVIDROME":
                             navidromeBrowseDepth = NAV_ARTISTS;
                             selectedNavidromeArtist = null;
-                            selectedNavidromeAlbum = null;
+                            com.themoon.y1.managers.NavidromeManager.getInstance().clearSelectedAlbum();
                             isNavidromeLetterView = false;
                             navidromeBackTarget = STATE_MENU;
                             changeScreen(STATE_NAVIDROME);
@@ -7091,27 +7067,30 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New engine] Extracts the file extension and metadata to determine lossless status and bitrate (kbps).
+    // Navidrome browse-screen UI and the download-queue engine live in NavidromeManager -- see
+    // that class for details. Kept as thin pass-throughs here for the handful of call sites
+    // outside that cluster (AudioPlayerManager, KeyEventRouter, this Activity's own onDestroy).
     private void updateNavidromeQualityInfo(com.themoon.y1.managers.AudioPlayerManager am) {
-        if (am.navidromePlaylist.isEmpty()) return;
-        com.themoon.y1.subsonic.SubsonicSong song = am.navidromePlaylist.get(am.navidromeIndex);
-        String localPath = song.getExistingLocalPath();
-        if (localPath != null) {
-            // Playing the downloaded file — show its real quality info
-            updateAudioQualityInfo(new File(localPath));
-            return;
-        }
-        if (layoutAudioQualityContainer == null) return;
-        // Streaming: Navidrome transcodes everything to MP3 at maxBitRate=192
-        tvQualityExt.setText("MP3");
-        tvQualityFormat.setText("STREAM");
-        tvQualityBitrate.setText("192 kbps");
-        tvQualityBitrate.setVisibility(View.VISIBLE);
-        layoutAudioQualityContainer.setVisibility(View.VISIBLE);
-        qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
-        qualityInfoHandler.postDelayed(hideQualityInfoTask, 3000);
+        com.themoon.y1.managers.NavidromeManager.getInstance().updateNavidromeQualityInfo(this, am);
     }
 
-    private void updateAudioQualityInfo(File audioFile) {
+    public void buildNavidromeUI() {
+        com.themoon.y1.managers.NavidromeManager.getInstance().buildNavidromeUI(this);
+    }
+
+    public void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
+        com.themoon.y1.managers.NavidromeManager.getInstance().buildNavidromeArtistsUI(this, artists);
+    }
+
+    private void releaseNavidromeDownloadLocks() {
+        com.themoon.y1.managers.NavidromeManager.getInstance().releaseNavidromeDownloadLocks(this);
+    }
+
+    public void loadNavidromeCoverArt(final com.themoon.y1.subsonic.SubsonicSong song) {
+        com.themoon.y1.managers.NavidromeManager.getInstance().loadNavidromeCoverArt(this, song);
+    }
+
+    public void updateAudioQualityInfo(File audioFile) {
         if (layoutAudioQualityContainer == null || audioFile == null || !audioFile.exists()) {
             if (layoutAudioQualityContainer != null) layoutAudioQualityContainer.setVisibility(View.GONE);
             return;
@@ -7346,417 +7325,6 @@ public class MainActivity extends Activity {
     //  NAVIDROME BROWSER
     // ═══════════════════════════════════════════════════════════════════════════
 
-    public void buildNavidromeUI() {
-        com.themoon.y1.subsonic.SubsonicClient client = com.themoon.y1.subsonic.SubsonicClient.getInstance();
-
-        if (client.getConfigVersion() != lastSeenNavidromeConfigVersion) {
-            // Server/user/pass changed via the Web Server web UI since we last browsed —
-            // drop the old server's in-memory artist list so we don't show it as if
-            // the new settings never took effect.
-            lastSeenNavidromeConfigVersion = client.getConfigVersion();
-            lastNavidromeArtists = new java.util.ArrayList<>();
-            lastNavidromeSongs = new java.util.ArrayList<>();
-            navidromeBrowseDepth = NAV_ARTISTS;
-            selectedNavidromeArtist = null;
-            selectedNavidromeAlbum = null;
-            isNavidromeLetterView = false;
-        }
-
-        if (!client.isConfigured()) {
-            showNavidromeMessage("NOT CONFIGURED",
-                    "Open the Web Server page from your computer browser,\nthen fill in the Navidrome settings section.");
-            return;
-        }
-
-        if (navidromeBrowseDepth == NAV_ARTISTS) {
-            tvNavidromePath.setText("NAVIDROME  ▸  Artists");
-            // Already have the list from this session? Show it instantly and only
-            // refresh silently in the background — no "Loading artists…" flash.
-            final boolean showedInstantly = !lastNavidromeArtists.isEmpty();
-            if (showedInstantly) {
-                tvNavidromeStatus.setTextColor(0xFF00FF88);
-                tvNavidromeStatus.setText("●");
-                buildNavidromeArtistsUI(lastNavidromeArtists);
-            } else {
-                tvNavidromeStatus.setTextColor(0xFFFFFF00);
-                tvNavidromeStatus.setText("●");
-                showNavidromeMessage("", "Loading artists…");
-                isNavidromeLoading = true;
-            }
-
-            client.getArtists(new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicArtist>>() {
-                @Override
-                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
-                    isNavidromeLoading = false;
-                    tvNavidromeStatus.setTextColor(0xFF00FF88);
-                    boolean changed = !navidromeArtistListsEqual(artists, lastNavidromeArtists);
-                    boolean stillOnArtists = currentScreenState == STATE_NAVIDROME
-                            && navidromeBrowseDepth == NAV_ARTISTS && !isNavidromeLetterView;
-                    lastNavidromeArtists = artists;
-                    // Rebuild only for the first load or a real library change, and
-                    // only while the artist list is still what's on screen.
-                    if (stillOnArtists && (changed || !showedInstantly)) {
-                        buildNavidromeArtistsUI(artists);
-                    }
-                }
-                @Override
-                public void onError(String message) {
-                    isNavidromeLoading = false;
-                    if (showedInstantly) return; // a stale list beats an error screen
-                    tvNavidromeStatus.setTextColor(0xFFFF5555);
-                    showNavidromeMessage("CONNECTION ERROR", message);
-                }
-            });
-
-        } else if (navidromeBrowseDepth == NAV_ALBUMS && selectedNavidromeArtist != null) {
-            tvNavidromePath.setText("NAVIDROME  ▸  " + selectedNavidromeArtist.name);
-            showNavidromeMessage("", "Loading albums…");
-
-            client.getArtist(selectedNavidromeArtist.id, new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicAlbum>>() {
-                @Override
-                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums) {
-                    buildNavidromeAlbumsUI(albums);
-                }
-                @Override
-                public void onError(String message) {
-                    showNavidromeMessage("ERROR", message);
-                }
-            });
-
-        } else if (navidromeBrowseDepth == NAV_SONGS && selectedNavidromeAlbum != null) {
-            tvNavidromePath.setText("NAVIDROME  ▸  " + selectedNavidromeAlbum.artistName + "  ▸  " + selectedNavidromeAlbum.name);
-            showNavidromeMessage("", "Loading songs…");
-
-            client.getAlbum(selectedNavidromeAlbum.id, new com.themoon.y1.subsonic.SubsonicClient.Callback<java.util.List<com.themoon.y1.subsonic.SubsonicSong>>() {
-                @Override
-                public void onSuccess(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
-                    lastNavidromeSongs = songs;
-                    buildNavidromeSongsUI(songs);
-                }
-                @Override
-                public void onError(String message) {
-                    showNavidromeMessage("ERROR", message);
-                }
-            });
-        }
-    }
-
-    private boolean navidromeArtistListsEqual(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> a,
-                                              java.util.List<com.themoon.y1.subsonic.SubsonicArtist> b) {
-        if (a.size() != b.size()) return false;
-        for (int i = 0; i < a.size(); i++) {
-            com.themoon.y1.subsonic.SubsonicArtist x = a.get(i), y = b.get(i);
-            if (!x.id.equals(y.id) || !x.name.equals(y.name) || x.albumCount != y.albumCount) return false;
-        }
-        return true;
-    }
-
-    private void showNavidromeMessage(String title, String body) {
-        containerNavidromeItems.removeAllViews();
-        if (title != null && !title.isEmpty()) {
-            TextView tv = new TextView(this);
-            tv.setText(title);
-            tv.setTextColor(0xFFFF5555);
-            tv.setTextSize(16);
-            tv.setPadding(20, 20, 20, 6);
-            containerNavidromeItems.addView(tv);
-        }
-        TextView tv = new TextView(this);
-        tv.setText(body);
-        tv.setTextColor(0xFFAAAAAA);
-        tv.setTextSize(14);
-        tv.setPadding(20, 8, 20, 20);
-        containerNavidromeItems.addView(tv);
-    }
-
-    public void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists) {
-        buildNavidromeArtistsUI(artists, null);
-    }
-
-    private void buildNavidromeArtistsUI(java.util.List<com.themoon.y1.subsonic.SubsonicArtist> artists, String focusLetter) {
-        lastNavidromeArtists = artists;
-        isNavidromeLetterView = false;
-        containerNavidromeItems.removeAllViews();
-        if (artists.isEmpty()) {
-            showNavidromeMessage("", "No artists found on server.");
-            return;
-        }
-
-        Button btnJump = createListButton("A-Z  Jump to Letter");
-        btnJump.setTextColor(0xFF88CCFF);
-        btnJump.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { buildNavidromeLetterIndexUI(); }
-        });
-        containerNavidromeItems.addView(btnJump);
-
-        View focusTarget = null;
-        for (final com.themoon.y1.subsonic.SubsonicArtist artist : artists) {
-            String label = artist.name + "  (" + artist.albumCount + " albums)";
-            Button btn = createListButton(label);
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    selectedNavidromeArtist = artist;
-                    navidromeBrowseDepth = NAV_ALBUMS;
-                    buildNavidromeUI();
-                }
-            });
-            containerNavidromeItems.addView(btn);
-            if (focusTarget == null && focusLetter != null && focusLetter.equals(artist.indexLetter)) {
-                focusTarget = btn;
-            }
-        }
-        if (focusTarget != null) {
-            final View target = focusTarget;
-            // Focus after layout so the ScrollView can scroll to the letter
-            containerNavidromeItems.post(new Runnable() {
-                @Override public void run() { target.requestFocus(); }
-            });
-        } else {
-            focusFirstNavidromeItem();
-        }
-    }
-
-    private void buildNavidromeLetterIndexUI() {
-        isNavidromeLetterView = true;
-        containerNavidromeItems.removeAllViews();
-        tvNavidromePath.setText("NAVIDROME  ▸  Jump to Letter");
-
-        java.util.List<String> letters = new java.util.ArrayList<>();
-        final java.util.HashMap<String, Integer> counts = new java.util.HashMap<>();
-        for (com.themoon.y1.subsonic.SubsonicArtist artist : lastNavidromeArtists) {
-            String letter = artist.indexLetter != null ? artist.indexLetter : "#";
-            if (!letters.contains(letter)) letters.add(letter);
-            Integer c = counts.get(letter);
-            counts.put(letter, c == null ? 1 : c + 1);
-        }
-        for (final String letter : letters) {
-            Button btn = createListButton(letter + "   (" + counts.get(letter) + " artists)");
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    tvNavidromePath.setText("NAVIDROME  ▸  Artists");
-                    buildNavidromeArtistsUI(lastNavidromeArtists, letter);
-                }
-            });
-            containerNavidromeItems.addView(btn);
-        }
-        focusFirstNavidromeItem();
-    }
-
-    private void buildNavidromeAlbumsUI(java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums) {
-        containerNavidromeItems.removeAllViews();
-        if (albums.isEmpty()) {
-            showNavidromeMessage("", "No albums found for this artist.");
-            return;
-        }
-        for (final com.themoon.y1.subsonic.SubsonicAlbum album : albums) {
-            String yearStr = album.year > 0 ? " (" + album.year + ")" : "";
-            String label = album.name + yearStr + "  —  " + album.songCount + " songs";
-            Button btn = createListButton(label);
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    selectedNavidromeAlbum = album;
-                    navidromeBrowseDepth = NAV_SONGS;
-                    buildNavidromeUI();
-                }
-            });
-            containerNavidromeItems.addView(btn);
-        }
-        focusFirstNavidromeItem();
-    }
-
-    private void buildNavidromeSongsUI(final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
-        containerNavidromeItems.removeAllViews();
-        if (songs.isEmpty()) {
-            showNavidromeMessage("", "No songs found in this album.");
-            return;
-        }
-
-        // Play All button
-        Button btnPlayAll = createListButton("▶  Play Album");
-        btnPlayAll.setTextColor(0xFF00FF88);
-        btnPlayAll.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                playNavidromeAlbum(songs, 0);
-            }
-        });
-        containerNavidromeItems.addView(btnPlayAll);
-
-        // Download Album button — long-press deletes the album's downloads
-        Button btnDlAll = createListButton("⬇  Download Album");
-        btnDlAll.setTextColor(0xFF88CCFF);
-        btnDlAll.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                downloadNavidromeAlbum(songs);
-            }
-        });
-        btnDlAll.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override public boolean onLongClick(View v) {
-                int downloaded = 0;
-                for (com.themoon.y1.subsonic.SubsonicSong s : songs) if (s.isDownloaded()) downloaded++;
-                if (downloaded == 0) {
-                    Toast.makeText(MainActivity.this, t("No downloads to delete"), Toast.LENGTH_SHORT).show();
-                    return true;
-                }
-                final int count = downloaded;
-                showThemedOptionsDialog(t("Delete Downloads"),
-                        count + " " + t("downloaded tracks"),
-                        new String[]{ "🗑  " + t("Delete"), t("Cancel") },
-                        new Runnable[]{
-                                new Runnable() {
-                                    @Override public void run() {
-                                        for (com.themoon.y1.subsonic.SubsonicSong s : songs) deleteNavidromeDownload(s);
-                                        refreshNavidromeSongLabels();
-                                        Toast.makeText(MainActivity.this, "🗑 " + t("Deleted") + " " + count, Toast.LENGTH_SHORT).show();
-                                    }
-                                },
-                                null
-                        });
-                return true;
-            }
-        });
-        containerNavidromeItems.addView(btnDlAll);
-
-        // Individual song rows — single focusable button per song
-        // Click = play from this track, long-press = download this track
-        for (int i = 0; i < songs.size(); i++) {
-            final com.themoon.y1.subsonic.SubsonicSong song = songs.get(i);
-            final int index = i;
-
-            int mins = song.durationSecs / 60, secs = song.durationSecs % 60;
-            android.view.View btn = createNavidromeSongRow(navidromeSongTitleLabel(song),
-                    String.format(Locale.US, "%d:%02d", mins, secs));
-            btn.setTag(song); // lets refreshNavidromeSongLabels() update the ✓ marker in place
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { playNavidromeAlbum(songs, index); }
-            });
-            btn.setOnLongClickListener(new View.OnLongClickListener() {
-                @Override public boolean onLongClick(View v) {
-                    if (song.isDownloaded()) {
-                        showNavidromeDeleteDialog(song);
-                    } else {
-                        java.util.List<com.themoon.y1.subsonic.SubsonicSong> single =
-                                new java.util.ArrayList<com.themoon.y1.subsonic.SubsonicSong>();
-                        single.add(song);
-                        showNavidromeDownloadQualityDialog(single);
-                    }
-                    return true;
-                }
-            });
-            containerNavidromeItems.addView(btn);
-        }
-        focusFirstNavidromeItem();
-    }
-
-    private String navidromeSongTitleLabel(com.themoon.y1.subsonic.SubsonicSong song) {
-        String downloadedMark = song.isDownloaded() ? "✓ " : "";
-        String trackNum = song.track > 0 ? String.format(Locale.US, "%02d. ", song.track) : "";
-        return downloadedMark + trackNum + song.title;
-    }
-
-    /** Focusable song row styled like createListButton, but with the duration
-     *  pinned to the right edge. LinearLayout rows work with wheel nav as long
-     *  as the row itself is focusable (same pattern as createListButtonWithIcon). */
-    private android.view.View createNavidromeSongRow(String titleText, String durationText) {
-        float d = getResources().getDisplayMetrics().density;
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        row.setFocusable(true);
-        row.setClickable(true);
-        row.setSoundEffectsEnabled(false);
-        row.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
-        row.setPadding((int) (25 * d), (int) (12 * d), (int) (10 * d), (int) (12 * d));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 2, 0, 2);
-        row.setLayoutParams(lp);
-
-        final TextView tvTitle = new TextView(this);
-        tvTitle.setText(titleText);
-        tvTitle.setTextSize(18f);
-        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
-        tvTitle.setSingleLine(true);
-        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        tvTitle.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(tvTitle);
-
-        final TextView tvDuration = new TextView(this);
-        tvDuration.setText(durationText);
-        tvDuration.setTextSize(15f);
-        tvDuration.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-        tvDuration.setTextColor(ThemeManager.getTextColorSecondary());
-        LinearLayout.LayoutParams durLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        durLp.leftMargin = (int) (8 * d);
-        tvDuration.setLayoutParams(durLp);
-        row.addView(tvDuration);
-
-        row.setOnLongClickListener(globalScreenOffLongClickListener);
-        row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View v, boolean hasFocus) {
-                if (hasFocus) {
-                    row.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
-                    tvTitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    tvDuration.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                } else {
-                    row.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
-                    tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
-                    tvDuration.setTextColor(ThemeManager.getTextColorSecondary());
-                }
-            }
-        });
-        return row;
-    }
-
-    /** Update ✓ markers on the visible song list without rebuilding (keeps wheel focus). */
-    private void refreshNavidromeSongLabels() {
-        if (currentScreenState != STATE_NAVIDROME || navidromeBrowseDepth != NAV_SONGS) return;
-        for (int i = 0; i < containerNavidromeItems.getChildCount(); i++) {
-            View child = containerNavidromeItems.getChildAt(i);
-            if (child instanceof LinearLayout && child.getTag() instanceof com.themoon.y1.subsonic.SubsonicSong) {
-                TextView tvTitle = (TextView) ((LinearLayout) child).getChildAt(0);
-                tvTitle.setText(navidromeSongTitleLabel((com.themoon.y1.subsonic.SubsonicSong) child.getTag()));
-            }
-        }
-    }
-
-    private void playNavidromeAlbum(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, int startIndex) {
-        if (songs == null || songs.isEmpty()) return;
-        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-        am.navidromePlaylist.clear();
-        am.navidromePlaylist.addAll(songs);
-        am.navidromeIndex = startIndex;
-
-        com.themoon.y1.subsonic.SubsonicSong song = songs.get(startIndex);
-        String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
-        am.playNavidromeSong(this, song, url);
-        changeScreen(STATE_PLAYER);
-        progressHandler.removeCallbacks(updateProgressTask);
-        progressHandler.post(updateProgressTask);
-    }
-
-    private void downloadNavidromeAlbum(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
-        showNavidromeDownloadQualityDialog(songs);
-    }
-
-    private void showNavidromeDownloadQualityDialog(final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs) {
-        if (songs == null || songs.isEmpty()) return;
-        String what = songs.size() == 1 ? songs.get(0).title : songs.size() + " " + t("tracks");
-        showThemedOptionsDialog(t("Download Quality"), what,
-                new String[]{ "⬇  " + t("Original Quality"), "⬇  " + t("MP3 192kbps"), t("Cancel") },
-                new Runnable[]{
-                        new Runnable() { @Override public void run() { enqueueNavidromeDownloads(songs, false); } },
-                        new Runnable() { @Override public void run() { enqueueNavidromeDownloads(songs, true); } },
-                        null
-                });
-    }
 
     /** Double-click center on Now Playing: playback/queue/Wi-Fi/Bluetooth shortcuts without
      *  leaving the player screen (center long-press is already claimed by screen-off there). */
@@ -8007,13 +7575,13 @@ public class MainActivity extends Activity {
      * swallow keys before MainActivity.onKeyDown, and the wheel's 21/22 codes
      * only move focus between HORIZONTAL neighbours natively.
      */
-    private void showThemedOptionsDialog(String title, String subtitle, String[] options, final Runnable[] actions) {
+    public void showThemedOptionsDialog(String title, String subtitle, String[] options, final Runnable[] actions) {
         showThemedOptionsDialog(title, subtitle, null, options, actions);
     }
 
     /** Same as above but each row can carry a Material Icons codepoint (index-matched to options);
      *  pass null in the icons slot to fall back to the plain text row. */
-    private void showThemedOptionsDialog(String title, String subtitle, String[] icons, String[] options, final Runnable[] actions) {
+    public void showThemedOptionsDialog(String title, String subtitle, String[] icons, String[] options, final Runnable[] actions) {
         float d = getResources().getDisplayMetrics().density;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -8120,331 +7688,6 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void showNavidromeDeleteDialog(final com.themoon.y1.subsonic.SubsonicSong song) {
-        showThemedOptionsDialog(t("Delete Download"), song.title,
-                new String[]{ "🗑  " + t("Delete"), t("Cancel") },
-                new Runnable[]{
-                        new Runnable() {
-                            @Override public void run() {
-                                if (deleteNavidromeDownload(song)) {
-                                    refreshNavidromeSongLabels();
-                                    Toast.makeText(MainActivity.this, "🗑 " + t("Deleted") + ": " + song.title, Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        },
-                        null
-                });
-    }
-
-    /** Delete both downloaded variants of a track, keeping the launcher library,
-     *  favorites, and now-empty album/artist folders consistent. */
-    private boolean deleteNavidromeDownload(com.themoon.y1.subsonic.SubsonicSong song) {
-        boolean deleted = false;
-        String[] paths = { song.getLocalPath(), song.getLocalPathMp3() };
-        for (String p : paths) {
-            java.io.File f = new java.io.File(p);
-            if (!f.exists() || !f.delete()) continue;
-            deleted = true;
-            java.util.Iterator<SongItem> it = customLibrary.iterator();
-            while (it.hasNext()) {
-                if (it.next().file.getAbsolutePath().equals(p)) it.remove();
-            }
-            trackNumberMap.remove(p);
-            if (favoritePaths.remove(p)) {
-                try { libraryCacheDb.setFavorite(p, false); } catch (Exception ignored) { Log.d(TAG, "deleteNavidromeDownload failed", ignored); }
-            }
-            // delete() only succeeds on empty dirs, so this safely prunes
-            // the album folder and then the artist folder when they empty out
-            java.io.File albumDir = f.getParentFile();
-            if (albumDir != null && albumDir.delete()) {
-                java.io.File artistDir = albumDir.getParentFile();
-                if (artistDir != null) artistDir.delete();
-            }
-        }
-        return deleted;
-    }
-
-    // Downloads run strictly one at a time — parallel transfers just divide the
-    // ~190kbps link and make every track take the full album's time.
-    private String currentNavidromeDownloadId;
-
-    private void enqueueNavidromeDownloads(java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
-        if (songs == null || songs.isEmpty()) return;
-        java.util.List<NavidromeDownloadItem> toAdd = new java.util.ArrayList<NavidromeDownloadItem>();
-        long neededBytes = 0;
-        for (com.themoon.y1.subsonic.SubsonicSong song : songs) {
-            String target = transcoded ? song.getLocalPathMp3() : song.getLocalPath();
-            if (new java.io.File(target).exists() || isNavidromeDownloadQueued(song.id)) continue;
-            toAdd.add(new NavidromeDownloadItem(song, transcoded));
-            if (transcoded) {
-                neededBytes += (long) song.durationSecs * 24000L; // 192kbps ≈ 24KB/s
-            } else {
-                neededBytes += song.sizeBytes > 0 ? song.sizeBytes
-                        : (long) song.durationSecs * 130000L; // ~1Mbps FLAC fallback
-            }
-        }
-        if (toAdd.isEmpty()) {
-            Toast.makeText(this, "✅ Already downloaded", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // Free-space check with a 50MB safety margin — a FLAC album on a full
-        // card would otherwise fail confusingly mid-queue
-        try {
-            android.os.StatFs sf = new android.os.StatFs("/storage/sdcard0");
-            long available = (long) sf.getAvailableBlocks() * sf.getBlockSize();
-            if (neededBytes + 50L * 1024 * 1024 > available) {
-                Toast.makeText(this, "❌ " + t("Not enough space") + ": ~" + (neededBytes / (1024 * 1024))
-                        + " MB " + t("needed") + ", " + (available / (1024 * 1024)) + " MB " + t("free"),
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-        } catch (Exception ignored) {
-            Log.d(TAG, "enqueueNavidromeDownloads failed", ignored);
-        }
-
-        navidromeDownloadQueue.addAll(toAdd);
-        navidromeQueueTotal += toAdd.size();
-        Toast.makeText(this, "⬇ Queued " + toAdd.size() + (toAdd.size() == 1 ? " track" : " tracks"), Toast.LENGTH_SHORT).show();
-        if (!isNavidromeDownloading) processNextNavidromeDownload();
-    }
-
-    private boolean isNavidromeDownloadQueued(String songId) {
-        if (songId.equals(currentNavidromeDownloadId)) return true;
-        for (NavidromeDownloadItem item : navidromeDownloadQueue) {
-            if (songId.equals(item.song.id)) return true;
-        }
-        return false;
-    }
-
-    private void acquireNavidromeDownloadLocks() {
-        try {
-            if (navidromeDownloadWakeLock == null) {
-                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
-                navidromeDownloadWakeLock = pm.newWakeLock(
-                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "Y1NavidromeDownload");
-                navidromeDownloadWakeLock.setReferenceCounted(false);
-            }
-            if (!navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.acquire();
-
-            if (navidromeDownloadWifiLock == null) {
-                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
-                        getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                navidromeDownloadWifiLock = wm.createWifiLock(
-                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1NavidromeDownload");
-                navidromeDownloadWifiLock.setReferenceCounted(false);
-            }
-            if (!navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.acquire();
-        } catch (Exception ignored) {
-            Log.d(TAG, "acquireNavidromeDownloadLocks failed", ignored);
-        }
-    }
-
-    private void releaseNavidromeDownloadLocks() {
-        try { if (navidromeDownloadWakeLock != null && navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
-        try { if (navidromeDownloadWifiLock != null && navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
-    }
-
-    private void processNextNavidromeDownload() {
-        final NavidromeDownloadItem item = navidromeDownloadQueue.poll();
-        final com.themoon.y1.subsonic.SubsonicSong song = item != null ? item.song : null;
-        if (song == null) {
-            isNavidromeDownloading = false;
-            currentNavidromeDownloadId = null;
-            releaseNavidromeDownloadLocks();
-            if (navidromeQueueTotal > 0) {
-                Toast.makeText(this, "✅ Downloads finished (" + navidromeQueueDone + "/" + navidromeQueueTotal + ")",
-                        Toast.LENGTH_SHORT).show();
-            }
-            navidromeQueueTotal = 0;
-            navidromeQueueDone = 0;
-            updateNavidromeDownloadStatus(null);
-            refreshNavidromeSongLabels();
-            return;
-        }
-        isNavidromeDownloading = true;
-        currentNavidromeDownloadId = song.id;
-        acquireNavidromeDownloadLocks();
-        try {
-            startNavidromeDownload(item, song);
-        } catch (Exception e) {
-            // downloadSong() threw before registering any async callback — release the
-            // locks now instead of leaving them held with nothing left to release them.
-            releaseNavidromeDownloadLocks();
-            navidromeQueueDone++;
-            logNavidromeDownloadError(song, "Failed to start download: " + e.getMessage());
-            processNextNavidromeDownload();
-        }
-    }
-
-    private void startNavidromeDownload(final NavidromeDownloadItem item, final com.themoon.y1.subsonic.SubsonicSong song) {
-        updateNavidromeDownloadStatus("⬇ " + (navidromeQueueDone + 1) + "/" + navidromeQueueTotal + "  0%");
-
-        String savePath = item.transcoded ? song.getLocalPathMp3() : song.getLocalPath();
-        com.themoon.y1.subsonic.SubsonicClient.getInstance().downloadSong(song.id, savePath, item.transcoded,
-                new com.themoon.y1.subsonic.SubsonicClient.DownloadCallback() {
-                    @Override
-                    public void onProgress(int percent, long bytesSoFar) {
-                        String p = percent >= 0 ? percent + "%"
-                                : String.format(Locale.US, "%.1f MB", bytesSoFar / 1048576f);
-                        updateNavidromeDownloadStatus("⬇ " + (navidromeQueueDone + 1) + "/" + navidromeQueueTotal
-                                + "  " + p);
-                    }
-                    @Override
-                    public void onComplete(String path) {
-                        navidromeQueueDone++;
-                        // Register in the launcher's own library right away (its scan is
-                        // manual/boot-time only) and in the system MediaStore
-                        registerDownloadedSongInLibrary(song, path);
-                        // Transcoded MP3s lose their embedded art (ffmpeg keeps audio
-                        // only), so stash the server's cover for Cover Flow / player
-                        cacheNavidromeCoverForDownloadedTrack(song, path);
-                        android.media.MediaScannerConnection.scanFile(
-                                getApplicationContext(), new String[]{path}, null, null);
-                        refreshNavidromeSongLabels();
-                        processNextNavidromeDownload();
-                    }
-                    @Override
-                    public void onError(String message) {
-                        if (item.retryCount < MAX_NAVIDROME_DOWNLOAD_RETRIES) {
-                            item.retryCount++;
-                            updateNavidromeDownloadStatus("⚠ Retry " + item.retryCount + "/" + MAX_NAVIDROME_DOWNLOAD_RETRIES
-                                    + ": " + song.title);
-                            navidromeDownloadQueue.addFirst(item); // retry this track next, ahead of the rest of the queue
-                            new Handler().postDelayed(new Runnable() {
-                                @Override public void run() { processNextNavidromeDownload(); }
-                            }, 1500);
-                            return;
-                        }
-                        navidromeQueueDone++;
-                        logNavidromeDownloadError(song, message + " (gave up after " + (item.retryCount + 1) + " attempts)");
-                        Toast.makeText(MainActivity.this, "❌ " + song.title + ": " + message, Toast.LENGTH_SHORT).show();
-                        processNextNavidromeDownload();
-                    }
-                });
-    }
-
-    /**
-     * Appends a timestamped line to a log file on the SD card so a failed download can still
-     * be diagnosed after the fact — logcat rotates out of everything within a couple of minutes.
-     */
-    private void logNavidromeDownloadError(com.themoon.y1.subsonic.SubsonicSong song, String message) {
-        try {
-            File logDir = new File("/storage/sdcard0/Y1_Logs");
-            if (!logDir.exists()) logDir.mkdirs();
-            File logFile = new File(logDir, "navidrome_download_errors.log");
-            String line = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date())
-                    + "  " + song.title + " (id=" + song.id + ")  ->  " + message + "\n";
-            java.io.FileWriter fw = new java.io.FileWriter(logFile, true);
-            fw.write(line);
-            fw.close();
-        } catch (Exception ignored) {
-            Log.d(TAG, "logNavidromeDownloadError failed", ignored);
-        }
-    }
-
-    /**
-     * Add a freshly downloaded track to the launcher's in-memory library so it
-     * shows up in Artists/Albums/All Songs immediately — the launcher's own scan
-     * only runs at boot or manually, and MediaStore isn't consulted at all.
-     * Metadata comes straight from the Subsonic API, no tag parsing needed.
-     */
-    private void registerDownloadedSongInLibrary(com.themoon.y1.subsonic.SubsonicSong song, String path) {
-        try {
-            java.io.File f = new java.io.File(path);
-            if (!f.exists()) return;
-            for (SongItem existing : customLibrary) {
-                if (existing.file.getAbsolutePath().equals(path)) return;
-            }
-            String title = song.title != null && !song.title.isEmpty() ? song.title : f.getName();
-            // Album artist first — same grouping rule as the tag scan
-            String artist = song.albumArtist != null && !song.albumArtist.isEmpty() ? song.albumArtist
-                    : (song.artist != null && !song.artist.isEmpty() ? song.artist : t("Unknown Artist"));
-            String album = song.album != null && !song.album.isEmpty() ? song.album : t("Unknown Album");
-            String year = song.year > 0 ? String.valueOf(song.year) : t("Unknown Year");
-            String genre = song.genre != null && !song.genre.isEmpty() ? song.genre : t("Unknown Genre");
-            customLibrary.add(new SongItem(f, title, artist, album, year, genre));
-            trackNumberMap.put(path, song.track);
-            if (libraryCacheDb != null) {
-                libraryCacheDb.upsert(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
-                        path, f.lastModified(), f.length(), title, artist, album, year, genre, song.track, false));
-            }
-        } catch (Exception ignored) {
-            Log.d(TAG, "registerDownloadedSongInLibrary failed", ignored);
-        }
-    }
-
-    /**
-     * Save the album cover for a downloaded track in the launcher's own cover
-     * convention: Y1_Covers/<track filename>.jpg plus the DB's album art path —
-     * the same pair fetchTrackInfoFromInternet writes and Cover Flow reads.
-     */
-    private void cacheNavidromeCoverForDownloadedTrack(final com.themoon.y1.subsonic.SubsonicSong song,
-                                                       final String trackPath) {
-        if (song.coverArtId == null || song.coverArtId.isEmpty()) return;
-        java.io.File cacheFile = new java.io.File("/storage/sdcard0/Y1_Covers/Navidrome",
-                song.coverArtId.replaceAll("[^A-Za-z0-9._-]", "_") + ".jpg");
-        com.themoon.y1.subsonic.SubsonicClient.getInstance().fetchCoverArt(song.coverArtId, 320, cacheFile,
-                new com.themoon.y1.subsonic.SubsonicClient.Callback<String>() {
-                    @Override
-                    public void onSuccess(String coverPath) {
-                        try {
-                            String base = new java.io.File(trackPath).getName();
-                            int dot = base.lastIndexOf('.');
-                            if (dot > 0) base = base.substring(0, dot);
-                            java.io.File dest = new java.io.File("/storage/sdcard0/Y1_Covers", base + ".jpg");
-                            if (dest.getParentFile() != null) dest.getParentFile().mkdirs();
-                            if (!dest.exists()) {
-                                java.io.FileInputStream in = new java.io.FileInputStream(coverPath);
-                                java.io.FileOutputStream out = new java.io.FileOutputStream(dest);
-                                byte[] buf = new byte[8192];
-                                int r;
-                                while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
-                                out.close();
-                                in.close();
-                            }
-                            libraryCacheDb.setAlbumArtPath(trackPath, dest.getAbsolutePath());
-                        } catch (Exception ignored) {
-                            Log.d(TAG, "cacheNavidromeCoverForDownloadedTrack failed", ignored);
-                        }
-                    }
-                    @Override
-                    public void onError(String message) {}
-                });
-    }
-
-    private void updateNavidromeDownloadStatus(String status) {
-        if (status == null) {
-            tvNavidromeStatus.setText("●");
-        } else {
-            tvNavidromeStatus.setTextColor(0xFF88CCFF);
-            tvNavidromeStatus.setText(status);
-        }
-    }
-
-    /** Fetch (or reuse cached) Navidrome cover art and apply it to the player screen. */
-    public void loadNavidromeCoverArt(final com.themoon.y1.subsonic.SubsonicSong song) {
-        if (song == null || song.coverArtId == null || song.coverArtId.isEmpty()) return;
-        currentNavidromeCoverArtId = song.coverArtId;
-        java.io.File cacheFile = new java.io.File("/storage/sdcard0/Y1_Covers/Navidrome",
-                song.coverArtId.replaceAll("[^A-Za-z0-9._-]", "_") + ".jpg");
-        com.themoon.y1.subsonic.SubsonicClient.getInstance().fetchCoverArt(song.coverArtId, 320, cacheFile,
-                new com.themoon.y1.subsonic.SubsonicClient.Callback<String>() {
-                    @Override
-                    public void onSuccess(String path) {
-                        // Skip if the user already moved on to a track with different art
-                        if (song.coverArtId.equals(currentNavidromeCoverArtId)) applyCachedCoverArt(path);
-                    }
-                    @Override
-                    public void onError(String message) {}
-                });
-    }
-
-    private void focusFirstNavidromeItem() {
-        if (containerNavidromeItems.getChildCount() > 0) {
-            containerNavidromeItems.getChildAt(0).requestFocus();
-        }
-    }
 
     private static void installTls12TrustAll() {
         try {
