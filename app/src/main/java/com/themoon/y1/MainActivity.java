@@ -488,9 +488,6 @@ public class MainActivity extends Activity {
     // Caches so refreshWidgets() (called every second) doesn't re-allocate/re-decode when nothing changed.
     private android.graphics.Bitmap widgetDefaultAlbumBitmap = null;
     private boolean widgetAlbumShowingDefault = false;
-    private String lastWidgetClockText = null;
-    private float lastWidgetClockSize = -1f;
-    private float cachedDensity = 0f;
     private int lastKnownBatteryPct = -1;
     private boolean lastKnownBatteryCharging = false;
     // 💡 Added equalizer related variable
@@ -534,9 +531,6 @@ public class MainActivity extends Activity {
     // tick was pure waste since only two patterns are ever used, chosen by is24HourFormat.
     private static final SimpleDateFormat STATUS_CLOCK_FORMAT_24 = new SimpleDateFormat("HH:mm", Locale.US);
     private static final SimpleDateFormat STATUS_CLOCK_FORMAT_12 = new SimpleDateFormat("hh:mm a", Locale.US);
-    private static final SimpleDateFormat WIDGET_CLOCK_FORMAT_24 = new SimpleDateFormat("HH:mm", Locale.US);
-    private static final SimpleDateFormat WIDGET_CLOCK_FORMAT_12 = new SimpleDateFormat("hh:mm", Locale.US);
-    private static final SimpleDateFormat WIDGET_DATE_FORMAT = new SimpleDateFormat("EEE, MMM dd", Locale.US);
 
     private Handler clockHandler = new Handler();
     // Reused across every clock tick so we don't allocate a Date/Spannable every second.
@@ -2634,36 +2628,11 @@ public class MainActivity extends Activity {
     private void refreshWidgets() {
         // 1. Update the digital clock widget
         if (tvWidgetClock != null) {
-            ThemeManager.MenuElement el = widgetViewRegistry.get(tvWidgetClock);
-            // 🚀 [Core guard] If this widget is watching a specific button (visibleOnFocus), don't force it off via the settings switch!
-            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
-                tvWidgetClock.setVisibility(isWidgetClockOn ? View.VISIBLE : View.GONE);
-            }
-
-            // 💡 Only refresh the time while it's VISIBLE, to avoid unnecessary load
-            if (tvWidgetClock.getVisibility() == View.VISIBLE) {
-                clockReusableDate.setTime(System.currentTimeMillis());
-                SimpleDateFormat sdfTime = is24HourFormat ? WIDGET_CLOCK_FORMAT_24 : WIDGET_CLOCK_FORMAT_12;
-                String timeStr = sdfTime.format(clockReusableDate);
-                String dateStr = WIDGET_DATE_FORMAT.format(clockReusableDate);
-                String fullText = timeStr + "\n" + dateStr;
-
-                // Text is minute-granular and the size rarely changes -- only rebuild the
-                // spannable (and retouch text size) when something actually changed, instead
-                // of allocating a SpannableString + two spans every single second.
-                if (!fullText.equals(lastWidgetClockText) || currentClockSize != lastWidgetClockSize) {
-                    lastWidgetClockText = fullText;
-                    lastWidgetClockSize = currentClockSize;
-                    if (cachedDensity <= 0f) cachedDensity = getResources().getDisplayMetrics().density;
-                    tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (currentClockSize * 2.1f) * cachedDensity);
-                    tvWidgetClock.setLineSpacing(0, 1.1f);
-
-                    android.text.SpannableString spannable = new android.text.SpannableString(fullText);
-                    spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    spannable.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.NORMAL), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    tvWidgetClock.setText(spannable);
-                }
-            }
+            clockReusableDate.setTime(System.currentTimeMillis());
+            com.themoon.y1.managers.WidgetClockManager.getInstance().update(
+                    tvWidgetClock, widgetViewRegistry.get(tvWidgetClock), isWidgetClockOn,
+                    is24HourFormat, currentClockSize, clockReusableDate,
+                    getResources().getDisplayMetrics().density);
         }
 
         // 2. Update the bar-style battery widget
