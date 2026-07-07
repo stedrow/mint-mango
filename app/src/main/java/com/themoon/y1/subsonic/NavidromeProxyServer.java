@@ -24,11 +24,12 @@ import java.util.concurrent.Executors;
  */
 public class NavidromeProxyServer extends Thread {
 
+    private static final String TAG = "NaviProxy";
     private static volatile NavidromeProxyServer sInstance;
 
     public static synchronized void ensureStarted() {
         if (sInstance != null && sInstance.isAlive()) {
-            android.util.Log.d("NaviProxy", "Proxy already running, skipping");
+            android.util.Log.d(TAG, "Proxy already running, skipping");
             return;
         }
         sInstance = new NavidromeProxyServer();
@@ -54,8 +55,16 @@ public class NavidromeProxyServer extends Thread {
 
     public void stopServer() {
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (Throwable ignored) {}
-        try { clientPool.shutdownNow(); } catch (Throwable ignored) {}
+        try {
+            if (serverSocket != null) serverSocket.close();
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "serverSocket close failed on stop", t);
+        }
+        try {
+            clientPool.shutdownNow();
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "clientPool shutdown failed", t);
+        }
     }
 
     @Override
@@ -64,14 +73,16 @@ public class NavidromeProxyServer extends Thread {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 8081), 4);
-            android.util.Log.d("NaviProxy", "Proxy listening on 127.0.0.1:8081");
+            android.util.Log.d(TAG, "Proxy listening on 127.0.0.1:8081");
             while (running) {
                 try {
                     final Socket client = serverSocket.accept();
                     clientPool.execute(new Runnable() {
                         @Override public void run() { handleClient(client); }
                     });
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    if (running) android.util.Log.w(TAG, "accept() failed", t);
+                }
             }
         } catch (Throwable e) {
             android.util.Log.e("NaviProxy", "Server error", e);
@@ -168,10 +179,20 @@ public class NavidromeProxyServer extends Thread {
             audioIn.close();
 
         } catch (Throwable e) {
-            android.util.Log.w("NaviProxy", "handleClient error: " + e.getMessage());
+            android.util.Log.w(TAG, "handleClient error: " + e.getMessage());
         } finally {
-            if (conn != null) try { conn.disconnect(); } catch (Throwable ignored) {}
-            try { client.close(); } catch (Throwable ignored) {}
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Throwable t) {
+                    android.util.Log.d(TAG, "conn.disconnect() failed", t);
+                }
+            }
+            try {
+                client.close();
+            } catch (Throwable t) {
+                android.util.Log.d(TAG, "client.close() failed", t);
+            }
         }
     }
 }

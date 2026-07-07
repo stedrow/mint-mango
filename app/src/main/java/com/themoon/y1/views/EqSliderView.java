@@ -3,6 +3,7 @@ package com.themoon.y1.views;
 import com.themoon.y1.ThemeManager;
 
 public class EqSliderView extends android.view.View {
+    private static final String TAG = "EqSliderView";
     private android.graphics.Paint trackPaint, activeTrackPaint, thumbPaint, textPaint;
     private int min = -1500, max = 1500, level = 0;
     private boolean isFocused = false, isAdjusting = false;
@@ -11,7 +12,11 @@ public class EqSliderView extends android.view.View {
 
     public EqSliderView(android.content.Context context) {
         super(context);
-        try { themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; } catch(Exception e){}
+        try {
+            themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to read theme color, using default", e);
+        }
 
         trackPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         trackPaint.setStyle(android.graphics.Paint.Style.FILL);

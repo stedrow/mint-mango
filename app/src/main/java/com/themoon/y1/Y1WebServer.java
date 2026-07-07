@@ -664,7 +664,11 @@ public class Y1WebServer extends Thread {
                             totalRead += bytesRead;
                         }
                         fos.flush();
-                        try { fos.getFD().sync(); } catch(Exception e){}
+                        try {
+                            fos.getFD().sync();
+                        } catch (Exception e) {
+                            Log.d(TAG, "fsync failed after upload write", e);
+                        }
                     } finally {
                         fos.close();
                     }
@@ -689,7 +693,11 @@ public class Y1WebServer extends Thread {
                             totalRead += bytesRead;
                         }
                         fos.flush();
-                        try { fos.getFD().sync(); } catch(Exception e){}
+                        try {
+                            fos.getFD().sync();
+                        } catch (Exception e) {
+                            Log.d(TAG, "fsync failed after upload write", e);
+                        }
                     } finally {
                         fos.close();
                     }

@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AudioPlayerManager {
+    private static final String TAG = "AudioPlayerManager";
     private static AudioPlayerManager instance;
     public SimpleExoPlayer exoPlayer;
     public MediaPlayer legacyPlayer;
@@ -134,7 +135,9 @@ public class AudioPlayerManager {
                                         int s = (duration / 1000) % 60;
                                         int m = (duration / (1000 * 60)) % 60;
                                         MainActivity.instance.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
-                                    } catch (Exception e) {}
+                                    } catch (Exception e) {
+                                        android.util.Log.w(TAG, "Post-playback-start UI setup failed", e);
+                                    }
                                 }
                             });
                         }
@@ -307,11 +310,15 @@ public class AudioPlayerManager {
                                 android.widget.TextView toastTV = (android.widget.TextView) toastLayout.getChildAt(0);
                                 toastTV.setTextSize(18f);
                                 toast.show();
-                            } catch (Exception e) {}
+                            } catch (Exception e) {
+                                android.util.Log.d(TAG, "Resume-position toast styling failed", e);
+                            }
                         }
                     });
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                android.util.Log.w(TAG, "playTrackListWithOffset: seek to offset " + offsetMs + " failed", e);
+            }
         }
     }
 
@@ -426,7 +433,11 @@ public class AudioPlayerManager {
             if (isUsingLegacyPlayer && legacyPlayer != null) {
                 legacyPlayer.reset();
                 if (currentFileInputStream != null) {
-                    try { currentFileInputStream.close(); } catch (Exception ignored) {}
+                    try {
+                        currentFileInputStream.close();
+                    } catch (Exception e) {
+                        android.util.Log.d(TAG, "restartAudioPipelineQuietly: stream close failed", e);
+                    }
                 }
                 currentFileInputStream = new java.io.FileInputStream(track);
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
@@ -560,10 +571,21 @@ public class AudioPlayerManager {
             extractedTitle = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
             extractedArtist = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
             artBytes = mmr.getEmbeddedPicture();
-        } catch (Throwable ignore) {
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "prepareTrackBackground: metadata extraction failed for " + track, t);
         } finally {
-            if (fisMmr != null) try { fisMmr.close(); } catch (Exception e) {}
-            try { mmr.release(); } catch (Exception e) {}
+            if (fisMmr != null) {
+                try {
+                    fisMmr.close();
+                } catch (Exception e) {
+                    android.util.Log.d(TAG, "prepareTrackBackground: stream close failed", e);
+                }
+            }
+            try {
+                mmr.release();
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "prepareTrackBackground: mmr release failed", e);
+            }
         }
 
         final String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
@@ -577,7 +599,9 @@ public class AudioPlayerManager {
                 if (metaOverride.title != null) t = metaOverride.title;
                 if (metaOverride.artist != null) a = metaOverride.artist;
             }
-        } catch (Throwable ignore) {}
+        } catch (Throwable metaEx) {
+            android.util.Log.d(TAG, "prepareTrackBackground: meta-override DB read failed", metaEx);
+        }
 
         final boolean hasValidTags = (t != null && !t.trim().isEmpty() && a != null && !a.trim().isEmpty() && !a.equalsIgnoreCase("Unknown Artist"));
         final String finalTitle = t;
@@ -604,7 +628,9 @@ public class AudioPlayerManager {
                     // (applyGaussianBlur returns the source unchanged on failure).
                     if (sourceBg != blurred) sourceBg.recycle();
                 }
-            } catch (Throwable e) {}
+            } catch (Throwable e) {
+                android.util.Log.w(TAG, "prepareTrackBackground: album art decode/blur failed", e);
+            }
         }
         final android.graphics.Bitmap centerBmp = centerTmp;
         final android.graphics.Bitmap blurBmp = blurTmp;
@@ -614,7 +640,9 @@ public class AudioPlayerManager {
         try {
             com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
             savedPosTmp = savedBookmark != null ? savedBookmark.posMs : 0;
-        } catch (Throwable ignore) {}
+        } catch (Throwable bookmarkEx) {
+            android.util.Log.d(TAG, "prepareTrackBackground: bookmark DB read failed", bookmarkEx);
+        }
         final int savedPos = savedPosTmp;
 
         // ── Back to the UI thread: apply UI + start the engine ────────────────────
@@ -661,7 +689,9 @@ public class AudioPlayerManager {
             try {
                 if (centerBmp != null) main.ivAlbumArt.setImageBitmap(centerBmp);
                 if (blurBmp != null) main.ivPlayerBgBlur.setImageBitmap(blurBmp);
-            } catch (Throwable e) {}
+            } catch (Throwable e) {
+                android.util.Log.w(TAG, "applyPreparedTrack: setting decoded art bitmaps failed", e);
+            }
         } else if (coverFile.exists()) {
             main.applyCachedCoverArt(coverFile.getAbsolutePath());
         } else {
@@ -697,7 +727,11 @@ public class AudioPlayerManager {
                 }
 
                 if (currentFileInputStream != null) {
-                    try { currentFileInputStream.close(); } catch (Exception e) {}
+                    try {
+                        currentFileInputStream.close();
+                    } catch (Exception e) {
+                        android.util.Log.d(TAG, "applyPreparedTrack: prior stream close failed", e);
+                    }
                 }
                 currentFileInputStream = new java.io.FileInputStream(track);
                 final MediaPlayer preparingPlayer = legacyPlayer;
@@ -787,7 +821,9 @@ public class AudioPlayerManager {
             List<String> paths = new ArrayList<>();
             for (File f : main.currentPlaylist) paths.add(f.getAbsolutePath());
             main.libraryCacheDb.savePlayerState(paths, main.currentIndex, getCurrentPosition(), main.isAudiobookLibraryMode);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "persistCurrentPlaybackState failed", e);
+        }
     }
 
     /** Same as {@link #persistCurrentPlaybackState()} but throttled — call from a frequent tick. */
@@ -827,7 +863,9 @@ public class AudioPlayerManager {
             pendingResumePositionMs = state.positionMs;
 
             displayTrackMetadataOnly(track);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "restoreLastPlaybackState failed", e);
+        }
     }
 
     /** Populates the player/preview UI (title, artist, art) for a track without touching the audio engine. */
@@ -854,10 +892,21 @@ public class AudioPlayerManager {
             t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
             a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
             embeddedArt = mmr.getEmbeddedPicture();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            android.util.Log.d(TAG, "displayTrackMetadataBackground: metadata extraction failed for " + track, e);
         } finally {
-            if (fis != null) try { fis.close(); } catch (Exception e) {}
-            try { mmr.release(); } catch (Exception e) {}
+            if (fis != null) {
+                try {
+                    fis.close();
+                } catch (Exception e) {
+                    android.util.Log.d(TAG, "displayTrackMetadataBackground: stream close failed", e);
+                }
+            }
+            try {
+                mmr.release();
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "displayTrackMetadataBackground: mmr release failed", e);
+            }
         }
 
         try {
@@ -866,7 +915,9 @@ public class AudioPlayerManager {
                 if (metaOverride.title != null) t = metaOverride.title;
                 if (metaOverride.artist != null) a = metaOverride.artist;
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable metaEx) {
+            android.util.Log.d(TAG, "displayTrackMetadataBackground: meta-override DB read failed", metaEx);
+        }
 
         android.graphics.Bitmap centerTmp = null;
         if (embeddedArt != null && embeddedArt.length > 0) {
@@ -874,7 +925,9 @@ public class AudioPlayerManager {
                 android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
                 opts.inSampleSize = 2;
                 centerTmp = android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts);
-            } catch (Throwable e) {}
+            } catch (Throwable e) {
+                android.util.Log.w(TAG, "displayTrackMetadataBackground: art decode failed", e);
+            }
         }
 
         final String finalTitle = t;
@@ -909,7 +962,9 @@ public class AudioPlayerManager {
                             main.refreshNowPlayingPreview();
                         }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    android.util.Log.w(TAG, "restoreLastPlaybackState: preview UI update failed", e);
+                }
             }
         });
     }
@@ -935,7 +990,9 @@ public class AudioPlayerManager {
                     }
                 }
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "saveAudiobookBookmarkIfNeeded failed", e);
+        }
     }
 
     public int getCurrentPosition() {
@@ -976,7 +1033,14 @@ public class AudioPlayerManager {
         final MainActivity main = MainActivity.instance;
         if (main == null) return;
 
-        if (legacyPlayer != null) { try { legacyPlayer.stop(); legacyPlayer.reset(); } catch (Exception ignored) {} }
+        if (legacyPlayer != null) {
+            try {
+                legacyPlayer.stop();
+                legacyPlayer.reset();
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "legacyPlayer stop/reset failed", e);
+            }
+        }
         initPlayer(context);
         if (exoPlayer != null) exoPlayer.stop();
 
@@ -1110,6 +1174,12 @@ public class AudioPlayerManager {
     public void releasePlayer() {
         if (exoPlayer != null) { exoPlayer.release(); exoPlayer = null; }
         if (legacyPlayer != null) { legacyPlayer.release(); legacyPlayer = null; }
-        if (currentFileInputStream != null) { try { currentFileInputStream.close(); } catch (Exception e) {} }
+        if (currentFileInputStream != null) {
+            try {
+                currentFileInputStream.close();
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "releasePlayer: stream close failed", e);
+            }
+        }
     }
 }

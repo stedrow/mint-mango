@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.util.Log;
 
 import org.json.JSONArray;
 
@@ -173,7 +174,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "loadAll failed", e);
+        }
         return result;
     }
 
@@ -223,14 +226,18 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             cv.put("track_number", s.trackNumber);
             cv.put("is_audiobook", s.isAudiobook ? 1 : 0);
             db.insertWithOnConflict(TABLE, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "upsert failed", e);
+        }
     }
 
     /** Wipes the cache so the next scan re-extracts tags for every file. */
     public void clear() {
         try {
             getWritableDatabase().delete(TABLE, null, null);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "clear failed", e);
+        }
     }
 
     /** Saves what's currently loaded/playing so it can be restored after a restart. */
@@ -246,7 +253,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             cv.put("position_ms", positionMs);
             cv.put("is_audiobook", isAudiobook ? 1 : 0);
             db.insertWithOnConflict(PLAYER_STATE_TABLE, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "savePlayerState failed", e);
+        }
     }
 
     /** Loads the last-saved playback state, or null if nothing's been saved yet. */
@@ -268,7 +277,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "loadPlayerState failed", e);
+        }
         return null;
     }
 
@@ -295,7 +306,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "loadFavoritePaths failed", e);
+        }
         return result;
     }
 
@@ -307,7 +320,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             cv.put("is_favorite", favorite ? 1 : 0);
             db.update(STATE_TABLE, cv, "path=?", new String[]{path});
             pruneStateRowIfEmpty(db, path);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "setFavorite failed", e);
+        }
     }
 
     public MetaOverride getMetaOverride(String path) {
@@ -319,7 +334,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "getMetaOverride failed", e);
+        }
         return null;
     }
 
@@ -331,7 +348,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             cv.put("meta_title", title);
             cv.put("meta_artist", artist);
             db.update(STATE_TABLE, cv, "path=?", new String[]{path});
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "setMetaOverride failed", e);
+        }
     }
 
     public String getAlbumArtPath(String path) {
@@ -343,7 +362,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "getAlbumArtPath failed", e);
+        }
         return null;
     }
 
@@ -354,7 +375,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             ContentValues cv = new ContentValues();
             cv.put("album_art_path", artPath);
             db.update(STATE_TABLE, cv, "path=?", new String[]{path});
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "setAlbumArtPath failed", e);
+        }
     }
 
     /** Returns null if no bookmark (or a zeroed one) is saved for this path. */
@@ -367,7 +390,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "getBookmark failed", e);
+        }
         return null;
     }
 
@@ -389,7 +414,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "loadAllBookmarks failed", e);
+        }
         return result;
     }
 
@@ -401,7 +428,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             cv.put("book_pos_ms", posMs);
             cv.put("book_dur_ms", durMs);
             db.update(STATE_TABLE, cv, "path=?", new String[]{path});
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "setBookmark failed", e);
+        }
     }
 
     /** Clears every custom title/artist/album-art override (keeps favorites and audiobook bookmarks). */
@@ -415,14 +444,18 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             db.update(STATE_TABLE, cv, null, null);
             db.delete(STATE_TABLE, "is_favorite=0 AND meta_title IS NULL AND meta_artist IS NULL " +
                     "AND album_art_path IS NULL AND book_pos_ms IS NULL", null);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "clearAllMetaAndArt failed", e);
+        }
     }
 
     /** Removes all per-track state for a deleted file (favorite, overrides, art, bookmark) in one go. */
     public void deleteSongState(String path) {
         try {
             getWritableDatabase().delete(STATE_TABLE, "path=?", new String[]{path});
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "deleteSongState failed", e);
+        }
     }
 
     // ---- navidrome_artists: cached getArtists() response ----
@@ -470,13 +503,17 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 c.close();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "loadNavidromeArtists failed", e);
+        }
         return result;
     }
 
     public void clearNavidromeArtists() {
         try {
             getWritableDatabase().delete(ARTISTS_TABLE, null, null);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.w(TAG, "clearNavidromeArtists failed", e);
+        }
     }
 }

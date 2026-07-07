@@ -169,7 +169,11 @@ public class AapService extends Service {
         shouldRun = false;
         BluetoothSocket s = activeSocket;
         if (s != null) {
-            try { s.close(); } catch (Throwable ignored) {}
+            try {
+                s.close();
+            } catch (Throwable t) {
+                Log.d(TAG, "socket close failed on destroy", t);
+            }
         }
         setConnected(false);
         super.onDestroy();
@@ -210,7 +214,11 @@ public class AapService extends Service {
             } catch (Throwable t) {
                 Log.i(TAG, "AAP session ended: " + t);
             } finally {
-                try { socket.close(); } catch (Throwable ignored) {}
+                try {
+                    socket.close();
+                } catch (Throwable t) {
+                    Log.d(TAG, "socket close failed after session end", t);
+                }
                 activeSocket = null;
                 setConnected(false);
             }
@@ -400,6 +408,10 @@ public class AapService extends Service {
     }
 
     private static void sleepQuiet(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

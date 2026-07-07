@@ -51,7 +51,11 @@ public final class Y1UsbFocusHelper {
     public void onDestroy() {
         stopPolling();
         if (usbRegistered && usbReceiver != null) {
-            try { activity.unregisterReceiver(usbReceiver); } catch (Exception ignored) {}
+            try {
+                activity.unregisterReceiver(usbReceiver);
+            } catch (Exception e) {
+                Log.d(TAG, "unregisterReceiver failed (already unregistered?)", e);
+            }
             usbRegistered = false;
         }
     }
@@ -141,12 +145,16 @@ public final class Y1UsbFocusHelper {
         try {
             ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
             if (am != null) am.moveTaskToFront(activity.getTaskId(), 0);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.d(TAG, "moveTaskToFront failed", e);
+        }
         try {
             Intent startMain = new Intent(Intent.ACTION_MAIN);
             startMain.addCategory(Intent.CATEGORY_HOME);
             startMain.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(startMain);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.d(TAG, "startActivity(HOME) failed", e);
+        }
     }
 }

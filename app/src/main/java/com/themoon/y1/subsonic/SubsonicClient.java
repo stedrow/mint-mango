@@ -35,6 +35,8 @@ import java.security.cert.X509Certificate;
 
 public class SubsonicClient {
 
+    private static final String TAG = "Subsonic";
+
     public interface Callback<T> {
         void onSuccess(T result);
         void onError(String message);
@@ -375,8 +377,12 @@ public class SubsonicClient {
                     final String path = savePath;
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onComplete(path); }});
                 } catch (final Exception e) {
-                    android.util.Log.e("Subsonic", "Download failed: songId=" + songId + " path=" + savePath, e);
-                    try { partFile.delete(); } catch (Exception ignored) {}
+                    android.util.Log.e(TAG, "Download failed: songId=" + songId + " path=" + savePath, e);
+                    try {
+                        partFile.delete();
+                    } catch (Exception delEx) {
+                        android.util.Log.d(TAG, "partFile cleanup failed", delEx);
+                    }
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 } finally {
                     // Drain + close instead of disconnect() so the socket returns to the
@@ -416,7 +422,12 @@ public class SubsonicClient {
                     if (!partFile.renameTo(cacheFile)) throw new Exception("rename failed");
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onSuccess(cacheFile.getAbsolutePath()); }});
                 } catch (final Exception e) {
-                    try { partFile.delete(); } catch (Exception ignored) {}
+                    android.util.Log.e(TAG, "Cache download failed: " + cacheFile.getAbsolutePath(), e);
+                    try {
+                        partFile.delete();
+                    } catch (Exception delEx) {
+                        android.util.Log.d(TAG, "partFile cleanup failed", delEx);
+                    }
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 } finally {
                     // Drain + close instead of disconnect() so the socket returns to the
@@ -464,9 +475,14 @@ public class SubsonicClient {
         try {
             byte[] buf = new byte[4096];
             while (is.read(buf) != -1) { /* discard remaining bytes */ }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            android.util.Log.d(TAG, "drainAndClose: drain failed", e);
         } finally {
-            try { is.close(); } catch (Exception ignored) {}
+            try {
+                is.close();
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "drainAndClose: close failed", e);
+            }
         }
     }
 
@@ -620,7 +636,9 @@ public class SubsonicClient {
         try {
             JSONObject sr = root.getJSONObject("subsonic-response");
             if (sr.has("error")) return sr.getJSONObject("error").optString("message", "Server error");
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.d(TAG, "extractError: malformed response JSON", e);
+        }
         return "Unknown server error";
     }
 

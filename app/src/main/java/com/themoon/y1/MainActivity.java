@@ -30,6 +30,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.os.Vibrator;
+import android.util.Log;
 import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.View;
@@ -69,6 +70,7 @@ import com.themoon.y1.views.PieChartView;
 import com.themoon.y1.views.WidgetBatteryBarView;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
     // Note: Always add a trailing slash (/) at the end of the address!
     private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
     private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
@@ -193,7 +195,9 @@ public class MainActivity extends Activity {
                             }
                         }
                     }
-                } catch(Exception e){}
+                } catch (Exception e) {
+                    Log.d(TAG, "updateGlobalStatusPlayIcon failed", e);
+                }
             }
         });
     }
@@ -584,7 +588,7 @@ public class MainActivity extends Activity {
     private Runnable singleClickRunnable = new Runnable() {
         @Override
         public void run() {
-            try { handleCenterShortClick(); } catch (Exception e) {}
+            try { handleCenterShortClick(); } catch (Exception e) { Log.d(TAG, "tuneToNextSavedRadioChannel failed", e); }
         }
     };
     // 🚀 [Added] A short translation helper to make it easy to wrap long English sentences.
@@ -675,7 +679,9 @@ public class MainActivity extends Activity {
                                         WindowManager.LayoutParams lp = getWindow().getAttributes();
                                         lp.screenBrightness = 0.01f;
                                         getWindow().setAttributes(lp);
-                                    } catch (Exception e) {}
+                                    } catch (Exception e) {
+                                        Log.d(TAG, "turnOffScreen failed", e);
+                                    }
                                 }
                             })
                             .start();
@@ -684,7 +690,9 @@ public class MainActivity extends Activity {
         } else {
             try {
                 Runtime.getRuntime().exec(new String[]{"su", "-c", "input keyevent 26"});
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.d(TAG, "turnOffScreen failed", e);
+            }
         }
     }
 
@@ -856,7 +864,9 @@ public class MainActivity extends Activity {
                         }
                     }
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.d(TAG, "updateRadioMainPlayerUI failed", e);
+            }
             progressHandler.postDelayed(this, 500);
         }
     };
@@ -1243,6 +1253,7 @@ public class MainActivity extends Activity {
             try {
                 targetDevice.getClass().getMethod("createBond").invoke(targetDevice);
             } catch (Exception e) {
+                Log.d(TAG, "connectBluetoothAudio failed", e);
             }
             return;
         }
@@ -1414,7 +1425,9 @@ public class MainActivity extends Activity {
                 android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
                 opts.inSampleSize = 2;
                 bmp = android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, opts);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.d(TAG, "sendBluetoothMetaToCar failed", e);
+            }
         }
 
         updateBluetoothMetadata(title, artist, "Y1 Player", bmp);
@@ -1456,6 +1469,7 @@ public class MainActivity extends Activity {
                     fos.write(sw.toString().getBytes());
                     fos.close();
                 } catch (Exception ex) {
+                    Log.d(TAG, "onCreate failed", ex);
                 }
                 System.exit(1);
             }
@@ -1539,7 +1553,9 @@ public class MainActivity extends Activity {
         tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
         if (materialIconFont == null) {
             try { materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/MaterialIcons-Regular.ttf"); }
-            catch (Exception e) {}
+            catch (Exception e) {
+                Log.d(TAG, "onCreate failed", e);
+            }
         }
         if (materialIconFont != null) tvWheelLockIcon.setTypeface(materialIconFont);
         // Tag it so applyFontToAllViews() (which walks the whole tree and reassigns the app's
@@ -1606,6 +1622,7 @@ public class MainActivity extends Activity {
             int savedThemeIndex = prefs.getInt("app_theme_index", 0);
             ThemeManager.setThemeIndex(savedThemeIndex);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         // (the blacklist and other settings-loading code below is unchanged)
@@ -1620,12 +1637,14 @@ public class MainActivity extends Activity {
                 prefs.edit().putStringSet("blacklist", blacklist).remove("last_attempted_file").apply();
             }
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         // 💡 2. Load each setting independently (never skipped under any circumstance!)
         try {
             isShuffleMode = prefs.getBoolean("shuffle", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
@@ -1635,53 +1654,64 @@ public class MainActivity extends Activity {
                 repeatMode = prefs.getBoolean("repeat", false) ? 1 : 0;
             }
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             isSoundEffectEnabled = prefs.getBoolean("sound", true);
             applySoundSetting();
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             isSpeakerDisabled = prefs.getBoolean("speaker_disabled", false);
             applySpeakerSetting();
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             isVibrationEnabled = prefs.getBoolean("vibrate", true);
             vibrationStrengthLevel = prefs.getInt("vibrate_strength", 1);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
         try {
             isScreenOffControlEnabled = prefs.getBoolean("screen_off_control", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             isWheelLockEnabled = prefs.getBoolean("wheel_lock_on_wake", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             isAutoFetchEnabled = prefs.getBoolean("auto_fetch", true);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         } // 🚀 [Added]
         try {
             currentTimeoutIndex = prefs.getInt("timeout_idx", 1);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         try {
             currentSystemBrightness = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS,
                     255);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
         try {
             // Load the previously saved format setting from the vault (SharedPreferences). (default is 12-hour format)
             is24HourFormat = prefs.getBoolean("is_24h_format", false);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
+        }
         currentEqPresetIndex = prefs.getInt("eq_preset", 0);
         // 🚀 [Added] Links advanced effects and custom profile vault data
         currentEqProfile = prefs.getString("eq_profile_id", "preset_" + currentEqPresetIndex);
@@ -1738,18 +1768,22 @@ public class MainActivity extends Activity {
         try {
             isWidgetClockOn = prefs.getBoolean("widget_clock", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
         try {
             isWidgetBatteryOn = prefs.getBoolean("widget_battery", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
         try {
             isWidgetAlbumOn = prefs.getBoolean("widget_album", false);
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
         try {
             isWidgetFocusImageOn = prefs.getBoolean("widget_focus_image", false); // 🚀 [Added] Load state
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 // 🚀 Restores the existing setting values of the new switches from the storage vault.
 
@@ -2117,7 +2151,9 @@ public class MainActivity extends Activity {
         try {
             // Fetches all favorite paths from the DB when the app launches.
             favoritePaths = new java.util.HashSet<>(libraryCacheDb.loadFavoritePaths());
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
+        }
         // 🚀🚀🚀 [End of addition] 🚀🚀🚀
 
         updatePlayerStatusIndicators();
@@ -2261,6 +2297,7 @@ public class MainActivity extends Activity {
                     ivStatusWifi.setColorFilter(0xFFFFBB00);
             }
         } catch (Exception e) {
+            Log.d(TAG, "onCreate failed", e);
         }
 
         btnNowPlaying.requestFocus();
@@ -2353,13 +2390,15 @@ public class MainActivity extends Activity {
                 try {
                     if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
                     else trackNum = Integer.parseInt(trackStr.trim());
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    Log.d(TAG, "extractTags failed", e);
+                }
             }
         } catch (Exception e) {
             // 💡 Even if there's no tag or the scanner fails, the app doesn't crash and safely exits into this block.
         } finally {
-            if (fis != null) try { fis.close(); } catch (Exception e) {}
-            try { mmr.release(); } catch (Exception e) {}
+            if (fis != null) try { fis.close(); } catch (Exception e) { Log.d(TAG, "extractTags failed", e); }
+            try { mmr.release(); } catch (Exception e) { Log.d(TAG, "extractTags failed", e); }
         }
         return new com.themoon.y1.db.LibraryCacheDb.CachedSong(
                 path, mtime, size, title, artist, album, year, genre, trackNum, isAudiobook);
@@ -2669,7 +2708,9 @@ public class MainActivity extends Activity {
                         }
                         ivWidgetAlbum.setImageBitmap(widgetAlbumArtCachedBitmap);
                         widgetAlbumShowingDefault = false;
-                    } catch (Exception e) {}
+                    } catch (Exception e) {
+                        Log.d(TAG, "refreshWidgets failed", e);
+                    }
                 } else {
                     // Decoding the default album icon from assets every second is needless disk I/O.
                     // Cache it and only assign it once when we actually transition to "no art".
@@ -2773,7 +2814,9 @@ public class MainActivity extends Activity {
             // 🚀🚀🚀 [This is the key part!] Wipe out the old legacy menu entirely and assemble it from JSON parts!
             buildDynamicMainMenuUI();
 
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "applyThemeToMainMenu failed", e);
+        }
     }
     // 💡 [Added] A dedicated screen that shows the full theme list and lets the user pick one
     private void buildThemeSelectorUI() {
@@ -2828,6 +2871,7 @@ public class MainActivity extends Activity {
 
                         editor.apply(); // Settings saved
                     } catch (Exception e) {
+                        Log.d(TAG, "buildThemeSelectorUI failed", e);
                     }
 
                     recreate(); // Refresh the screen! (the new widget settings take effect immediately)
@@ -2864,6 +2908,7 @@ public class MainActivity extends Activity {
                 java.util.Set<BluetoothDevice> pairedDevices = ba.getBondedDevices();
             }
         } catch (Exception e) {
+            Log.d(TAG, "triggerAutoReconnect failed", e);
         }
     }
 
@@ -2912,7 +2957,7 @@ public class MainActivity extends Activity {
             if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()) {
                 File bgFile = new File(currentTheme.folderPath, currentTheme.bgImage);
                 if (bgFile.exists()) {
-                    try { return BitmapFactory.decodeFile(bgFile.getAbsolutePath()); } catch (Exception e) {}
+                    try { return BitmapFactory.decodeFile(bgFile.getAbsolutePath()); } catch (Exception e) { Log.d(TAG, "loadThemeBackgroundBitmap failed", e); }
                 }
             }
             Bitmap bg = ThemeManager.getCustomIcon("background.png", this, 0);
@@ -2932,7 +2977,9 @@ public class MainActivity extends Activity {
                     && new File(currentTheme.folderPath, currentTheme.bgImage).exists()) return true;
             if (new File(currentTheme.folderPath, "background.png").exists()) return true;
             if (new File(currentTheme.folderPath, "bg.png").exists()) return true;
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "currentThemeHasBackground failed", e);
+        }
         return false;
     }
 
@@ -3209,6 +3256,7 @@ public class MainActivity extends Activity {
             currentSystemBrightness = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS,
                     255);
         } catch (Exception e) {
+            Log.d(TAG, "loadBrightnessUI failed", e);
         }
         pbBrightness.setProgress(currentSystemBrightness);
         int percent = (int) (((float) currentSystemBrightness / 255.0f) * 100);
@@ -3229,6 +3277,7 @@ public class MainActivity extends Activity {
             layoutParams.screenBrightness = currentSystemBrightness / 255.0f;
             getWindow().setAttributes(layoutParams);
         } catch (Exception e) {
+            Log.d(TAG, "updateBrightness failed", e);
         }
     }
 
@@ -3331,7 +3380,9 @@ public class MainActivity extends Activity {
                     v.vibrate(VIBE_DURATIONS[vibrationStrengthLevel]);
                 }
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "clickFeedback failed", e);
+        }
     }
     private void openKeyboard() {
         typedPassword = "";
@@ -3479,6 +3530,7 @@ public class MainActivity extends Activity {
                 containerBtItems.addView(tvEmpty);
             }
         } catch (Exception e) {
+            Log.d(TAG, "startBluetoothScan failed", e);
         }
 
         // 🚀 3. Newly found devices (AVAILABLE DEVICES) list
@@ -3523,6 +3575,7 @@ public class MainActivity extends Activity {
                         .invoke(globalA2dp, device);
                 isConnected = (state == BluetoothProfile.STATE_CONNECTED);
             } catch (Exception e) {
+                Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
             }
         }
 
@@ -3534,6 +3587,7 @@ public class MainActivity extends Activity {
             try {
                 themeColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
             } catch (Exception e) {
+                Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
             }
             btnDevice.setTextColor(themeColor);
             btnDevice.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -3577,6 +3631,7 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, t("Device Deleted."), Toast.LENGTH_SHORT).show();
                     startBluetoothScan(); // Refresh the screen after removal
                 } catch (Exception e) {
+                    Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
                 }
             }
         });
@@ -3816,6 +3871,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Exception e) {
+                    Log.d(TAG, "addWifiItemToUI failed", e);
                 }
 
                 if (isSaved && savedNetId != -1) {
@@ -3966,7 +4022,9 @@ public class MainActivity extends Activity {
 
         if (materialIconFont == null) {
             try { materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/MaterialIcons-Regular.ttf"); }
-            catch (Exception e) {}
+            catch (Exception e) {
+                Log.d(TAG, "createListButtonWithIcon failed", e);
+            }
         }
         if (materialIconFont != null) tvIcon.setTypeface(materialIconFont);
 
@@ -4184,6 +4242,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("shuffle", isShuffleMode).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
                 }
 
                 if (!currentPlaylist.isEmpty() && !originalPlaylist.isEmpty()) {
@@ -4214,6 +4273,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putInt("repeat_mode", repeatMode).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
                 }
             }
         });
@@ -4272,6 +4332,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("auto_fetch", isAutoFetchEnabled).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
                 }
             }
         });
@@ -4297,6 +4358,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("sound", isSoundEffectEnabled).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildSoundVibrationGroupUI failed", e);
                 }
             }
         });
@@ -4314,6 +4376,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("speaker_disabled", isSpeakerDisabled).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildSoundVibrationGroupUI failed", e);
                 }
             }
         });
@@ -4426,6 +4489,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("screen_off_control", isScreenOffControlEnabled).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
                 }
             }
         });
@@ -4442,6 +4506,7 @@ public class MainActivity extends Activity {
                 try {
                     prefs.edit().putBoolean("wheel_lock_on_wake", isWheelLockEnabled).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
                 }
             }
         });
@@ -4471,10 +4536,12 @@ public class MainActivity extends Activity {
                     Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT,
                             TIMEOUT_VALUES[currentTimeoutIndex]);
                 } catch (Exception e) {
+                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
                 }
                 try {
                     prefs.edit().putInt("timeout_idx", currentTimeoutIndex).apply();
                 } catch (Exception e) {
+                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
                 }
             }
         });
@@ -4609,6 +4676,7 @@ public class MainActivity extends Activity {
         try {
             myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception e) {
+            Log.d(TAG, "buildSystemGroupUI failed", e);
         }
         String displayLang = com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName.replace(".json", "");
         LinearLayout btnLangMenu = createSettingRow("Language", displayLang);
@@ -4768,7 +4836,9 @@ public class MainActivity extends Activity {
                 if (!savedStationsStr.isEmpty()) {
                     for(String s : savedStationsStr.split(",")) savedRadioStations.add(Float.parseFloat(s));
                 }
-            } catch(Exception e){}
+            } catch (Exception e) {
+                Log.d(TAG, "buildRadioUI failed", e);
+            }
         }
 
         final float density = getResources().getDisplayMetrics().density;
@@ -5021,7 +5091,7 @@ public class MainActivity extends Activity {
 
                                 tvLoadingProgress.setText(String.format(java.util.Locale.US, t("Scanning FM Frequencies...\nSearching around %.1f MHz"), f));                            }
                         });
-                        try { Thread.sleep(70); } catch(Exception e){}
+                        try { Thread.sleep(70); } catch (Exception e) { Log.d(TAG, "buildRadioUI failed", e); }
                         progress += 1;
                         if (progress > 100) progress = 0;
                         fakeFreq += 0.1f;
@@ -5094,6 +5164,7 @@ public class MainActivity extends Activity {
             myVersionName = pInfo.versionName;
             tempCode = pInfo.versionCode;
         } catch (Exception e) {
+            Log.d(TAG, "buildUpdateSettingsUI failed", e);
         }
 
         final int myVersionCode = tempCode;
@@ -5126,6 +5197,7 @@ public class MainActivity extends Activity {
                         try {
                             ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
                         } catch (Exception e) {
+                            Log.d(TAG, "buildUpdateSettingsUI failed", e);
                         }
                     }
 
@@ -5141,6 +5213,7 @@ public class MainActivity extends Activity {
                             try {
                                 ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
                             } catch (Exception e) {
+                                Log.d(TAG, "buildUpdateSettingsUI failed", e);
                             }
                         }
                     }
@@ -5233,7 +5306,7 @@ public class MainActivity extends Activity {
                 isVibrationEnabled = !isVibrationEnabled;
                 clickFeedback();
                 ((TextView) btnToggle.getChildAt(1)).setText(isVibrationEnabled ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("vibrate", isVibrationEnabled).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("vibrate", isVibrationEnabled).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
             }
         });
         containerSettingsItems.addView(btnToggle);
@@ -5250,7 +5323,7 @@ public class MainActivity extends Activity {
 
                 // 🚀 [Fix complete] Make sure the text is always passed through the translator t() when it changes on button press too!
                 ((TextView) btnStrength.getChildAt(1)).setText(t(VIBE_STRENGTH_NAMES[vibrationStrengthLevel]));
-                try { prefs.edit().putInt("vibrate_strength", vibrationStrengthLevel).apply(); } catch (Exception e) {}
+                try { prefs.edit().putInt("vibrate_strength", vibrationStrengthLevel).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
             }
         });
         containerSettingsItems.addView(btnStrength);
@@ -5274,7 +5347,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetClockOn = !isWidgetClockOn;
                 ((TextView) btnClock.getChildAt(1)).setText(isWidgetClockOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_clock", isWidgetClockOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_clock", isWidgetClockOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets(); // Instantly update the widget screen when the switch is turned on!
             }
         });
@@ -5288,7 +5361,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetAnalogClockOn = !isWidgetAnalogClockOn;
                 ((TextView) btnAnalogClock.getChildAt(1)).setText(isWidgetAnalogClockOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_analog_clock", isWidgetAnalogClockOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_analog_clock", isWidgetAnalogClockOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets();
             }
         });
@@ -5302,7 +5375,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetBatteryOn = !isWidgetBatteryOn;
                 ((TextView) btnBattery.getChildAt(1)).setText(isWidgetBatteryOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_battery", isWidgetBatteryOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_battery", isWidgetBatteryOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets();
             }
         });
@@ -5316,7 +5389,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetCircularBatteryOn = !isWidgetCircularBatteryOn;
                 ((TextView) btnCircularBattery.getChildAt(1)).setText(isWidgetCircularBatteryOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_circular_battery", isWidgetCircularBatteryOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_circular_battery", isWidgetCircularBatteryOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets();
             }
         });
@@ -5330,7 +5403,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetAlbumOn = !isWidgetAlbumOn;
                 ((TextView) btnAlbum.getChildAt(1)).setText(isWidgetAlbumOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_album", isWidgetAlbumOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_album", isWidgetAlbumOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets();
             }
         });
@@ -5344,7 +5417,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 isWidgetFocusImageOn = !isWidgetFocusImageOn;
                 ((TextView) btnFocusImage.getChildAt(1)).setText(isWidgetFocusImageOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_focus_image", isWidgetFocusImageOn).apply(); } catch (Exception e) {}
+                try { prefs.edit().putBoolean("widget_focus_image", isWidgetFocusImageOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
                 refreshWidgets(); // Reflect it on screen immediately when the switch is turned on!
             }
         });
@@ -5456,6 +5529,7 @@ public class MainActivity extends Activity {
                         try {
                             ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
                         } catch (Exception e) {
+                            Log.d(TAG, "downloadAndInstallApk failed", e);
                         }
                     }
 
@@ -5474,6 +5548,7 @@ public class MainActivity extends Activity {
                             try {
                                 ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
                             } catch (Exception e) {
+                                Log.d(TAG, "downloadAndInstallApk failed", e);
                             }
                         }
 
@@ -6124,7 +6199,9 @@ public class MainActivity extends Activity {
                         if (fallbackFile.exists()) {
                             bmp = BitmapFactory.decodeFile(fallbackFile.getAbsolutePath());
                         }
-                    } catch (Exception e) {}
+                    } catch (Exception e) {
+                        Log.d(TAG, "bindCoverData failed", e);
+                    }
                 }
 
                 if (bmp == null) {
@@ -6138,7 +6215,9 @@ public class MainActivity extends Activity {
                             opts.inSampleSize = 2;
                             bmp = BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts);
                         }
-                    } catch (Exception e) {}
+                    } catch (Exception e) {
+                        Log.d(TAG, "bindCoverData failed", e);
+                    }
                 }
 
                 final android.graphics.Bitmap finalBmp = bmp;
@@ -6606,6 +6685,7 @@ public class MainActivity extends Activity {
                         try {
                             prefs.edit().putString("bg_path", img.getAbsolutePath()).apply();
                         } catch (Exception e) {
+                            Log.d(TAG, "buildFolderBrowserUI failed", e);
                         }
 
                         updateMainMenuBackground(); // 💡 Apply the blur to the main screen immediately on selection
@@ -6961,7 +7041,7 @@ public class MainActivity extends Activity {
                 customAnalogClockView.setLayoutParams(createDynamicLayoutParams(el, density));
                 customAnalogClockView.setPadding(p, p, p, p);
                 if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
-                    try { customAnalogClockView.setClockBackgroundColor(android.graphics.Color.parseColor(el.bgColor.trim())); } catch (Exception e) {}
+                    try { customAnalogClockView.setClockBackgroundColor(android.graphics.Color.parseColor(el.bgColor.trim())); } catch (Exception e) { Log.d(TAG, "buildDynamicMainMenuUI failed", e); }
                 }
                 canvas.addView(customAnalogClockView);
                 createdWidgetView = customAnalogClockView;
@@ -7127,7 +7207,7 @@ public class MainActivity extends Activity {
                     // 🚀 [Bug fix 1] Prioritize the individually specified background color (bgColor) from the editor over the theme's default background color, if present!
                     int normalBgColor = ThemeManager.getListButtonNormalBg();
                     if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
-                        try { normalBgColor = android.graphics.Color.parseColor(el.bgColor.trim()); } catch (Exception e) {}
+                        try { normalBgColor = android.graphics.Color.parseColor(el.bgColor.trim()); } catch (Exception e) { Log.d(TAG, "buildDynamicMainMenuUI failed", e); }
                     }
 
                     // 🚀 [Bug fix 2] Removed the forced transparent-color assignment for both icon-only and regular buttons — always paint the background color!
@@ -7390,6 +7470,7 @@ public class MainActivity extends Activity {
                 Runtime.getRuntime().exec("chmod 777 " + apkFile.getParentFile().getAbsolutePath());
                 Runtime.getRuntime().exec("chmod 777 " + apkFile.getAbsolutePath());
             } catch (Exception e) {
+                Log.d(TAG, "installApk failed", e);
             }
 
             // 🚀 2. [Perfect solution: Silent Background Install]
@@ -7503,6 +7584,7 @@ public class MainActivity extends Activity {
                 audioVisualizer.setEnabled(true);
             }
         } catch (Exception e) {
+            Log.d(TAG, "setupVisualizer failed", e);
         }
     }
     // 🚀 [Lyrics engine] Finds a .lrc file and splits it into time and text stored in memory.
@@ -7547,7 +7629,9 @@ public class MainActivity extends Activity {
                     br.close();
                     lyricTimestamps = new ArrayList<>(currentLyrics.keySet());
                     return; // If it succeeded, end the engine early here!
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    Log.d(TAG, "loadLyrics failed", e);
+                }
             }
         }
 
@@ -7625,7 +7709,9 @@ public class MainActivity extends Activity {
                 }
             }
             raf.close();
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "extractEmbeddedLyrics failed", e);
+        }
         return null;
     }
 
@@ -7671,6 +7757,7 @@ public class MainActivity extends Activity {
                 }
             }
         } catch (Exception e) {
+            Log.d(TAG, "updatePlayerStatusIndicators failed", e);
         }
     }
     // 🚀 [New] Favorites-toggle function triggered by a long press on the wheel button! (place it among the other functions)
@@ -7711,7 +7798,9 @@ public class MainActivity extends Activity {
 
         try {
             libraryCacheDb.setFavorite(path, nowFavorite); // Save it permanently right away!
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "toggleFavorite failed", e);
+        }
 
         updatePlayerStatusIndicators(); // 💖 Refresh the icon
     }
@@ -7757,7 +7846,9 @@ public class MainActivity extends Activity {
                         }
                     }
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.d(TAG, "updatePlayerUI failed", e);
+            }
         }
         // 🚀 [Bug cause removed] Perfectly removed one unnecessary stray closing brace '}' that was here!
     private void adjustVolume(boolean up) {
@@ -7774,12 +7865,14 @@ public class MainActivity extends Activity {
             com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
             if (fm.isPowerUp) {
                 int streamFm = 10;
-                try { streamFm = (Integer) AudioManager.class.getDeclaredField("STREAM_FM").get(null); } catch (Exception e) {}
+                try { streamFm = (Integer) AudioManager.class.getDeclaredField("STREAM_FM").get(null); } catch (Exception e) { Log.d(TAG, "adjustVolume failed", e); }
                 int fmMax = audioManager.getStreamMaxVolume(streamFm);
                 int fmVol = (int) (((float)currentVol / maxVol) * fmMax);
                 audioManager.setStreamVolume(streamFm, fmVol, 0);
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "adjustVolume failed", e);
+        }
 
         showDynamicVolumeOverlay();
     }
@@ -7836,6 +7929,7 @@ public class MainActivity extends Activity {
             else
                 isScreenOn = pm.isScreenOn();
         } catch (Exception e) {
+            Log.d(TAG, "onKeyDown failed", e);
         }
 
         boolean isWakingUp = !isScreenOn || ((event.getFlags() & KeyEvent.FLAG_WOKE_HERE) != 0)
@@ -8539,7 +8633,9 @@ public class MainActivity extends Activity {
                             WindowManager.LayoutParams lp = getWindow().getAttributes();
                             lp.screenBrightness = currentSystemBrightness / 255.0f;
                             getWindow().setAttributes(lp);
-                        } catch (Exception e) {}
+                        } catch (Exception e) {
+                            Log.d(TAG, "dispatchKeyEvent failed", e);
+                        }
 
                         // Run a smooth cinematic fade-in animation
                         // (vsync-synced property animator instead of a manual 25ms Handler loop)
@@ -8583,6 +8679,7 @@ public class MainActivity extends Activity {
             else
                 isScreenOn = pm.isScreenOn();
         } catch (Exception e) {
+            Log.d(TAG, "onKeyUp failed", e);
         }
 
         boolean isWakingUp = !isScreenOn || ((event.getFlags() & KeyEvent.FLAG_WOKE_HERE) != 0)
@@ -8622,7 +8719,7 @@ public class MainActivity extends Activity {
                 } else {
                     // 🚀 On every other screen (main menu selection, settings logic, library lists, etc.),
                     // there's no 0.3-second wait — a full one-touch, lightning-fast click fires instantly, removing any lag.
-                    try { handleCenterShortClick(); } catch (Exception e) {}
+                    try { handleCenterShortClick(); } catch (Exception e) { Log.d(TAG, "onKeyUp failed", e); }
                 }
             }
             return true;
@@ -8756,6 +8853,7 @@ public class MainActivity extends Activity {
                 AapService.deviceConnected(this, device);
             }
         } catch (Exception e) {
+            Log.d(TAG, "resyncAapWithConnectedDevice failed", e);
         }
     }
 
@@ -8792,7 +8890,9 @@ public class MainActivity extends Activity {
         // (Throttled to at most once/5s -- identical staleness bound to the periodic loop.)
         try {
             com.themoon.y1.managers.AudioPlayerManager.getInstance().maybeSavePlaybackStateThrottled();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "onStop failed", ignored);
+        }
         super.onStop();
     }
 
@@ -8824,7 +8924,7 @@ public class MainActivity extends Activity {
         am.releasePlayer(); // 🚀 Politely ask the manager instead of turning it off directly!
 
         if (currentFileInputStream != null) {
-            try { currentFileInputStream.close(); } catch (Exception e) {}
+            try { currentFileInputStream.close(); } catch (Exception e) { Log.d(TAG, "onDestroy failed", e); }
         }
         if (equalizer != null) {
             equalizer.release();
@@ -8832,7 +8932,7 @@ public class MainActivity extends Activity {
         }
         synchronized (blurLock) {
             if (blurRs != null) {
-                try { blurRs.destroy(); } catch (Exception ignored) {}
+                try { blurRs.destroy(); } catch (Exception ignored) { Log.d(TAG, "onDestroy failed", ignored); }
                 blurRs = null;
                 blurScript = null;
             }
@@ -8861,6 +8961,7 @@ public class MainActivity extends Activity {
             Settings.System.putInt(getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED,
                     isSoundEffectEnabled ? 1 : 0);
         } catch (Exception e) {
+            Log.d(TAG, "applySoundSetting failed", e);
         }
     }
 
@@ -8878,6 +8979,7 @@ public class MainActivity extends Activity {
         try {
             externalAudioConnected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
         } catch (Exception e) {
+            Log.d(TAG, "applySpeakerSetting failed", e);
         }
         applySpeakerSetting(externalAudioConnected);
     }
@@ -8898,6 +9000,7 @@ public class MainActivity extends Activity {
         try {
             connected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
         } catch (Exception e) {
+            Log.d(TAG, "updateBluetoothStatusIcon failed", e);
         }
         ivStatusBluetooth.setColorFilter(connected ? BT_ICON_COLOR_CONNECTED : BT_ICON_COLOR_ON);
     }
@@ -8938,8 +9041,8 @@ public class MainActivity extends Activity {
                 return original;
             } finally {
                 // Free the transient native allocations; keep the shared context/script alive.
-                if (inAlloc != null) try { inAlloc.destroy(); } catch (Exception ignored) {}
-                if (outAlloc != null) try { outAlloc.destroy(); } catch (Exception ignored) {}
+                if (inAlloc != null) try { inAlloc.destroy(); } catch (Exception ignored) { Log.d(TAG, "applyGaussianBlur failed", ignored); }
+                if (outAlloc != null) try { outAlloc.destroy(); } catch (Exception ignored) { Log.d(TAG, "applyGaussianBlur failed", ignored); }
             }
         }
     }
@@ -9264,6 +9367,7 @@ public class MainActivity extends Activity {
             sendBluetoothMetaToCar();
 
         } catch (Exception e) {
+            Log.d(TAG, "applyCachedCoverArt failed", e);
         }
     }
 
@@ -9473,7 +9577,9 @@ public class MainActivity extends Activity {
         try {
             android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
             currentAppVersion = pInfo.versionCode;
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "installBundledLanguages failed", e);
+        }
 
         // 🚀 If the latest version of the default language pack is already installed on the device, skip the duplicate copy to speed things up.
         if (lastInstalledVersion >= currentAppVersion) return;
@@ -9674,7 +9780,7 @@ public class MainActivity extends Activity {
             for (short i = 0; i < bands; i++) {
                 customBandLevels[i] = 0;
                 if (equalizer != null) {
-                    try { equalizer.setBandLevel(i, (short) 0); } catch (Exception e) {}
+                    try { equalizer.setBandLevel(i, (short) 0); } catch (Exception e) { Log.d(TAG, "buildEqualizerSettingsUI failed", e); }
                 }
             }
 
@@ -9870,7 +9976,7 @@ public class MainActivity extends Activity {
                                 if (level < range[0]) level = range[0];
 
                                 customBandLevels[bandIdx] = level;
-                                try { equalizer.setBandLevel(bandIdx, (short) level); } catch(Exception e){}
+                                try { equalizer.setBandLevel(bandIdx, (short) level); } catch (Exception e) { Log.d(TAG, "buildGraphicEqualizerUI failed", e); }
                                 slider.setLevel(level);
                                 com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
                                 clickFeedback();
@@ -10292,7 +10398,7 @@ public class MainActivity extends Activity {
                         clickFeedback();
                         if (favoritePaths.contains(songFile.getAbsolutePath())) {
                             favoritePaths.remove(songFile.getAbsolutePath());
-                            try { libraryCacheDb.setFavorite(songFile.getAbsolutePath(), false); } catch(Exception e){}
+                            try { libraryCacheDb.setFavorite(songFile.getAbsolutePath(), false); } catch (Exception e) { Log.d(TAG, "showRemoveFromFavoritesDialog failed", e); }
                             buildVirtualSongsForFavorites(); // Instantly refresh the screen
                             Toast.makeText(MainActivity.instance, t("Removed from Favorites."), Toast.LENGTH_SHORT).show();
                         }
@@ -10350,7 +10456,9 @@ public class MainActivity extends Activity {
                 bitrateStr = (bps / 1000) + " kbps";
             }
             mmr.release();
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            Log.d(TAG, "updateAudioQualityInfo failed", e);
+        }
 
         // ⭕ [Overwrite with the code below]
         com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
@@ -10362,7 +10470,9 @@ public class MainActivity extends Activity {
                     int kbps = (int) ((fileSize * 8000) / durationMs);
                     bitrateStr = kbps + " kbps";
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                Log.d(TAG, "updateAudioQualityInfo failed", e);
+            }
         }
 
         // 4. 🚀 Inject each one neatly as its own vertical list line
@@ -11274,13 +11384,17 @@ public class MainActivity extends Activity {
         favoritePaths.remove(path);
         try {
             libraryCacheDb.deleteSongState(path);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "deleteLibrarySong failed", ignored);
+        }
         try {
             String base = f.getName();
             int dot = base.lastIndexOf('.');
             if (dot > 0) base = base.substring(0, dot);
             new java.io.File("/storage/sdcard0/Y1_Covers", base + ".jpg").delete();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "deleteLibrarySong failed", ignored);
+        }
 
         // Prune up to two levels of newly-empty folders, but never the roots
         java.io.File dir = f.getParentFile();
@@ -11444,7 +11558,7 @@ public class MainActivity extends Activity {
             }
             trackNumberMap.remove(p);
             if (favoritePaths.remove(p)) {
-                try { libraryCacheDb.setFavorite(p, false); } catch (Exception ignored) {}
+                try { libraryCacheDb.setFavorite(p, false); } catch (Exception ignored) { Log.d(TAG, "deleteNavidromeDownload failed", ignored); }
             }
             // delete() only succeeds on empty dirs, so this safely prunes
             // the album folder and then the artist folder when they empty out
@@ -11492,7 +11606,9 @@ public class MainActivity extends Activity {
                         Toast.LENGTH_LONG).show();
                 return;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "enqueueNavidromeDownloads failed", ignored);
+        }
 
         navidromeDownloadQueue.addAll(toAdd);
         navidromeQueueTotal += toAdd.size();
@@ -11526,12 +11642,14 @@ public class MainActivity extends Activity {
                 navidromeDownloadWifiLock.setReferenceCounted(false);
             }
             if (!navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.acquire();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "acquireNavidromeDownloadLocks failed", ignored);
+        }
     }
 
     private void releaseNavidromeDownloadLocks() {
-        try { if (navidromeDownloadWakeLock != null && navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.release(); } catch (Exception ignored) {}
-        try { if (navidromeDownloadWifiLock != null && navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.release(); } catch (Exception ignored) {}
+        try { if (navidromeDownloadWakeLock != null && navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
+        try { if (navidromeDownloadWifiLock != null && navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
     }
 
     private void processNextNavidromeDownload() {
@@ -11627,7 +11745,9 @@ public class MainActivity extends Activity {
             java.io.FileWriter fw = new java.io.FileWriter(logFile, true);
             fw.write(line);
             fw.close();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "logNavidromeDownloadError failed", ignored);
+        }
     }
 
     /**
@@ -11656,7 +11776,9 @@ public class MainActivity extends Activity {
                 libraryCacheDb.upsert(new com.themoon.y1.db.LibraryCacheDb.CachedSong(
                         path, f.lastModified(), f.length(), title, artist, album, year, genre, song.track, false));
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "registerDownloadedSongInLibrary failed", ignored);
+        }
     }
 
     /**
@@ -11689,7 +11811,9 @@ public class MainActivity extends Activity {
                                 in.close();
                             }
                             libraryCacheDb.setAlbumArtPath(trackPath, dest.getAbsolutePath());
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                            Log.d(TAG, "cacheNavidromeCoverForDownloadedTrack failed", ignored);
+                        }
                     }
                     @Override
                     public void onError(String message) {}
@@ -11763,7 +11887,9 @@ public class MainActivity extends Activity {
                 new javax.net.ssl.HostnameVerifier() {
                     public boolean verify(String h, javax.net.ssl.SSLSession s) { return true; }
                 });
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            Log.d(TAG, "installTls12TrustAll failed", ignored);
+        }
     }
 
 }

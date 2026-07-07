@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 public class CategoryListAdapter extends BaseAdapter {
+    private static final String TAG = "CategoryListAdapter";
     private List<String> items;
     private String type;
 
@@ -268,9 +269,18 @@ public class CategoryListAdapter extends BaseAdapter {
                         embeddedPic = pic;
                     }
                 } catch (Exception e) {
+                    android.util.Log.d(TAG, "Failed to read embedded art from " + trackPath, e);
                 } finally {
-                    try { if (fis != null) fis.close(); } catch (Exception e) {}
-                    try { if (mmr != null) mmr.release(); } catch (Exception e) {}
+                    try {
+                        if (fis != null) fis.close();
+                    } catch (Exception e) {
+                        android.util.Log.d(TAG, "FileInputStream close failed", e);
+                    }
+                    try {
+                        if (mmr != null) mmr.release();
+                    } catch (Exception e) {
+                        android.util.Log.d(TAG, "MediaMetadataRetriever release failed", e);
+                    }
                 }
             }
         }
@@ -283,7 +293,9 @@ public class CategoryListAdapter extends BaseAdapter {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inSampleSize = 4;
                 bmp = BitmapFactory.decodeFile(artPath, opts);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "Failed to decode cover art file " + artPath, e);
+            }
         }
         // [option 2] If there's no downloaded cover, load the file's embedded art
         else if (embeddedPic != null) {
@@ -291,7 +303,9 @@ public class CategoryListAdapter extends BaseAdapter {
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inSampleSize = 4;
                 bmp = BitmapFactory.decodeByteArray(embeddedPic, 0, embeddedPic.length, opts);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "Failed to decode embedded art bytes", e);
+            }
         }
 
         // [option 3] If neither exists, use the default image
