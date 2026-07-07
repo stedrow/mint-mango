@@ -10925,30 +10925,27 @@ public class MainActivity extends Activity {
     /** Double-click center on Now Playing: playback/queue/Wi-Fi/Bluetooth shortcuts without
      *  leaving the player screen (center long-press is already claimed by screen-off there). */
     private void showQuickMenu() {
-        final com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
         String favPath = getCurrentTrackPathForFavorites();
         final boolean isFav = favPath != null && favoritePaths.contains(favPath);
 
         showThemedOptionsDialog(t("Quick Menu"), null,
                 new String[]{
-                        am.isPlaying() ? "⏸  " + t("Pause") : "▶  " + t("Play"),
-                        "⏭  " + t("Next Track"),
-                        "⏮  " + t("Previous Track"),
+                        null,
+                        "", // format_list_bulleted
+                        "", // wifi
+                        ""  // bluetooth
+                },
+                new String[]{
                         isFav ? "♥  " + t("Remove Favorite") : "♡  " + t("Add Favorite"),
-                        "🎵  " + t("View Queue"),
-                        "📶  " + t("Wi-Fi"),
-                        "🔵  " + t("Bluetooth"),
-                        t("Cancel")
+                        t("Playlist"),
+                        t("Wi-Fi"),
+                        t("Bluetooth")
                 },
                 new Runnable[]{
-                        new Runnable() { @Override public void run() { am.playOrPauseMusic(); updateGlobalStatusPlayIcon(); } },
-                        new Runnable() { @Override public void run() { am.nextTrack(); } },
-                        new Runnable() { @Override public void run() { am.prevTrack(); } },
                         new Runnable() { @Override public void run() { toggleFavorite(); } },
                         new Runnable() { @Override public void run() { showQueueDialog(); } },
                         new Runnable() { @Override public void run() { changeScreen(STATE_WIFI); } },
-                        new Runnable() { @Override public void run() { changeScreen(STATE_BLUETOOTH); } },
-                        null
+                        new Runnable() { @Override public void run() { changeScreen(STATE_BLUETOOTH); } }
                 });
     }
 
@@ -10957,7 +10954,7 @@ public class MainActivity extends Activity {
      *  skip to it moving on is what nextTrack()/prevTrack() are for). */
     private void showQueueDialog() {
         if (currentPlaylist.isEmpty()) {
-            Toast.makeText(this, t("Queue is empty"), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Playlist is empty"), Toast.LENGTH_SHORT).show();
             return;
         }
         float d = getResources().getDisplayMetrics().density;
@@ -10970,7 +10967,7 @@ public class MainActivity extends Activity {
         root.setPadding((int) (18 * d), (int) (14 * d), (int) (18 * d), (int) (14 * d));
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText(t("Queue") + " (" + currentPlaylist.size() + ")");
+        tvTitle.setText(t("Playlist") + " (" + currentPlaylist.size() + ")");
         tvTitle.setTextSize(18f);
         tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
         tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
@@ -10984,16 +10981,22 @@ public class MainActivity extends Activity {
         listParams.topMargin = (int) (10 * d);
         listView.setLayoutParams(listParams);
 
+        final int[] cursor = { currentIndex };
+
         final android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(this,
                 android.R.layout.simple_list_item_1) {
             @Override
             public View getView(int position, View convertView, android.view.ViewGroup parent) {
                 TextView tv = (TextView) super.getView(position, convertView, parent);
+                boolean isPlaying = position == currentIndex;
+                boolean isCursor = position == cursor[0];
                 String label = currentPlaylist.get(position).getName();
-                if (position == currentIndex) label = "▶  " + label;
+                if (isPlaying) label = "▶  " + label;
                 tv.setText(label);
-                tv.setTextColor(position == currentIndex
-                        ? ThemeManager.getListButtonFocusedTextColor() : ThemeManager.getTextColorPrimary());
+                tv.setBackground(isCursor ? createButtonBackground(ThemeManager.getListButtonFocusedBg()) : null);
+                tv.setTextColor(isCursor ? ThemeManager.getListButtonFocusedTextColor()
+                        : isPlaying ? (ThemeManager.getListButtonFocusedBg() | 0xFF000000)
+                        : ThemeManager.getTextColorPrimary());
                 tv.setTypeface(ThemeManager.getCustomFont());
                 tv.setTextSize(15f);
                 tv.setPadding((int) (8 * d), (int) (10 * d), (int) (8 * d), (int) (10 * d));
@@ -11024,6 +11027,9 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 currentPlaylist.remove(position);
                 if (position < currentIndex) currentIndex--;
+                if (position < cursor[0] || cursor[0] >= currentPlaylist.size()) {
+                    cursor[0] = Math.max(0, Math.min(cursor[0], currentPlaylist.size() - 1));
+                }
                 adapter.clear();
                 for (File f : currentPlaylist) adapter.add(f.getName());
                 adapter.notifyDataSetChanged();
@@ -11041,23 +11047,20 @@ public class MainActivity extends Activity {
         hint.setPadding(0, (int) (8 * d), 0, 0);
         root.addView(hint);
 
-        // Wheel rotation → list scroll. 21/22 are the wheel's synthetic key codes, same
-        // translation used for browser ListViews elsewhere in this file.
+        // Wheel rotation → moves our own cursor (not ListView's built-in selection, which
+        // doesn't draw/track reliably once the window has seen a touch event) and scrolls
+        // it into view. 21/22 are the wheel's synthetic key codes.
         dialog.setOnKeyListener(new DialogInterface.OnKeyListener() {
             @Override
             public boolean onKey(DialogInterface di, int keyCode, KeyEvent event) {
                 if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-                if (keyCode == 21) {
-                    listView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
-                    clickFeedback();
-                    return true;
-                }
-                if (keyCode == 22) {
-                    listView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
-                    clickFeedback();
-                    return true;
-                }
-                return false;
+                if (keyCode != 21 && keyCode != 22) return false;
+                cursor[0] += keyCode == 22 ? 1 : -1;
+                cursor[0] = Math.max(0, Math.min(cursor[0], currentPlaylist.size() - 1));
+                listView.setSelection(cursor[0]);
+                adapter.notifyDataSetChanged();
+                clickFeedback();
+                return true;
             }
         });
 
@@ -11165,6 +11168,12 @@ public class MainActivity extends Activity {
      * only move focus between HORIZONTAL neighbours natively.
      */
     private void showThemedOptionsDialog(String title, String subtitle, String[] options, final Runnable[] actions) {
+        showThemedOptionsDialog(title, subtitle, null, options, actions);
+    }
+
+    /** Same as above but each row can carry a Material Icons codepoint (index-matched to options);
+     *  pass null in the icons slot to fall back to the plain text row. */
+    private void showThemedOptionsDialog(String title, String subtitle, String[] icons, String[] options, final Runnable[] actions) {
         float d = getResources().getDisplayMetrics().density;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -11213,7 +11222,8 @@ public class MainActivity extends Activity {
 
         for (int i = 0; i < options.length; i++) {
             final Runnable action = actions[i];
-            Button btn = createListButton(options[i]);
+            String icon = icons != null ? icons[i] : null;
+            View btn = icon != null ? createListButtonWithIcon(icon, options[i]) : createListButton(options[i]);
             btn.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -11235,8 +11245,11 @@ public class MainActivity extends Activity {
                 View cur = root.findFocus();
                 int index = cur != null ? root.indexOfChild(cur) : -1;
                 int dir = keyCode == 22 ? 1 : -1;
-                int i = index == -1 ? (dir == 1 ? 0 : root.getChildCount() - 1) : index + dir;
-                for (; i >= 0 && i < root.getChildCount(); i += dir) {
+                int count = root.getChildCount();
+                int i = index == -1 ? (dir == 1 ? 0 : count - 1) : index + dir;
+                for (int steps = 0; steps < count; steps++, i += dir) {
+                    if (i < 0) i += count;
+                    if (i >= count) i -= count;
                     View n = root.getChildAt(i);
                     if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
                         n.requestFocus();
