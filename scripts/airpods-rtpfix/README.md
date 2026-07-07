@@ -73,7 +73,7 @@ You should also see one `BTLSTO` line each time the AirPods connect, confirming
 the supervision timeout was shortened:
 
 ```
-BTLSTO index=0 handle=0x00b set link_supervision_timeout slots=6400 (~4000ms)
+BTLSTO index=0 handle=0x00b set link_supervision_timeout slots=8000 (~5000ms)
 ```
 
 To confirm the recovery end-to-end: with a track playing, cover the top of the
@@ -90,7 +90,7 @@ and isn't needed once timestamps are fixed).
 | --- | --- |
 | `CLAMP_BITPOOL=1` | Also clamp SBC max bitpool 53→35. Only try this if audio still drops on the plain fix. Lower quality. |
 | `QUIET=1` | Disable verbose `BTDUMP`/`BTCTRL` packet logging (leaves `BTRTPFIX` on). Use for a "production" build once verified. |
-| `LSTO_SLOTS=8000` | Tune the shortened link-supervision timeout (units: 0.625 ms slots; `8000` = 5 s). Raise it if brief signal fades cause needless full reconnects; lower it for faster recovery. Default `6400` = 4 s. |
+| `LSTO_SLOTS=6400` | Tune the shortened link-supervision timeout (units: 0.625 ms slots; `6400` = 4 s). Lower it for faster recovery; raise it if brief signal fades (or a Bluetooth-settings-screen inquiry scan) cause needless full reconnects. Default `8000` = 5 s. |
 | `LINK_SUPERVISION_TIMEOUT=0` | Leave the controller's stock ~20 s supervision timeout untouched (disables the connectivity-recovery behavior below). |
 
 ## Connectivity recovery (link-supervision timeout)

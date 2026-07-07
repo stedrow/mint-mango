@@ -196,6 +196,25 @@ the live adb swap is safe on this firmware, and build variants (e.g. an optional
 SBC bitpool clamp). Credit for the timestamp-normalization approach:
 [Semy0nBu/y1-airpods-rtpfix](https://github.com/Semy0nBu/y1-airpods-rtpfix).
 
+### Fast Reconnect After a Signal Drop
+
+Near-field body attenuation — a hand over the Y1's antenna, or the Y1 in a
+pocket — can drop the Bluetooth link to the AirPods even at close range. Two
+things used to make that feel worse than it needed to be:
+
+1. The MediaTek controller's default ACL link-supervision timeout is ~20s, so
+   even after the radio link is physically gone, Bluetooth settings kept
+   showing "connected" — with silent audio — for up to 20 seconds.
+2. The old auto-reconnect logic gave up permanently after 3 immediate retries,
+   so once the obstruction cleared there was often nothing left to trigger a
+   retry, and you had to tap Connect manually.
+
+The same `airpods-rtpfix` proxy now also shortens that supervision timeout to
+~5s (tunable — see the [folder README](scripts/airpods-rtpfix/README.md)), and
+the launcher runs a persistent backoff watchdog (2s → doubling → 15s cap) that
+never permanently quits, instead of the old fixed-budget retry. A dropout is
+now detected in a few seconds and the launcher reconnects on its own.
+
 ### Ear-Detection Auto-Pause/Resume
 
 Once audio works, the launcher also speaks Apple's AAP (Apple Accessory
@@ -211,6 +230,31 @@ kind of raw-PSM L2CAP connection AAP requires. See
 [`scripts/airpods-rtpfix/PHASE2_PLAN.md`](scripts/airpods-rtpfix/PHASE2_PLAN.md)
 for the full investigation, protocol notes, and the patch's scope/safety
 rationale.
+
+### Recovering from Silent Self-Mute
+
+AirPods have their own in-ear-detection hardware that can mute their local
+output on a sensor read of "removed" — independent of whatever the Bluetooth
+link is actually carrying. A brief false reading (a known AirPods/non-Apple
+pairing quirk) can leave them silently muted even though Bluetooth settings
+still shows connected, playback position keeps advancing, and squeeze
+controls still work. There's no way to detect this in software — audio
+keeps flowing structurally fine, so nothing ever reports a disconnect.
+
+The one reliable fix is forcing a fresh audio session, which is exactly what
+happens naturally when you remove and reinsert an AirPod: the launcher
+reacts to that same ear-detection signal (from `AapService` above) and
+quietly rebuilds the local playback pipeline (stop → re-prepare → resume at
+the same position) without touching the Bluetooth connection at all. If
+there's no simple local file to reload (Navidrome streaming), it falls back
+to a full Bluetooth disconnect+reconnect instead.
+
+**Timing note:** the AirPods' own sensor firmware debounces very brief
+removals (to avoid pausing from a light touch or fit adjustment), so a fast
+in-out-in swap may never register as a removal at all — and if it isn't
+detected as removed, the launcher never sees a "reinserted" transition to
+react to. Leaving an AirPod out for **~3 seconds** before putting it back in
+reliably clears that debounce window and triggers the fix.
 
 ### Squeeze Controls (Play/Pause/Skip), Even With the Screen Off
 

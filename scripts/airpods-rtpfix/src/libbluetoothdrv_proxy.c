@@ -46,10 +46,11 @@
 #ifndef ENABLE_LINK_SUPERVISION_TIMEOUT
 #define ENABLE_LINK_SUPERVISION_TIMEOUT 1
 #endif
-/* Units are 0.625ms baseband slots. 6400 * 0.625ms = 4000ms = 4s. Kept well
- * above a brief fade so a momentary signal dip doesn't force a full teardown. */
+/* Units are 0.625ms baseband slots. 8000 * 0.625ms = 5000ms = 5s. Kept well
+ * above a brief fade (or a settings-screen inquiry scan bumping the link) so a
+ * momentary dip doesn't force a full teardown. */
 #ifndef LINK_SUPERVISION_TIMEOUT_SLOTS
-#define LINK_SUPERVISION_TIMEOUT_SLOTS 6400
+#define LINK_SUPERVISION_TIMEOUT_SLOTS 8000
 #endif
 #ifndef __NR_gettid
 #define __NR_gettid 224
@@ -422,6 +423,42 @@ int mtk_bt_write(int fd, const void *buf, int len) {
 }
 
 #if ENABLE_LINK_SUPERVISION_TIMEOUT
+/* This transport delivers one HCI event across several mtk_bt_read calls (a
+ * 1-byte type, a 2-byte header, then the payload) rather than one call per
+ * whole packet. reassemble_hci_event() blocks on the real driver until a full
+ * event is collected, so the checks below always see a complete packet.
+ * ponytail: fixed cap, drop bytes if a payload ever exceeds it (no event we
+ * care about does; raise EVT_BUF_CAP if a larger one shows up). */
+#define EVT_BUF_CAP 64
+static unsigned char g_evt_fifo[EVT_BUF_CAP];
+static int g_evt_fifo_len = 0;
+
+static int reassemble_hci_event(int fd, unsigned char *full, int pre_len, int cap) {
+    int got = pre_len;
+    int need;
+    int r;
+
+    while (got < 3) {
+        r = g_real_mtk_bt_read(fd, full + got, 3 - got);
+        if (r <= 0) {
+            return got;
+        }
+        got += r;
+    }
+    need = 3 + full[2];
+    if (need > cap) {
+        need = cap;
+    }
+    while (got < need) {
+        r = g_real_mtk_bt_read(fd, full + got, need - got);
+        if (r <= 0) {
+            break;
+        }
+        got += r;
+    }
+    return got;
+}
+
 /* True only for the exact 9-byte Command_Complete the controller returns for the
  * Write_Link_Supervision_Timeout (opcode 0x0C37) we injected:
  *   04 0E 06 <num_cmd> 37 0C <status> <handle_lo> <handle_hi>
@@ -489,37 +526,73 @@ static void maybe_set_link_supervision_timeout(int fd, const void *buf, int len)
 int mtk_bt_read(int fd, void *buf, int len) {
     int result;
     int read_index;
+    unsigned char *out = (unsigned char *)buf;
 
     resolve_real_library();
     if (g_real_mtk_bt_read == NULL) {
         return -1;
     }
 
+#if ENABLE_LINK_SUPERVISION_TIMEOUT
+    /* Serve bytes left over from a previously reassembled event before doing
+     * any new real read. */
+    if (g_evt_fifo_len > 0 && buf != NULL && len > 0) {
+        int n = g_evt_fifo_len < len ? g_evt_fifo_len : len;
+        memcpy(buf, g_evt_fifo, (size_t)n);
+        memmove(g_evt_fifo, g_evt_fifo + n, (size_t)(g_evt_fifo_len - n));
+        g_evt_fifo_len -= n;
+        result = n;
+        goto dump_and_return;
+    }
+#endif
+
     for (;;) {
         result = g_real_mtk_bt_read(fd, buf, len);
 #if ENABLE_LINK_SUPERVISION_TIMEOUT
-        if (g_lsto_awaiting_cc && is_our_lsto_cmd_complete(buf, result)) {
-            /* Swallow our injected command's Command_Complete and fetch the next
-             * real packet, so the host stack never sees an event for a command
-             * it didn't send. */
-            g_lsto_awaiting_cc = 0;
-            LOGLSTO("swallowed injected Command_Complete (len=%d)", result);
-            continue;
+        if (result >= 1 && out != NULL && out[0] == 0x04) {
+            /* Start of an HCI event: reassemble the whole packet (this
+             * transport fragments it across multiple reads) before deciding
+             * whether it's Connection_Complete or our own injected command's
+             * Command_Complete. */
+            unsigned char full[EVT_BUF_CAP];
+            int full_len;
+            int copy_n = result < (int)sizeof(full) ? result : (int)sizeof(full);
+
+            memcpy(full, buf, (size_t)copy_n);
+            full_len = reassemble_hci_event(fd, full, copy_n, (int)sizeof(full));
+
+            if (g_lsto_awaiting_cc && full_len == 9 && is_our_lsto_cmd_complete(full, full_len)) {
+                g_lsto_awaiting_cc = 0;
+                LOGLSTO("swallowed injected Command_Complete (len=%d)", full_len);
+                continue;
+            }
+            if (full_len >= 14) {
+                maybe_set_link_supervision_timeout(fd, full, full_len);
+            }
+
+            {
+                int n = full_len < len ? full_len : len;
+                memcpy(buf, full, (size_t)n);
+                if (full_len > n) {
+                    g_evt_fifo_len = full_len - n;
+                    memcpy(g_evt_fifo, full + n, (size_t)g_evt_fifo_len);
+                }
+                result = n;
+            }
         }
 #endif
         break;
     }
 
+#if ENABLE_LINK_SUPERVISION_TIMEOUT
+dump_and_return:
+#endif
     if (result > 0 && result <= 128 && buf != NULL) {
         read_index = __sync_fetch_and_add(&g_read_dump_count, 1);
         if (read_index < READ_DUMP_LIMIT) {
             log_read_data(read_index, buf, result);
         }
     }
-
-#if ENABLE_LINK_SUPERVISION_TIMEOUT
-    maybe_set_link_supervision_timeout(fd, buf, result);
-#endif
 
     return result;
 }

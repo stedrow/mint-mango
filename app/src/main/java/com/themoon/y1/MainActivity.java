@@ -104,6 +104,20 @@ public class MainActivity extends Activity {
     private long reconnectBackoffMs = 0;
     private static final long RECONNECT_BACKOFF_MIN_MS = 2000;
     private static final long RECONNECT_BACKOFF_MAX_MS = 15000;
+
+    // AirPods have their own in-ear-detection hardware that mutes their local output when a
+    // sensor read says "removed" -- independent of whatever the Bluetooth link is actually
+    // carrying. A brief false "out" reading (confirmed via web search as a known AirPods/non-Apple
+    // pairing quirk) can leave them muted even after AapService's own auto-resume calls
+    // AudioPlayerManager.resumeForAirpods(), since that only toggles play/pause and doesn't force
+    // a fresh audio session. The "ears just came back in" transition (see onAapStateChanged below)
+    // triggers AudioPlayerManager.restartAudioPipelineQuietly(), which rebuilds the local
+    // AudioTrack/A2DP session (stop -> reprepare -> resume) without touching the Bluetooth link;
+    // that falls back to a full BT disconnect+reconnect (nudgeAudioReconnectForAirpods(), the
+    // confirmed-but-heavier fix) only when there's no simple local file to reload (Navidrome).
+    private static final long AUDIO_NUDGE_COOLDOWN_MS = 20000;
+    private long lastAudioNudgeAtMs = 0;
+    private boolean aapLastBothInEar = true;
     // 🚀 [New] Control switch for the virtual screen-off (fake blackout)
     public boolean isFakeScreenOff = false;
 
@@ -959,7 +973,21 @@ public class MainActivity extends Activity {
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
                     cancelAudioReconnect();
-                    if (currentDevice != null) AapService.deviceConnected(context, currentDevice);
+                    // Delay AAP's raw L2CAP connect so it doesn't race the A2DP link that just came
+                    // up -- opening a second low-level connection to the same device in the same
+                    // instant destabilized the just-established ACL on this controller and caused a
+                    // reconnect storm (confirmed by disabling AAP entirely and seeing it stop).
+                    final BluetoothDevice aapTarget = currentDevice;
+                    if (aapTarget != null) {
+                        new Handler().postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (isA2dpConnectedTo(aapTarget)) {
+                                    AapService.deviceConnected(MainActivity.this, aapTarget);
+                                }
+                            }
+                        }, 2000);
+                    }
                 }
                 // 🚀 Re-evaluate speaker mute state whenever the Bluetooth connection state changes (since this broadcast
                 // is the source of truth, use the state just observed instead of re-querying)
@@ -969,7 +997,12 @@ public class MainActivity extends Activity {
                 if (profileState == BluetoothProfile.STATE_CONNECTED
                         || profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     isBtConnectingState = false; // Unlock!
-                    if (currentScreenState == STATE_BLUETOOTH) {
+                    // Only rescan after a disconnect (to refresh the device as available again).
+                    // Rescanning right after a successful connect makes the shared BT/Wi-Fi radio
+                    // re-run inquiry while holding the fresh link, which destabilizes it and can
+                    // itself trigger the very disconnect this listener would then rescan for again.
+                    if (profileState == BluetoothProfile.STATE_DISCONNECTED
+                            && currentScreenState == STATE_BLUETOOTH) {
                         new Handler().postDelayed(new Runnable() {
                             @Override
                             public void run() {
@@ -1105,6 +1138,60 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private final AapService.Listener aapEarListener = new AapService.Listener() {
+        @Override
+        public void onAapStateChanged(AapService.AapState state) {
+            boolean nowBothInEar = state.earLeft == AapService.EAR_IN_EAR && state.earRight == AapService.EAR_IN_EAR;
+            if (!aapLastBothInEar && nowBothInEar) {
+                onEarsReinserted();
+            }
+            aapLastBothInEar = nowBothInEar;
+        }
+
+        @Override
+        public void onAapConnectionChanged(boolean connected) {
+        }
+    };
+
+    private void onEarsReinserted() {
+        BluetoothDevice target = targetDeviceForAudio;
+        if (target == null || !isA2dpConnectedTo(target)) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) return; // still cooling down
+
+        lastAudioNudgeAtMs = now;
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().restartAudioPipelineQuietly();
+    }
+
+    /** Fallback for restartAudioPipelineQuietly() when there's no simple local file to reload
+     * (Navidrome streaming) -- falls back to the heavier but confirmed-working BT-level nudge. */
+    public void nudgeAudioReconnectForAirpods() {
+        BluetoothDevice target = targetDeviceForAudio;
+        if (target != null) nudgeAudioReconnect(target);
+    }
+
+    private void nudgeAudioReconnect(final BluetoothDevice target) {
+        if (target == null || globalA2dp == null) return;
+        try {
+            Method disconnectMethod = globalA2dp.getClass().getDeclaredMethod("disconnect", BluetoothDevice.class);
+            disconnectMethod.setAccessible(true);
+            disconnectMethod.invoke(globalA2dp, target);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        // AapService's ear-detection callback runs on its own background worker thread, not
+        // main, so this must use a Handler already bound to the main Looper -- a bare `new
+        // Handler()` here throws ("Can't create handler inside thread that has not called
+        // Looper.prepare()") and kills the AAP session every time the nudge fires.
+        reconnectHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                connectBluetoothAudio(target);
+            }
+        }, 1000);
     }
 
     // 🚀 [Fully ported from stock launcher] Centralized Bluetooth connection engine
@@ -1307,6 +1394,7 @@ public class MainActivity extends Activity {
         // 🚀 Registers itself in a variable when the app launches.
         instance = this;
         usbFocusHelper = new Y1UsbFocusHelper(this);
+        AapService.addListener(aapEarListener);
         // 🚀 [Ultra-fast cache engine activated] Allocates 1/8 of the device's max memory as a vault dedicated to album art!
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
         final int cacheSize = maxMemory / 8; // (e.g. allocates 16MB)

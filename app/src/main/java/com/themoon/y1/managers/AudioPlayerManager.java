@@ -382,6 +382,56 @@ public class AudioPlayerManager {
         if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
     }
 
+    /**
+     * Tears down and rebuilds just the local render pipeline (stop -> re-set the same source
+     * -> prepare -> seek back -> resume) at the current position, without touching the
+     * Bluetooth connection at all. A plain pause/resume already implicitly suspends/restarts
+     * the AVDTP media stream under the hood and that alone hasn't been enough to un-stick
+     * AirPods that silently muted -- this is a heavier local reset (a fresh AudioTrack/A2DP
+     * audio session) that's still much less disruptive than a full BT disconnect+reconnect.
+     * Local-file playback only for now; Navidrome streaming falls back to the BT-level nudge.
+     */
+    public void restartAudioPipelineQuietly() {
+        final MainActivity main = MainActivity.instance;
+        if (main == null) return;
+        if (isNavidromeMode || main.currentPlaylist.isEmpty()) {
+            main.nudgeAudioReconnectForAirpods();
+            return;
+        }
+
+        boolean wasPlaying = isPlaying();
+        long savedPos = getCurrentPosition();
+        File track = main.currentPlaylist.get(main.currentIndex);
+
+        try {
+            if (isUsingLegacyPlayer && legacyPlayer != null) {
+                legacyPlayer.reset();
+                if (currentFileInputStream != null) {
+                    try { currentFileInputStream.close(); } catch (Exception ignored) {}
+                }
+                currentFileInputStream = new java.io.FileInputStream(track);
+                legacyPlayer.setDataSource(currentFileInputStream.getFD());
+                legacyPlayer.prepare();
+                applyPlayerVolumeState();
+                if (savedPos > 0) legacyPlayer.seekTo((int) savedPos);
+                if (wasPlaying) legacyPlayer.start();
+            } else if (exoPlayer != null) {
+                exoPlayer.stop();
+                com.google.android.exoplayer2.MediaItem mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(Uri.fromFile(track));
+                DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(main, Util.getUserAgent(main, "Y1_Launcher"));
+                DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true);
+                MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(mediaItem);
+                exoPlayer.setMediaSource(mediaSource);
+                exoPlayer.prepare();
+                if (savedPos > 0) exoPlayer.seekTo(savedPos);
+                exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
+                exoPlayer.setPlayWhenReady(wasPlaying);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public void nextTrack() {
         if (isNavidromeMode) { nextNavidromeSong(); return; }
         saveAudiobookBookmarkIfNeeded();
