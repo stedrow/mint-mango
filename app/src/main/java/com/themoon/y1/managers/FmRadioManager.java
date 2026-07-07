@@ -6,6 +6,7 @@ import android.media.MediaPlayer;
 import java.lang.reflect.Method;
 
 public class FmRadioManager {
+    private static final String TAG = "FmRadioManager";
     private static FmRadioManager instance;
     private Context context;
     private AudioManager audioManager;
@@ -38,7 +39,9 @@ public class FmRadioManager {
                         dalvik.system.PathClassLoader cl = new dalvik.system.PathClassLoader(path, ClassLoader.getSystemClassLoader());
                         fmNativeClass = Class.forName("com.mediatek.FMRadio.FMRadioNative", true, cl);
                         break;
-                    } catch (Throwable t2) {}
+                    } catch (Throwable t2) {
+                        android.util.Log.d(TAG, "FMRadioNative not found via jar " + path, t2);
+                    }
                 }
             }
             if (fmNativeClass == null) {
@@ -49,7 +52,9 @@ public class FmRadioManager {
                         dalvik.system.PathClassLoader cl = new dalvik.system.PathClassLoader(info.sourceDir, ClassLoader.getSystemClassLoader());
                         fmNativeClass = Class.forName("com.mediatek.FMRadio.FMRadioNative", true, cl);
                         break;
-                    } catch (Throwable t3) {}
+                    } catch (Throwable t3) {
+                        android.util.Log.d(TAG, "FMRadioNative not found via package " + pkg, t3);
+                    }
                 }
             }
         }
@@ -58,7 +63,11 @@ public class FmRadioManager {
             lastError = "FMRadioNative Driver completely missing.";
         } else {
             try { System.loadLibrary("fmjni"); } catch (Throwable t) {
-                try { System.load("/system/lib/libfmjni.so"); } catch (Throwable ignore) {}
+                try {
+                    System.load("/system/lib/libfmjni.so");
+                } catch (Throwable t2) {
+                    android.util.Log.w(TAG, "fmjni native library not found via loadLibrary or direct path", t2);
+                }
             }
         }
     }
@@ -92,7 +101,11 @@ public class FmRadioManager {
 
             // 💡 Find the hidden STREAM_FM (usually index 10) channel and route the volume through it.
             int streamFm = 10;
-            try { streamFm = (Integer) AudioManager.class.getDeclaredField("STREAM_FM").get(null); } catch (Exception e) {}
+            try {
+                streamFm = (Integer) AudioManager.class.getDeclaredField("STREAM_FM").get(null);
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "STREAM_FM field not found, defaulting to index 10", e);
+            }
 
             fmPlayer.setAudioStreamType(streamFm);
             fmPlayer.prepare();
@@ -112,7 +125,9 @@ public class FmRadioManager {
             try {
                 if (fmPlayer.isPlaying()) fmPlayer.stop();
                 fmPlayer.release();
-            } catch (Throwable t) {}
+            } catch (Throwable t) {
+                android.util.Log.d(TAG, "fmPlayer stop/release failed", t);
+            }
             fmPlayer = null;
         }
     }
@@ -134,6 +149,40 @@ public class FmRadioManager {
         }).start();
     }
 
+    // Drain a short-lived "su -c ..." process's output/error and reap it, so it doesn't
+    // leak the pipe FDs or linger as a zombie. Called on the powerUpAsync worker thread.
+    private void reap(Process p) {
+        if (p == null) return;
+        try {
+            drainStream(p.getInputStream());
+            drainStream(p.getErrorStream());
+            p.waitFor();
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "reap: drain/waitFor failed, destroying process", t);
+            try {
+                p.destroy();
+            } catch (Throwable t2) {
+                android.util.Log.d(TAG, "reap: destroy() failed", t2);
+            }
+        }
+    }
+
+    private void drainStream(java.io.InputStream is) {
+        if (is == null) return;
+        try {
+            byte[] buf = new byte[512];
+            while (is.read(buf) != -1) { /* discard */ }
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "drainStream: read failed", t);
+        } finally {
+            try {
+                is.close();
+            } catch (Throwable t) {
+                android.util.Log.d(TAG, "drainStream: close failed", t);
+            }
+        }
+    }
+
     // 1. Power on the hardware
     public boolean powerUp(float freq) {
         if (fmNativeClass == null) {
@@ -142,12 +191,12 @@ public class FmRadioManager {
         }
         try {
             // 🚀 1. Reliably kill any stock radio apps hiding in the background to release their hold on the hardware.
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"});
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"});
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"});
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"}));
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"}));
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"}));
 
             // 🚀 2. [most critical!] Force-open (chmod 666) permissions on the FM hardware chipset (/dev/fm) that the system holds tightly, so any app can use it!
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"});
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"}));
 
             Thread.sleep(300); // 💡 Give it 0.3s for the permission change to apply and the chipset to settle
 
@@ -155,7 +204,9 @@ public class FmRadioManager {
             try {
                 Method closeDev = getNativeMethod("closedev");
                 closeDev.invoke(null);
-            } catch (Throwable ignore) {}
+            } catch (Throwable t) {
+                android.util.Log.d(TAG, "Pre-emptive closedev() failed (probably not open)", t);
+            }
 
             isDeviceOpen = false;
 
@@ -214,7 +265,9 @@ public class FmRadioManager {
 
             isPowerUp = false;
             isDeviceOpen = false;
-        } catch (Throwable e) { }
+        } catch (Throwable e) {
+            android.util.Log.w(TAG, "powerDown() failed", e);
+        }
     }
 
     // 3. Manual frequency tuning (Manual Tuning)
@@ -257,7 +310,9 @@ public class FmRadioManager {
         try {
             Method setMuteMethod = getNativeMethod("setmute", boolean.class);
             setMuteMethod.invoke(null, mute);
-        } catch (Throwable e) {}
+        } catch (Throwable e) {
+            android.util.Log.w(TAG, "setMute(" + mute + ") failed", e);
+        }
     }
 
     // 6. Force-switch speaker output
@@ -267,6 +322,8 @@ public class FmRadioManager {
             setForceUse.setAccessible(true);
             setForceUse.invoke(null, 5, useSpeaker ? 1 : 0);
             isSpeakerOn = useSpeaker;
-        } catch (Throwable e) {}
+        } catch (Throwable e) {
+            android.util.Log.w(TAG, "setSpeaker(" + useSpeaker + ") failed", e);
+        }
     }
 }

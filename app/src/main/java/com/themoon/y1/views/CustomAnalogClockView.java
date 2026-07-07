@@ -11,6 +11,8 @@ public class CustomAnalogClockView extends View {
     private Paint paint;
     private boolean isAttached;
     private int clockBgColor = 0; // 🚀 Added a variable to store the background color
+    private final float density; // cached display density (avoid per-frame lookup)
+    private final java.util.Calendar cal = java.util.Calendar.getInstance(); // reused each frame
 
     private final Runnable ticker = new Runnable() {
         public void run() {
@@ -24,6 +26,7 @@ public class CustomAnalogClockView extends View {
         paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
 
         paint.setStrokeCap(Paint.Cap.ROUND);
+        density = getResources().getDisplayMetrics().density;
     }
 
     // 🚀 Function that receives the background color into the clock
@@ -39,7 +42,7 @@ public class CustomAnalogClockView extends View {
         super.onDraw(canvas);
         int w = getWidth(), h = getHeight();
         int cx = w / 2, cy = h / 2;
-        int radius = Math.min(cx, cy) - (int)(10 * getResources().getDisplayMetrics().density); // padding
+        int radius = Math.min(cx, cy) - (int)(10 * density); // padding
 
         // 🚀 0. Fill the clock background
         if (clockBgColor != 0) {
@@ -54,7 +57,7 @@ public class CustomAnalogClockView extends View {
         paint.setColor(ThemeManager.getTextColorPrimary());
         canvas.drawCircle(cx, cy, radius, paint);
 
-        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTimeInMillis(System.currentTimeMillis());
         float sec = cal.get(java.util.Calendar.SECOND);
         float min = cal.get(java.util.Calendar.MINUTE) + sec / 60f;
         float hr = (cal.get(java.util.Calendar.HOUR) % 12) + min / 60f;

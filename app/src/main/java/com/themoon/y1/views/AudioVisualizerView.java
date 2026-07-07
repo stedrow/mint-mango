@@ -45,6 +45,13 @@ public class AudioVisualizerView extends View {
     private LinearGradient cachedGradient;
     private int cachedGradientHeight = -1;
 
+    // Cached per-point FFT band edges (bin indices). Recomputed only when the
+    // bin count or sample rate changes, keyed on (POINTS, maxFreq, binCount).
+    private int[] bandLo;
+    private int[] bandHi;
+    private int cachedBinCount = -1;
+    private int cachedSampleRateHz = -1;
+
     public AudioVisualizerView(Context context) {
         super(context);
         linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -104,20 +111,44 @@ public class AudioVisualizerView extends View {
         return cachedGradient;
     }
 
-    private void computeLevels(int width, int height) {
-        int numBins = fftData != null ? fftData.length / 2 : 0;
+    // Recompute the per-point bin index bands. Uses the exact same float math as
+    // the original per-frame code so results are numerically identical.
+    private void updateBandEdges(int numBins) {
         float maxFreq = Math.min(MAX_FREQ, sampleRateHz / 2f);
         float binWidth = numBins > 1 ? sampleRateHz / (float) (numBins * 2) : 1f;
+
+        if (bandLo == null) {
+            bandLo = new int[POINTS];
+            bandHi = new int[POINTS];
+        }
+
+        for (int p = 0; p < POINTS; p++) {
+            float freqLo = (float) (MIN_FREQ * Math.pow(maxFreq / MIN_FREQ, p / (float) POINTS));
+            float freqHi = (float) (MIN_FREQ * Math.pow(maxFreq / MIN_FREQ, (p + 1) / (float) POINTS));
+            int binLo = Math.max(1, Math.round(freqLo / binWidth));
+            int binHi = Math.max(binLo + 1, Math.round(freqHi / binWidth));
+            binHi = Math.min(binHi, numBins - 1);
+            bandLo[p] = binLo;
+            bandHi[p] = binHi;
+        }
+
+        cachedBinCount = numBins;
+        cachedSampleRateHz = sampleRateHz;
+    }
+
+    private void computeLevels(int width, int height) {
+        int numBins = fftData != null ? fftData.length / 2 : 0;
+
+        if (numBins > 1 && (numBins != cachedBinCount || sampleRateHz != cachedSampleRateHz)) {
+            updateBandEdges(numBins);
+        }
 
         for (int p = 0; p < POINTS; p++) {
             float target = 0f;
 
             if (numBins > 1) {
-                float freqLo = (float) (MIN_FREQ * Math.pow(maxFreq / MIN_FREQ, p / (float) POINTS));
-                float freqHi = (float) (MIN_FREQ * Math.pow(maxFreq / MIN_FREQ, (p + 1) / (float) POINTS));
-                int binLo = Math.max(1, Math.round(freqLo / binWidth));
-                int binHi = Math.max(binLo + 1, Math.round(freqHi / binWidth));
-                binHi = Math.min(binHi, numBins - 1);
+                int binLo = bandLo[p];
+                int binHi = bandHi[p];
 
                 if (binLo < numBins - 1) {
                     float sum = 0f;
@@ -125,7 +156,7 @@ public class AudioVisualizerView extends View {
                     for (int b = binLo; b < binHi; b++) {
                         float re = fftData[b * 2];
                         float im = fftData[b * 2 + 1];
-                        sum += (float) Math.hypot(re, im);
+                        sum += (float) Math.sqrt(re * re + im * im);
                         count++;
                     }
                     float magnitude = count > 0 ? sum / count : 0f;

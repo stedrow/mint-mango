@@ -11,6 +11,7 @@ public class PieChartView extends View {
     private Paint paintBg;
     private Paint paintUsed;
     private float percentage = 0f;
+    private final RectF rect = new RectF(); // reusable arc bounds (avoid per-frame allocation)
 
     // 1. Default constructor used when directly creating with 'new PieChartView' in Java code
     public PieChartView(Context context) {
@@ -46,12 +47,15 @@ public class PieChartView extends View {
     }
 
     @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        float padding = 10f;
+        rect.set(padding, padding, w - padding, h - padding);
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        int width = getWidth();
-        int height = getHeight();
-        float padding = 10f;
-        RectF rect = new RectF(padding, padding, width - padding, height - padding);
 
         canvas.drawArc(rect, 0, 360, true, paintBg);
         float sweepAngle = percentage * 360f;

@@ -7,6 +7,7 @@ import com.themoon.y1.MainActivity;
 import java.io.File;
 
 public class AudioEffectManager {
+    private static final String TAG = "AudioEffectManager";
     private static AudioEffectManager instance;
 
     private AudioEffectManager() {}
@@ -38,7 +39,9 @@ public class AudioEffectManager {
                 main.virtualizer = new android.media.audiofx.Virtualizer(0, sessionId); main.virtualizer.setEnabled(true);
             }
             main.currentAudioSessionId = sessionId;
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to (re)attach audio effects to session", e);
+        }
     }
 
     // 🎧 2. Maps physical frequency pressure for the bass booster and virtualizer (spatial) effect
@@ -55,7 +58,9 @@ public class AudioEffectManager {
             short virtStrength = (short) (main.currentVirtualizerStep * 333);
             if (main.currentVirtualizerStep == 3) virtStrength = 1000;
             if (main.virtualizer.getStrengthSupported()) main.virtualizer.setStrength(virtStrength);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to apply bass/virtualizer strength", e);
+        }
     }
 
     // 🎧 3. Loads stock preset or custom fader band data
@@ -82,7 +87,9 @@ public class AudioEffectManager {
                 }
                 main.prefs.edit().putString("eq_profile_id", main.currentEqProfile).apply();
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Failed to apply EQ profile " + main.currentEqProfile, e);
+        }
     }
 
     // 🎧 4. Saves to local shared preferences

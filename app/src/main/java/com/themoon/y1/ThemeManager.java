@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ThemeManager {
+    private static final String TAG = "ThemeManager";
 
     public static class MenuElement {
         public String id, type, parentId, liveWidget, visibleOnFocus; // 🚀 [big overhaul] added the liveWidget field
@@ -76,7 +77,9 @@ public class ThemeManager {
             if (colorStr != null && !colorStr.trim().isEmpty()) {
                 return Color.parseColor(colorStr.trim());
             }
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            android.util.Log.d(TAG, "Bad color string \"" + colorStr + "\", using default", e);
+        }
         return defaultColor;
     }
 
@@ -102,7 +105,9 @@ public class ThemeManager {
                         android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath());
                         if (bmp != null) iconCache.put(cacheKey, bmp);
                         return bmp;
-                    } catch (Exception e) {}
+                    } catch (Exception e) {
+                        android.util.Log.d(TAG, "Failed to decode theme icon file " + iconFile, e);
+                    }
                 }
             }
             // 💡 Case 2: For the app's built-in default theme, resolve the unique resource name back to a file in res/drawable!
@@ -119,11 +124,17 @@ public class ThemeManager {
                         if (bmp != null) iconCache.put(cacheKey, bmp);
                         return bmp;
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    android.util.Log.d(TAG, "Failed to resolve/decode built-in icon " + iconFileName, e);
+                }
             }
         }
         if (defaultResId != 0) {
-            try { return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId); } catch (Exception e) {}
+            try {
+                return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId);
+            } catch (Exception e) {
+                android.util.Log.d(TAG, "Failed to decode default icon resource", e);
+            }
         }
         return null;
     }
@@ -251,7 +262,11 @@ public class ThemeManager {
                             if (json.has("font")) {
                                 File fontFile = new File(subFolder, json.getString("font"));
                                 if (fontFile.exists() && fontFile.isFile()) {
-                                    try { parsedFont = android.graphics.Typeface.createFromFile(fontFile); } catch (Exception e) {}
+                                    try {
+                                        parsedFont = android.graphics.Typeface.createFromFile(fontFile);
+                                    } catch (Exception e) {
+                                        android.util.Log.d(TAG, "Failed to load theme font " + fontFile, e);
+                                    }
                                 }
                             }
 

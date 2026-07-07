@@ -1,5 +1,6 @@
 package com.themoon.y1.subsonic;
 
+import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -8,6 +9,8 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Minimal localhost HTTP proxy for Navidrome streaming.
@@ -21,11 +24,12 @@ import java.net.URL;
  */
 public class NavidromeProxyServer extends Thread {
 
+    private static final String TAG = "NaviProxy";
     private static volatile NavidromeProxyServer sInstance;
 
     public static synchronized void ensureStarted() {
         if (sInstance != null && sInstance.isAlive()) {
-            android.util.Log.d("NaviProxy", "Proxy already running, skipping");
+            android.util.Log.d(TAG, "Proxy already running, skipping");
             return;
         }
         sInstance = new NavidromeProxyServer();
@@ -34,6 +38,9 @@ public class NavidromeProxyServer extends Thread {
 
     private ServerSocket serverSocket;
     private volatile boolean running = false;
+    // Bounded pool instead of one raw Thread per accept(): caps how many concurrent
+    // upstream streams the tiny Y1 hardware can be dragged into at once.
+    private final ExecutorService clientPool = Executors.newFixedThreadPool(4);
 
     private NavidromeProxyServer() {
         setDaemon(true);
@@ -48,7 +55,16 @@ public class NavidromeProxyServer extends Thread {
 
     public void stopServer() {
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (Throwable ignored) {}
+        try {
+            if (serverSocket != null) serverSocket.close();
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "serverSocket close failed on stop", t);
+        }
+        try {
+            clientPool.shutdownNow();
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "clientPool shutdown failed", t);
+        }
     }
 
     @Override
@@ -57,16 +73,16 @@ public class NavidromeProxyServer extends Thread {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 8081), 4);
-            android.util.Log.d("NaviProxy", "Proxy listening on 127.0.0.1:8081");
+            android.util.Log.d(TAG, "Proxy listening on 127.0.0.1:8081");
             while (running) {
                 try {
                     final Socket client = serverSocket.accept();
-                    Thread t = new Thread(new Runnable() {
+                    clientPool.execute(new Runnable() {
                         @Override public void run() { handleClient(client); }
                     });
-                    t.setDaemon(true);
-                    t.start();
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    if (running) android.util.Log.w(TAG, "accept() failed", t);
+                }
             }
         } catch (Throwable e) {
             android.util.Log.e("NaviProxy", "Server error", e);
@@ -76,7 +92,7 @@ public class NavidromeProxyServer extends Thread {
     private void handleClient(Socket client) {
         HttpURLConnection conn = null;
         try {
-            InputStream in = client.getInputStream();
+            InputStream in = new BufferedInputStream(client.getInputStream());
             OutputStream out = client.getOutputStream();
 
             // Read request line + headers byte-by-byte until \r\n\r\n
@@ -129,7 +145,7 @@ public class NavidromeProxyServer extends Thread {
             String streamUrl = SubsonicClient.getInstance().getStreamUrl(songId);
             conn = (HttpURLConnection) new URL(streamUrl).openConnection();
             conn.setConnectTimeout(15000);
-            conn.setReadTimeout(0); // no read timeout while streaming
+            conn.setReadTimeout(30000); // long but finite: a hung upstream must not pin a proxy thread forever
             conn.setRequestMethod("GET");
             // Forward Range header to Navidrome if ExoPlayer sent one
             if (rangeHeader != null) {
@@ -163,10 +179,20 @@ public class NavidromeProxyServer extends Thread {
             audioIn.close();
 
         } catch (Throwable e) {
-            android.util.Log.w("NaviProxy", "handleClient error: " + e.getMessage());
+            android.util.Log.w(TAG, "handleClient error: " + e.getMessage());
         } finally {
-            if (conn != null) try { conn.disconnect(); } catch (Throwable ignored) {}
-            try { client.close(); } catch (Throwable ignored) {}
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Throwable t) {
+                    android.util.Log.d(TAG, "conn.disconnect() failed", t);
+                }
+            }
+            try {
+                client.close();
+            } catch (Throwable t) {
+                android.util.Log.d(TAG, "client.close() failed", t);
+            }
         }
     }
 }
