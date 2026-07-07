@@ -485,6 +485,12 @@ public class MainActivity extends Activity {
     // re-decode a bitmap and make two Binder round-trips to fetch the sticky battery intent.
     private byte[] widgetAlbumArtCachedSource = null;
     private android.graphics.Bitmap widgetAlbumArtCachedBitmap = null;
+    // Caches so refreshWidgets() (called every second) doesn't re-allocate/re-decode when nothing changed.
+    private android.graphics.Bitmap widgetDefaultAlbumBitmap = null;
+    private boolean widgetAlbumShowingDefault = false;
+    private String lastWidgetClockText = null;
+    private int lastWidgetClockSize = -1;
+    private float cachedDensity = 0f;
     private int lastKnownBatteryPct = -1;
     private boolean lastKnownBatteryCharging = false;
     // 💡 Added equalizer related variable
@@ -533,15 +539,28 @@ public class MainActivity extends Activity {
     private static final SimpleDateFormat WIDGET_DATE_FORMAT = new SimpleDateFormat("EEE, MMM dd", Locale.US);
 
     private Handler clockHandler = new Handler();
+    // Reused across every clock tick so we don't allocate a Date/Spannable every second.
+    private final java.util.Date clockReusableDate = new java.util.Date();
+    private String lastStatusClockText = null;
+    private String lastFocusPreviewClockText = null;
     private Runnable clockTask = new Runnable() {
         @Override
         public void run() {
+            clockReusableDate.setTime(System.currentTimeMillis());
             SimpleDateFormat sdf = is24HourFormat ? STATUS_CLOCK_FORMAT_24 : STATUS_CLOCK_FORMAT_12;
-            tvStatusClock.setText(sdf.format(new Date()));
+            String statusText = sdf.format(clockReusableDate);
+            // Clock text is minute-granular; only touch the TextView when it actually changed.
+            if (!statusText.equals(lastStatusClockText)) {
+                lastStatusClockText = statusText;
+                tvStatusClock.setText(statusText);
+            }
 
             // 🚀 [Live engine] If the preview's internal clock is VISIBLE on screen, swap the time in real time every second to make it tick!
             if (tvFocusPreviewClock != null && tvFocusPreviewClock.getVisibility() == View.VISIBLE) {
-                tvFocusPreviewClock.setText(sdf.format(new Date()));
+                if (!statusText.equals(lastFocusPreviewClockText)) {
+                    lastFocusPreviewClockText = statusText;
+                    tvFocusPreviewClock.setText(statusText);
+                }
             }
 
             refreshWidgets(); // Simultaneously refresh the home-screen widgets
@@ -735,6 +754,8 @@ public class MainActivity extends Activity {
     };
     public Handler progressHandler = new Handler();
     // ⭕ [Overwrite with the code below]
+    private String lastCurrentTimeText = null;
+    private String lastTotalTimeText = null;
     public Runnable updateProgressTask = new Runnable() {
         @Override
         public void run() {
@@ -750,8 +771,18 @@ public class MainActivity extends Activity {
                     }
                     int progress = duration > 0 ? (int) (((float) current / duration) * 100) : 0;
                     playerProgress.setProgress(progress);
-                    tvPlayerTimeCurrent.setText(formatTime(current));
-                    tvPlayerTimeTotal.setText(formatTime(duration));
+                    // Only push text when it actually changed (time is second-granular but the
+                    // tick fires every 500ms), avoiding a redundant TextView relayout each tick.
+                    String curStr = formatTime(current);
+                    if (!curStr.equals(lastCurrentTimeText)) {
+                        lastCurrentTimeText = curStr;
+                        tvPlayerTimeCurrent.setText(curStr);
+                    }
+                    String totStr = formatTime(duration);
+                    if (!totStr.equals(lastTotalTimeText)) {
+                        lastTotalTimeText = totStr;
+                        tvPlayerTimeTotal.setText(totStr);
+                    }
 
                     // 🚀 [New engine] USLT plain-text lyrics proportional auto-scroll engine! (includes a 5-second intro wait)
                     if (isVisualizerShowing && plainLyrics != null && currentLyrics.isEmpty()) {
@@ -2562,20 +2593,27 @@ public class MainActivity extends Activity {
 
             // 💡 Only refresh the time while it's VISIBLE, to avoid unnecessary load
             if (tvWidgetClock.getVisibility() == View.VISIBLE) {
-                float d = getResources().getDisplayMetrics().density;
-                tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (currentClockSize * 2.1f) * d);
-                tvWidgetClock.setLineSpacing(0, 1.1f);
-
-                java.util.Date now = new java.util.Date();
+                clockReusableDate.setTime(System.currentTimeMillis());
                 SimpleDateFormat sdfTime = is24HourFormat ? WIDGET_CLOCK_FORMAT_24 : WIDGET_CLOCK_FORMAT_12;
-                String timeStr = sdfTime.format(now);
-                String dateStr = WIDGET_DATE_FORMAT.format(now);
+                String timeStr = sdfTime.format(clockReusableDate);
+                String dateStr = WIDGET_DATE_FORMAT.format(clockReusableDate);
                 String fullText = timeStr + "\n" + dateStr;
 
-                android.text.SpannableString spannable = new android.text.SpannableString(fullText);
-                spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                spannable.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.NORMAL), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                tvWidgetClock.setText(spannable);
+                // Text is minute-granular and the size rarely changes -- only rebuild the
+                // spannable (and retouch text size) when something actually changed, instead
+                // of allocating a SpannableString + two spans every single second.
+                if (!fullText.equals(lastWidgetClockText) || currentClockSize != lastWidgetClockSize) {
+                    lastWidgetClockText = fullText;
+                    lastWidgetClockSize = currentClockSize;
+                    if (cachedDensity <= 0f) cachedDensity = getResources().getDisplayMetrics().density;
+                    tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (currentClockSize * 2.1f) * cachedDensity);
+                    tvWidgetClock.setLineSpacing(0, 1.1f);
+
+                    android.text.SpannableString spannable = new android.text.SpannableString(fullText);
+                    spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    spannable.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.NORMAL), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    tvWidgetClock.setText(spannable);
+                }
             }
         }
 
@@ -2616,9 +2654,18 @@ public class MainActivity extends Activity {
                             widgetAlbumArtCachedSource = lastAlbumArtBytes;
                         }
                         ivWidgetAlbum.setImageBitmap(widgetAlbumArtCachedBitmap);
+                        widgetAlbumShowingDefault = false;
                     } catch (Exception e) {}
                 } else {
-                    ivWidgetAlbum.setImageBitmap(ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album));
+                    // Decoding the default album icon from assets every second is needless disk I/O.
+                    // Cache it and only assign it once when we actually transition to "no art".
+                    if (!widgetAlbumShowingDefault) {
+                        if (widgetDefaultAlbumBitmap == null) {
+                            widgetDefaultAlbumBitmap = ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album);
+                        }
+                        ivWidgetAlbum.setImageBitmap(widgetDefaultAlbumBitmap);
+                        widgetAlbumShowingDefault = true;
+                    }
                 }
             }
         }
@@ -2657,6 +2704,10 @@ public class MainActivity extends Activity {
     }
     // 💡 [Fix complete] Main-screen theme applier. Added a call to the dynamic rendering engine!
     private void applyThemeToMainMenu() {
+        // The default album placeholder is theme-dependent; drop the cache so the next
+        // refreshWidgets() re-fetches it for the newly applied theme.
+        widgetDefaultAlbumBitmap = null;
+        widgetAlbumShowingDefault = false;
         try {
             if (ivMainBg != null) {
                 int themeColor = ThemeManager.getOverlayBackgroundColor();
@@ -7727,10 +7778,19 @@ public class MainActivity extends Activity {
         volumeHandler.postDelayed(hideVolumeTask, 2000);
     }
 
+    // Reused buffer so the 2x/second progress tick doesn't spin up a Formatter + autobox ints
+    // (as String.format does) on every call. Only ever touched from the UI thread.
+    private final StringBuilder timeFmtBuilder = new StringBuilder(8);
     private String formatTime(int ms) {
         int s = (ms / 1000) % 60;
         int m = (ms / (1000 * 60)) % 60;
-        return String.format(Locale.US, "%02d:%02d", m, s);
+        StringBuilder b = timeFmtBuilder;
+        b.setLength(0);
+        if (m < 10) b.append('0');
+        b.append(m).append(':');
+        if (s < 10) b.append('0');
+        b.append(s);
+        return b.toString();
     }
 
     // Shared by both the screen-off-control path and the normal player path in onKeyDown:
@@ -8692,6 +8752,36 @@ public class MainActivity extends Activity {
         if (usbFocusHelper != null) usbFocusHelper.onResume();
     }
 
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Resume the pure-UI tick loops when we become visible again. Both are stopped in
+        // onStop() so they don't keep waking the CPU every 0.5-1s while the screen is off /
+        // the launcher is backgrounded. removeCallbacks first makes these idempotent.
+        clockHandler.removeCallbacks(clockTask);
+        clockHandler.post(clockTask);
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        if (am.isPlaying() || am.isNavidromeMode) {
+            progressHandler.removeCallbacks(updateProgressTask);
+            progressHandler.post(updateProgressTask);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        // Stop the 1s clock/widget refresh and the 500ms progress loop while not visible.
+        // On this always-running HOME launcher these otherwise tick forever (there is no
+        // reliable onDestroy), continuously waking a very power-constrained CPU.
+        clockHandler.removeCallbacks(clockTask);
+        progressHandler.removeCallbacks(updateProgressTask);
+        // Persist playback position before going quiet so a background kill doesn't lose it.
+        // (Throttled to at most once/5s -- identical staleness bound to the periodic loop.)
+        try {
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().maybeSavePlaybackStateThrottled();
+        } catch (Exception ignored) {}
+        super.onStop();
+    }
+
     // ⭕ [Overwrite with the code below]
     @Override
     protected void onDestroy() {
@@ -8726,8 +8816,19 @@ public class MainActivity extends Activity {
             equalizer.release();
             equalizer = null;
         }
+        synchronized (blurLock) {
+            if (blurRs != null) {
+                try { blurRs.destroy(); } catch (Exception ignored) {}
+                blurRs = null;
+                blurScript = null;
+            }
+        }
 
-        unregisterReceiver(systemStatusReceiver);
+        try {
+            unregisterReceiver(systemStatusReceiver);
+        } catch (IllegalArgumentException ignored) {
+            // Already unregistered / never registered -- avoid crashing teardown.
+        }
 
         // Deliberately NOT nulling `instance` here: this is a single-Activity home launcher
         // where MainActivity.instance is relied on everywhere (managers, MediaBtnReceiver)
@@ -8788,26 +8889,44 @@ public class MainActivity extends Activity {
     }
 
     // 💡 High-quality Gaussian blur function using Android's hardware acceleration (RenderScript)!
+    // Creating and destroying a whole RenderScript context (plus the blur script) on every call
+    // is very expensive. Create them once and reuse; only the per-bitmap Allocations are
+    // transient. Blur calls are serialized (single track-load worker) so shared reuse is safe.
+    private RenderScript blurRs;
+    private ScriptIntrinsicBlur blurScript;
+    // A single RenderScript context is not safe for concurrent use, and this is called from
+    // both applyGaussianBlurAsync's thread and AudioPlayerManager's track-load worker -- so
+    // serialize access. Blur is infrequent (per track / per background change), so a lock is fine.
+    private final Object blurLock = new Object();
     public Bitmap applyGaussianBlur(Bitmap original) {
         if (original == null)
             return null;
-        try {
-            Bitmap output = Bitmap.createBitmap(original.getWidth(), original.getHeight(), Bitmap.Config.ARGB_8888);
-            RenderScript rs = RenderScript.create(this);
-            ScriptIntrinsicBlur script = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
-            Allocation inAlloc = Allocation.createFromBitmap(rs, original, Allocation.MipmapControl.MIPMAP_NONE,
-                    Allocation.USAGE_SCRIPT);
-            Allocation outAlloc = Allocation.createFromBitmap(rs, output);
+        synchronized (blurLock) {
+            Allocation inAlloc = null;
+            Allocation outAlloc = null;
+            try {
+                if (blurRs == null) {
+                    blurRs = RenderScript.create(this);
+                    blurScript = ScriptIntrinsicBlur.create(blurRs, Element.U8_4(blurRs));
+                    blurScript.setRadius(25f); // 💡 Blur intensity (0.0 ~ 25.0, 25 is max)
+                }
+                Bitmap output = Bitmap.createBitmap(original.getWidth(), original.getHeight(), Bitmap.Config.ARGB_8888);
+                inAlloc = Allocation.createFromBitmap(blurRs, original, Allocation.MipmapControl.MIPMAP_NONE,
+                        Allocation.USAGE_SCRIPT);
+                outAlloc = Allocation.createFromBitmap(blurRs, output);
 
-            script.setRadius(25f); // 💡 Blur intensity setting (range 0.0 ~ 25.0, 25 is max)
-            script.setInput(inAlloc);
-            script.forEach(outAlloc);
-            outAlloc.copyTo(output);
-            rs.destroy();
+                blurScript.setInput(inAlloc);
+                blurScript.forEach(outAlloc);
+                outAlloc.copyTo(output);
 
-            return output;
-        } catch (Exception e) {
-            return original;
+                return output;
+            } catch (Exception e) {
+                return original;
+            } finally {
+                // Free the transient native allocations; keep the shared context/script alive.
+                if (inAlloc != null) try { inAlloc.destroy(); } catch (Exception ignored) {}
+                if (outAlloc != null) try { outAlloc.destroy(); } catch (Exception ignored) {}
+            }
         }
     }
 

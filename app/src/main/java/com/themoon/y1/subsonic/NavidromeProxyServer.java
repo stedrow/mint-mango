@@ -1,5 +1,6 @@
 package com.themoon.y1.subsonic;
 
+import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -8,6 +9,8 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Minimal localhost HTTP proxy for Navidrome streaming.
@@ -34,6 +37,9 @@ public class NavidromeProxyServer extends Thread {
 
     private ServerSocket serverSocket;
     private volatile boolean running = false;
+    // Bounded pool instead of one raw Thread per accept(): caps how many concurrent
+    // upstream streams the tiny Y1 hardware can be dragged into at once.
+    private final ExecutorService clientPool = Executors.newFixedThreadPool(4);
 
     private NavidromeProxyServer() {
         setDaemon(true);
@@ -49,6 +55,7 @@ public class NavidromeProxyServer extends Thread {
     public void stopServer() {
         running = false;
         try { if (serverSocket != null) serverSocket.close(); } catch (Throwable ignored) {}
+        try { clientPool.shutdownNow(); } catch (Throwable ignored) {}
     }
 
     @Override
@@ -61,11 +68,9 @@ public class NavidromeProxyServer extends Thread {
             while (running) {
                 try {
                     final Socket client = serverSocket.accept();
-                    Thread t = new Thread(new Runnable() {
+                    clientPool.execute(new Runnable() {
                         @Override public void run() { handleClient(client); }
                     });
-                    t.setDaemon(true);
-                    t.start();
                 } catch (Throwable ignored) {}
             }
         } catch (Throwable e) {
@@ -76,7 +81,7 @@ public class NavidromeProxyServer extends Thread {
     private void handleClient(Socket client) {
         HttpURLConnection conn = null;
         try {
-            InputStream in = client.getInputStream();
+            InputStream in = new BufferedInputStream(client.getInputStream());
             OutputStream out = client.getOutputStream();
 
             // Read request line + headers byte-by-byte until \r\n\r\n
@@ -129,7 +134,7 @@ public class NavidromeProxyServer extends Thread {
             String streamUrl = SubsonicClient.getInstance().getStreamUrl(songId);
             conn = (HttpURLConnection) new URL(streamUrl).openConnection();
             conn.setConnectTimeout(15000);
-            conn.setReadTimeout(0); // no read timeout while streaming
+            conn.setReadTimeout(30000); // long but finite: a hung upstream must not pin a proxy thread forever
             conn.setRequestMethod("GET");
             // Forward Range header to Navidrome if ExoPlayer sent one
             if (rangeHeader != null) {

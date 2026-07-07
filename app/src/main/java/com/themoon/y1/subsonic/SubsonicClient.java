@@ -328,6 +328,7 @@ public class SubsonicClient {
             @Override
             public void run() {
                 HttpURLConnection conn = null;
+                InputStream is = null;
                 // Download to a .part file and rename on success so a failed
                 // transfer never leaves a truncated track for the media scanner.
                 File partFile = new File(savePath + ".part");
@@ -339,7 +340,7 @@ public class SubsonicClient {
                     if (responseCode != 200) throw new Exception("HTTP " + responseCode);
 
                     long fileSize = conn.getContentLength();
-                    InputStream is = conn.getInputStream();
+                    is = conn.getInputStream();
                     if (partFile.getParentFile() != null) partFile.getParentFile().mkdirs();
 
                     FileOutputStream fos = new FileOutputStream(partFile);
@@ -367,7 +368,6 @@ public class SubsonicClient {
                     fos.flush();
                     fos.getFD().sync();
                     fos.close();
-                    is.close();
                     // Transcoded length is only an estimate — the strict check would
                     // reject perfectly good transfers, so it applies to originals only
                     if (!transcoded && fileSize > 0 && total < fileSize) throw new Exception("Connection lost (" + total + "/" + fileSize + " bytes)");
@@ -379,7 +379,9 @@ public class SubsonicClient {
                     try { partFile.delete(); } catch (Exception ignored) {}
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 } finally {
-                    if (conn != null) try { conn.disconnect(); } catch (Exception ignored) {}
+                    // Drain + close instead of disconnect() so the socket returns to the
+                    // keep-alive pool (on the success path the stream is already at EOF).
+                    drainAndClose(is);
                 }
             }
         });
@@ -398,26 +400,28 @@ public class SubsonicClient {
                     return;
                 }
                 HttpURLConnection conn = null;
+                InputStream is = null;
                 File partFile = new File(cacheFile.getAbsolutePath() + ".part");
                 try {
                     conn = openConnection(getCoverArtUrl(coverArtId, size));
                     conn.connect();
                     if (conn.getResponseCode() != 200) throw new Exception("HTTP " + conn.getResponseCode());
-                    InputStream is = conn.getInputStream();
+                    is = conn.getInputStream();
                     if (partFile.getParentFile() != null) partFile.getParentFile().mkdirs();
                     FileOutputStream fos = new FileOutputStream(partFile);
                     byte[] buf = new byte[16384];
                     int read;
                     while ((read = is.read(buf)) != -1) fos.write(buf, 0, read);
                     fos.close();
-                    is.close();
                     if (!partFile.renameTo(cacheFile)) throw new Exception("rename failed");
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onSuccess(cacheFile.getAbsolutePath()); }});
                 } catch (final Exception e) {
                     try { partFile.delete(); } catch (Exception ignored) {}
                     mainHandler.post(new Runnable() { @Override public void run() { cb.onError(e.getMessage()); }});
                 } finally {
-                    if (conn != null) try { conn.disconnect(); } catch (Exception ignored) {}
+                    // Drain + close instead of disconnect() so the socket returns to the
+                    // keep-alive pool (on the success path the stream is already at EOF).
+                    drainAndClose(is);
                 }
             }
         });
@@ -433,14 +437,37 @@ public class SubsonicClient {
         HttpURLConnection conn = openConnection(urlStr);
         conn.connect();
         int code = conn.getResponseCode();
-        if (code != 200) throw new Exception("HTTP " + code);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) sb.append(line);
-        reader.close();
-        conn.disconnect();
-        return sb.toString();
+        if (code != 200) {
+            // Drain the error body so this socket can still return to the keep-alive pool.
+            drainAndClose(conn.getErrorStream());
+            throw new Exception("HTTP " + code);
+        }
+        InputStream is = conn.getInputStream();
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line);
+            return sb.toString();
+        } finally {
+            // Read to EOF + close (NOT disconnect()) so the underlying socket goes
+            // back to HttpURLConnection's keep-alive pool and the next call skips the
+            // TLS handshake.
+            drainAndClose(is);
+        }
+    }
+
+    // Drains a response stream to EOF and closes it. Used instead of conn.disconnect()
+    // so the socket is returned to the keep-alive pool rather than being torn down.
+    private static void drainAndClose(InputStream is) {
+        if (is == null) return;
+        try {
+            byte[] buf = new byte[4096];
+            while (is.read(buf) != -1) { /* discard remaining bytes */ }
+        } catch (Exception ignored) {
+        } finally {
+            try { is.close(); } catch (Exception ignored) {}
+        }
     }
 
     private HttpURLConnection openConnection(String urlStr) throws Exception {

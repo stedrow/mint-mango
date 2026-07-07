@@ -12,6 +12,12 @@ public class WidgetBatteryBarView extends View {
     private int baseColor = 0xFFFFFFFF;
     private float customTextSize = -1; // 🚀 [New] Custom text size variable
 
+    // Reusable per-frame rectangles (avoid allocations in onDraw)
+    private final android.graphics.RectF bgRect = new android.graphics.RectF();
+    private final android.graphics.RectF progressRect = new android.graphics.RectF();
+    private int highlightColor; // cached theme highlight color
+    private String batteryText = "100%"; // cached formatted battery string
+
     public WidgetBatteryBarView(Context context) {
         super(context);
         bgPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -21,19 +27,49 @@ public class WidgetBatteryBarView extends View {
         textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
         textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        updateHighlightColor();
+        updateBatteryText();
     }
 
     public void setBatteryLevel(int level, boolean isCharging) {
-        this.level = level; this.isCharging = isCharging; invalidate();
+        this.level = level; this.isCharging = isCharging;
+        updateBatteryText();
+        updateHighlightColor();
+        invalidate();
     }
 
     public void setColor(int color) {
-        this.baseColor = color; invalidate();
+        this.baseColor = color;
+        updateHighlightColor();
+        invalidate();
     }
 
     // 🚀 [New] Function that lets an external caller force a specific text size
     public void setCustomTextSize(float size) {
-        this.customTextSize = size; invalidate();
+        this.customTextSize = size;
+        computeTextSize();
+        invalidate();
+    }
+
+    private void updateHighlightColor() {
+        try { highlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; }
+        catch (Exception e) { highlightColor = baseColor; }
+    }
+
+    private void updateBatteryText() {
+        batteryText = isCharging ? "⚡ " + level + "%" : level + "%";
+    }
+
+    // 🚀 [Core logic] Uses the custom size if set, otherwise auto-scales proportionally to widget height as before!
+    private void computeTextSize() {
+        if (customTextSize > 0) textPaint.setTextSize(customTextSize);
+        else textPaint.setTextSize(getHeight() * 0.6f);
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        computeTextSize();
     }
 
     @Override
@@ -41,10 +77,6 @@ public class WidgetBatteryBarView extends View {
         super.onDraw(canvas);
         int width = getWidth();
         int height = getHeight();
-
-        int highlightColor;
-        try { highlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000; }
-        catch (Exception e) { highlightColor = baseColor; }
 
         if (isCharging) progressPaint.setColor(0xFF44FF44);
         else if (level <= 15) progressPaint.setColor(0xFFFF4444);
@@ -54,22 +86,17 @@ public class WidgetBatteryBarView extends View {
 
         float radius = height / 2f;
 
-        android.graphics.RectF bgRect = new android.graphics.RectF(0, 0, width, height);
+        bgRect.set(0, 0, width, height);
         canvas.drawRoundRect(bgRect, radius, radius, bgPaint);
 
         float progressWidth = width * (level / 100f);
-        android.graphics.RectF progressRect = new android.graphics.RectF(0, 0, progressWidth, height);
+        progressRect.set(0, 0, progressWidth, height);
         canvas.drawRoundRect(progressRect, radius, radius, progressPaint);
 
         textPaint.setColor(0xFFFFFFFF);
-        // 🚀 [Core logic] Uses the custom size if set, otherwise auto-scales proportionally to widget height as before!
-        if (customTextSize > 0) textPaint.setTextSize(customTextSize);
-        else textPaint.setTextSize(height * 0.6f);
 
         float textY = bgRect.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
 
-        String text = isCharging ? "⚡ " + level + "%" : level + "%";
-        canvas.drawText(text, bgRect.centerX(), textY, textPaint);
+        canvas.drawText(batteryText, bgRect.centerX(), textY, textPaint);
     }
 }
-

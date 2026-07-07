@@ -23,8 +23,9 @@ import java.util.Set;
  */
 public class LibraryCacheDb extends SQLiteOpenHelper {
 
+    private static final String TAG = "LibraryCacheDb";
     private static final String DB_NAME = "library_cache.db";
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
     private static final String TABLE = "songs";
     private static final String PLAYER_STATE_TABLE = "player_state";
     private static final String STATE_TABLE = "song_state";
@@ -128,6 +129,8 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
                 "album_art_path TEXT," +
                 "book_pos_ms INTEGER," +
                 "book_dur_ms INTEGER)");
+        // Speeds up loadFavoritePaths()'s is_favorite=1 lookup on weak hardware.
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_state_fav ON " + STATE_TABLE + "(is_favorite)");
         db.execSQL("CREATE TABLE " + ARTISTS_TABLE + " (" +
                 "id TEXT PRIMARY KEY," +
                 "name TEXT," +
@@ -199,7 +202,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 db.endTransaction();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "replaceAll failed", e);
+        }
     }
 
     /** Inserts or updates a single row, e.g. right after a track finishes downloading. */
@@ -366,6 +371,28 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
         return null;
     }
 
+    /**
+     * Bulk-loads every saved bookmark in one query so list adapters don't hit the DB per row.
+     * Keyed by path -> [book_pos_ms, book_dur_ms]. Only rows with a non-null book_pos_ms are
+     * included; a null book_dur_ms is returned as 0 (mirrors getBookmark() treating it as "no
+     * bookmark"). Returns an empty map on error.
+     */
+    public Map<String, long[]> loadAllBookmarks() {
+        Map<String, long[]> result = new HashMap<>();
+        try {
+            Cursor c = getReadableDatabase().query(STATE_TABLE, new String[]{"path", "book_pos_ms", "book_dur_ms"},
+                    "book_pos_ms IS NOT NULL", null, null, null, null);
+            try {
+                while (c.moveToNext()) {
+                    result.put(c.getString(0), new long[]{c.getLong(1), c.getLong(2)});
+                }
+            } finally {
+                c.close();
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
     public void setBookmark(String path, int posMs, int durMs) {
         try {
             SQLiteDatabase db = getWritableDatabase();
@@ -421,7 +448,9 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
             } finally {
                 db.endTransaction();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "saveNavidromeArtists failed", e);
+        }
     }
 
     public List<com.themoon.y1.subsonic.SubsonicArtist> loadNavidromeArtists() {

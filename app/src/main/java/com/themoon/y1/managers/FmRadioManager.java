@@ -134,6 +134,30 @@ public class FmRadioManager {
         }).start();
     }
 
+    // Drain a short-lived "su -c ..." process's output/error and reap it, so it doesn't
+    // leak the pipe FDs or linger as a zombie. Called on the powerUpAsync worker thread.
+    private void reap(Process p) {
+        if (p == null) return;
+        try {
+            drainStream(p.getInputStream());
+            drainStream(p.getErrorStream());
+            p.waitFor();
+        } catch (Throwable t) {
+            try { p.destroy(); } catch (Throwable ignore) {}
+        }
+    }
+
+    private void drainStream(java.io.InputStream is) {
+        if (is == null) return;
+        try {
+            byte[] buf = new byte[512];
+            while (is.read(buf) != -1) { /* discard */ }
+        } catch (Throwable ignore) {
+        } finally {
+            try { is.close(); } catch (Throwable ignore) {}
+        }
+    }
+
     // 1. Power on the hardware
     public boolean powerUp(float freq) {
         if (fmNativeClass == null) {
@@ -142,12 +166,12 @@ public class FmRadioManager {
         }
         try {
             // 🚀 1. Reliably kill any stock radio apps hiding in the background to release their hold on the hardware.
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"});
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"});
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"});
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"}));
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"}));
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"}));
 
             // 🚀 2. [most critical!] Force-open (chmod 666) permissions on the FM hardware chipset (/dev/fm) that the system holds tightly, so any app can use it!
-            Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"});
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"}));
 
             Thread.sleep(300); // 💡 Give it 0.3s for the permission change to apply and the chipset to settle
 

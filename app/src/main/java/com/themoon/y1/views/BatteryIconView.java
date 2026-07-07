@@ -5,7 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Typeface;
 import android.view.View;
 
 public class BatteryIconView extends View {
@@ -13,7 +12,7 @@ public class BatteryIconView extends View {
     private boolean isCharging = false;
     private int color = Color.WHITE;
 
-    private Paint paintFill, paintStroke, paintText;
+    private Paint paintFill, paintStroke;
     private RectF rectShell, rectFill, rectTerminal;
 
     public BatteryIconView(Context context) {
@@ -29,11 +28,6 @@ public class BatteryIconView extends View {
         paintStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         paintStroke.setStyle(Paint.Style.STROKE);
         paintStroke.setStrokeWidth(3f); // border thickness
-
-        // Paint for the center number
-        paintText = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paintText.setTextAlign(Paint.Align.CENTER);
-        paintText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
 
         rectShell = new RectF();
         rectFill = new RectF();
@@ -64,8 +58,8 @@ public class BatteryIconView extends View {
 
         // 🚀 1. Auto color switch based on state (charging: green / 20% or below: red / otherwise: theme color)
         int currentColor = color;
-        if (isCharging) currentColor = Color.parseColor("#4CAF50");
-        else if (level <= 20) currentColor = Color.parseColor("#F44336");
+        if (isCharging) currentColor = 0xFF4CAF50;
+        else if (level <= 20) currentColor = 0xFFF44336;
 
         paintStroke.setColor(currentColor);
         paintFill.setColor(currentColor);
@@ -89,22 +83,5 @@ public class BatteryIconView extends View {
             rectFill.set(padding, padding, padding + currentFillWidth, h - padding);
             canvas.drawRoundRect(rectFill, 2f, 2f, paintFill);
         }
-
-        // 🚀 5. Render the remaining level (number) right in the center of the battery!
-        String text = isCharging ? "⚡" : String.valueOf(level);
-
-        // [detail] If the fill rises past halfway and covers the text, invert the text to black so it stays legible!
-//        if (level > 45 && !isCharging) {
-//            paintText.setColor(Color.BLACK);
-//        } else {
-//            paintText.setColor(currentColor);
-//        }
-//
-//        paintText.setTextSize(h * 0.55f); // scale the text size proportionally to the battery height
-//        Paint.FontMetrics fm = paintText.getFontMetrics();
-//        float textY = (h - fm.ascent - fm.descent) / 2f;
-//
-//        // Place the text position right at the center of the battery body (shellWidth).
-//        canvas.drawText(text, shellWidth / 2f, textY, paintText);
     }
 }

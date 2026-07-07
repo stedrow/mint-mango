@@ -13,6 +13,7 @@ public class CircularBatteryView extends View {
     private int level = 100;
     private boolean isCharging = false;
     private RectF rectF = new RectF();
+    private String levelStr = "100"; // cached level text (avoid per-frame String.valueOf)
 
     public CircularBatteryView(Context context) {
         super(context);
@@ -42,15 +43,14 @@ public class CircularBatteryView extends View {
     public void setBatteryLevel(int level, boolean isCharging) {
         this.level = level;
         this.isCharging = isCharging;
+        this.levelStr = String.valueOf(level);
         invalidate();
     }
     public void setCustomTextSize(float size) { textPaint.setTextSize(size); }
 
     @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        int w = getWidth(), h = getHeight();
-
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
         // 🚀 Auto-adjusts the ring's stroke width proportionally to the view size! (8% of total width)
         float stroke = Math.min(w, h) * 0.08f;
         trackPaint.setStrokeWidth(stroke);
@@ -58,6 +58,12 @@ public class CircularBatteryView extends View {
 
         float halfStroke = stroke / 2f;
         rectF.set(halfStroke, halfStroke, w - halfStroke, h - halfStroke);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        int w = getWidth(), h = getHeight();
 
         // 🚀 Smart color logic: green while charging, red at 15% or below!
         if (isCharging) {
@@ -75,7 +81,7 @@ public class CircularBatteryView extends View {
 
         // Place the text in the center
         float textY = (h / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f);
-        canvas.drawText(String.valueOf(level), w / 2f, textY, textPaint);
+        canvas.drawText(levelStr, w / 2f, textY, textPaint);
     }
 }
 

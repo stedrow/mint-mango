@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 import org.json.JSONObject;
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -23,112 +24,10 @@ public class Y1WebServer extends Thread {
     private final File rootFolder = new File("/storage/sdcard0"); // file manager serves the whole device, not just the app's music folder
     private Context context;
     private final ExecutorService connectionPool = Executors.newFixedThreadPool(8);
-
-    public Y1WebServer(Context context) {
-        this.context = context;
-    }
-
-    public void run() {
-        try {
-            serverSocket = new ServerSocket(8080);
-            while (running) {
-                Socket socket = serverSocket.accept();
-                connectionPool.execute(new RequestHandler(socket));
-            }
-        } catch (Exception e) {
-            if (running) Log.e(TAG, "Server loop stopped", e);
-        }
-    }
-
-    public void stopServer() {
-        running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){ Log.w(TAG, "Error closing server socket", e); }
-        connectionPool.shutdownNow();
-    }
-
-    // WifiManager.getConnectionInfo().getIpAddress() is a cached snapshot that can go stale
-    // after a DHCP lease renewal or reconnect, so read the live interface address instead.
-    public String getLocalIpAddress() {
-        try {
-            java.util.Enumeration<java.net.NetworkInterface> ifaces = java.net.NetworkInterface.getNetworkInterfaces();
-            while (ifaces.hasMoreElements()) {
-                java.net.NetworkInterface iface = ifaces.nextElement();
-                if (!iface.isUp() || iface.isLoopback()) continue;
-                java.util.Enumeration<java.net.InetAddress> addrs = iface.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    java.net.InetAddress addr = addrs.nextElement();
-                    if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
-                        return addr.getHostAddress();
-                    }
-                }
-            }
-            return "Unknown IP";
-        } catch (Exception ex) { Log.w(TAG, "Could not resolve local IP", ex); return "Unknown IP"; }
-    }
-
-    // Resolves a client-supplied relative path against rootFolder and rejects
-    // anything that escapes it via ".." traversal (verified: Java's File(parent, child)
-    // does NOT discard an absolute child, but canonicalization still collapses "..").
-    private File resolveSafePath(String relativePath) throws java.io.IOException {
-        File target = (relativePath == null || relativePath.isEmpty()) ? rootFolder : new File(rootFolder, relativePath);
-        String rootCanonical = rootFolder.getCanonicalPath();
-        String targetCanonical = target.getCanonicalPath();
-        if (!targetCanonical.equals(rootCanonical) && !targetCanonical.startsWith(rootCanonical + File.separator)) {
-            throw new java.io.IOException("Path escapes root folder: " + relativePath);
-        }
-        return target;
-    }
-
-    private void deleteFileOrFolder(File fileOrDirectory) {
-        if (fileOrDirectory.isDirectory()) {
-            File[] children = fileOrDirectory.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteFileOrFolder(child);
-                }
-            }
-        }
-        fileOrDirectory.delete();
-    }
-
-    private class RequestHandler implements Runnable {
-        private Socket socket;
-        public RequestHandler(Socket socket) { this.socket = socket; }
-
-        private String readHeaderLine(InputStream is) throws java.io.IOException {
-            StringBuilder sb = new StringBuilder();
-            int c;
-            while ((c = is.read()) != -1) {
-                if (c == '\r') continue;
-                if (c == '\n') break;
-                sb.append((char) c);
-            }
-            return sb.toString();
-        }
-
-        public void run() {
-            try {
-                InputStream is = socket.getInputStream();
-                OutputStream os = socket.getOutputStream();
-
-                String requestLine = readHeaderLine(is);
-                if (requestLine == null || requestLine.isEmpty()) return;
-
-                String[] parts = requestLine.split(" ");
-                String method = parts[0];
-                String path = parts[1];
-
-                int contentLength = 0;
-                String line;
-                while (!(line = readHeaderLine(is)).isEmpty()) {
-                    if (line.toLowerCase().startsWith("content-length:")) {
-                        contentLength = Integer.parseInt(line.split(":")[1].trim());
-                    }
-                }
-
-                // 1. Send the screen UI (frontend - inline player + 🚀 text editor built in + 🚀 drag & drop support)
-                if (method.equals("GET") && path.equals("/")) {
-                    String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
+    // The File-Manager page is a compile-time-constant string; hold it in one
+    // static final field so it is allocated once instead of per GET / request.
+    private static final String FILE_MANAGER_HTML =
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
                             "<title>Y1 File Manager</title><style>" +
                             // 🚀 [design tweak] Background color and default font (based on Material Dark Theme)
                             "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
@@ -390,6 +289,119 @@ public class Y1WebServer extends Thread {
                             "window.onload = function(){ loadList(); loadNavSettings(); };" +
                             "</script></body></html>";
 
+    public Y1WebServer(Context context) {
+        this.context = context;
+    }
+
+    public void run() {
+        try {
+            serverSocket = new ServerSocket(8080);
+            while (running) {
+                Socket socket = serverSocket.accept();
+                connectionPool.execute(new RequestHandler(socket));
+            }
+        } catch (Exception e) {
+            if (running) Log.e(TAG, "Server loop stopped", e);
+        }
+    }
+
+    public void stopServer() {
+        running = false;
+        try { if (serverSocket != null) serverSocket.close(); } catch(Exception e){ Log.w(TAG, "Error closing server socket", e); }
+        connectionPool.shutdownNow();
+    }
+
+    // WifiManager.getConnectionInfo().getIpAddress() is a cached snapshot that can go stale
+    // after a DHCP lease renewal or reconnect, so read the live interface address instead.
+    public String getLocalIpAddress() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = ifaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress addr = addrs.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+            return "Unknown IP";
+        } catch (Exception ex) { Log.w(TAG, "Could not resolve local IP", ex); return "Unknown IP"; }
+    }
+
+    // Resolves a client-supplied relative path against rootFolder and rejects
+    // anything that escapes it via ".." traversal (verified: Java's File(parent, child)
+    // does NOT discard an absolute child, but canonicalization still collapses "..").
+    private File resolveSafePath(String relativePath) throws java.io.IOException {
+        File target = (relativePath == null || relativePath.isEmpty()) ? rootFolder : new File(rootFolder, relativePath);
+        String rootCanonical = rootFolder.getCanonicalPath();
+        String targetCanonical = target.getCanonicalPath();
+        if (!targetCanonical.equals(rootCanonical) && !targetCanonical.startsWith(rootCanonical + File.separator)) {
+            throw new java.io.IOException("Path escapes root folder: " + relativePath);
+        }
+        return target;
+    }
+
+    private void deleteFileOrFolder(File fileOrDirectory) {
+        if (fileOrDirectory.isDirectory()) {
+            File[] children = fileOrDirectory.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteFileOrFolder(child);
+                }
+            }
+        }
+        fileOrDirectory.delete();
+    }
+
+    private class RequestHandler implements Runnable {
+        private Socket socket;
+        public RequestHandler(Socket socket) { this.socket = socket; }
+
+        private String readHeaderLine(InputStream is) throws java.io.IOException {
+            StringBuilder sb = new StringBuilder();
+            int c;
+            while ((c = is.read()) != -1) {
+                if (c == '\r') continue;
+                if (c == '\n') break;
+                sb.append((char) c);
+            }
+            return sb.toString();
+        }
+
+        public void run() {
+            try {
+                // One BufferedInputStream for the whole request: header lines are read
+                // byte-by-byte (cheap now that they hit the buffer) and any request body
+                // is read from this SAME stream so already-buffered body bytes aren't lost.
+                InputStream is = new BufferedInputStream(socket.getInputStream());
+                OutputStream os = socket.getOutputStream();
+
+                String requestLine = readHeaderLine(is);
+                if (requestLine == null || requestLine.isEmpty()) return;
+
+                String[] parts = requestLine.split(" ");
+                String method = parts[0];
+                String path = parts[1];
+
+                int contentLength = 0;
+                String rangeHeader = null;
+                String line;
+                while (!(line = readHeaderLine(is)).isEmpty()) {
+                    String lower = line.toLowerCase();
+                    if (lower.startsWith("content-length:")) {
+                        contentLength = Integer.parseInt(line.split(":")[1].trim());
+                    } else if (lower.startsWith("range:")) {
+                        rangeHeader = line.substring(6).trim();
+                    }
+                }
+
+                // 1. Send the screen UI (frontend - inline player + 🚀 text editor built in + 🚀 drag & drop support)
+                if (method.equals("GET") && path.equals("/")) {
+                    String html = FILE_MANAGER_HTML;
+
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
                 }
                 // 2. [API] Returns the file and folder list (JSON format)
@@ -548,19 +560,83 @@ public class Y1WebServer extends Thread {
                             // 🚀 [fix 2] Explicitly makes the browser treat these newly added file types as plain text so they open in the editor window!
                         else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")) mimeType = "text/plain";
 
-                        String header = "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: " + mimeType + "\r\n" +
-                                "Content-Length: " + targetFile.length() + "\r\n" +
-                                "Accept-Ranges: bytes\r\n\r\n";
+                        long fileLen = targetFile.length();
+
+                        // Honour a "Range: bytes=start-[end]" request so browser audio seeks
+                        // fetch only the requested slice (206) instead of re-streaming from 0.
+                        long start = 0;
+                        long end = fileLen - 1;
+                        boolean partial = false;
+                        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                            String spec = rangeHeader.substring(6).trim();
+                            int dash = spec.indexOf('-');
+                            if (dash >= 0) {
+                                String startStr = spec.substring(0, dash).trim();
+                                String endStr = spec.substring(dash + 1).trim();
+                                try {
+                                    if (startStr.isEmpty() && !endStr.isEmpty()) {
+                                        // Suffix range "bytes=-N" => the LAST N bytes of the file.
+                                        long n = Long.parseLong(endStr);
+                                        if (n > fileLen) n = fileLen;
+                                        start = fileLen - n;
+                                        end = fileLen - 1;
+                                    } else {
+                                        if (!startStr.isEmpty()) start = Long.parseLong(startStr);
+                                        if (!endStr.isEmpty()) end = Long.parseLong(endStr);
+                                        if (end > fileLen - 1) end = fileLen - 1;
+                                    }
+                                    if (start >= 0 && start <= end) partial = true;
+                                } catch (NumberFormatException nfe) {
+                                    partial = false;
+                                    start = 0;
+                                    end = fileLen - 1;
+                                }
+                            }
+                        }
+
+                        String header;
+                        if (partial) {
+                            long contentLen = end - start + 1;
+                            header = "HTTP/1.1 206 Partial Content\r\n" +
+                                    "Content-Type: " + mimeType + "\r\n" +
+                                    "Content-Length: " + contentLen + "\r\n" +
+                                    "Content-Range: bytes " + start + "-" + end + "/" + fileLen + "\r\n" +
+                                    "Accept-Ranges: bytes\r\n\r\n";
+                        } else {
+                            header = "HTTP/1.1 200 OK\r\n" +
+                                    "Content-Type: " + mimeType + "\r\n" +
+                                    "Content-Length: " + fileLen + "\r\n" +
+                                    "Accept-Ranges: bytes\r\n\r\n";
+                        }
                         os.write(header.getBytes("UTF-8"));
 
                         FileInputStream fis = new FileInputStream(targetFile);
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = fis.read(buffer)) != -1) {
-                            os.write(buffer, 0, bytesRead);
+                        try {
+                            if (partial && start > 0) {
+                                long toSkip = start;
+                                while (toSkip > 0) {
+                                    long skipped = fis.skip(toSkip);
+                                    if (skipped <= 0) break;
+                                    toSkip -= skipped;
+                                }
+                            }
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            if (partial) {
+                                long remaining = end - start + 1;
+                                while (remaining > 0
+                                        && (bytesRead = fis.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
+                                    os.write(buffer, 0, bytesRead);
+                                    remaining -= bytesRead;
+                                }
+                            } else {
+                                while ((bytesRead = fis.read(buffer)) != -1) {
+                                    os.write(buffer, 0, bytesRead);
+                                }
+                            }
+                        } finally {
+                            fis.close();
                         }
-                        fis.close();
                     }
                 }
 

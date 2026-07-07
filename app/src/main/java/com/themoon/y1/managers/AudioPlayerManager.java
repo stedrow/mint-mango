@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.widget.Toast;
 
@@ -27,6 +28,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AudioPlayerManager {
     private static AudioPlayerManager instance;
@@ -34,6 +38,21 @@ public class AudioPlayerManager {
     public MediaPlayer legacyPlayer;
     public boolean isUsingLegacyPlayer = false;
     private java.io.FileInputStream currentFileInputStream;
+
+    // ── Off-UI-thread track loading ────────────────────────────────────────────
+    // A single reusable single-thread worker for the heavy per-track work
+    // (metadata extraction, album-art decode, RenderScript blur, DB reads). One
+    // thread keeps the ordering guarantees simple and avoids spawning a Thread per
+    // track change. UI mutations are marshalled back via mainHandler; ExoPlayer
+    // calls MUST stay on the main thread (the player is built on it), so engine
+    // startup is also posted to mainHandler.
+    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    // Monotonic "which track load is current" token. Bumped at the start of every
+    // load; a background result only touches the UI/engine if its captured token
+    // still matches — otherwise the user has already skipped on and the stale
+    // result is dropped (and its decoded bitmaps recycled).
+    private final AtomicInteger loadGeneration = new AtomicInteger(0);
 
     // Navidrome streaming state
     public boolean isNavidromeMode = false;
@@ -469,13 +488,21 @@ public class AudioPlayerManager {
         }
     }
 
-    // 🚀 [restored stock behavior and full sync] Completely eliminated the flicker delay!
+    // 🚀 Track loading. The heavy work (metadata extract, art decode, RenderScript
+    // blur, DB reads) runs on bgExecutor; only UI mutations + the ExoPlayer/MediaPlayer
+    // engine startup are marshalled back to the main thread. A load-generation token
+    // guards against a stale background result overwriting a newer track's UI when the
+    // user skips rapidly. Called from the UI thread exactly as before.
     public void prepareMusicTrack(int index) {
         final MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
 
         final File track = main.currentPlaylist.get(index);
         main.lastAlbumArtBytes = null;
+
+        // Every load supersedes any in-flight one. Capture our token now; background
+        // results compare against loadGeneration before touching the UI/engine.
+        final int myGen = loadGeneration.incrementAndGet();
 
         if (!track.exists() || track.length() < 1024) {
             main.tvPlayerTitle.setText("Corrupted File");
@@ -491,12 +518,12 @@ public class AudioPlayerManager {
                 main.consecutiveErrorCount = 0;
             } else {
                 Toast.makeText(main, "Corrupted file detected. Skipping...", Toast.LENGTH_SHORT).show();
-                new Handler().postDelayed(() -> nextTrack(), 1500);
+                mainHandler.postDelayed(() -> nextTrack(), 1500);
             }
             return;
         }
 
-        // 🚀 Removed the separate Thread and process this immediately on the main thread, completely blocking the flicker/delay!
+        // Immediate placeholder UI (cheap, on the UI thread) so the change feels instant.
         main.tvPlayerTitle.setText(track.getName());
         main.tvPlayerArtist.setText("Loading...");
         main.ivAlbumArt.setImageResource(R.drawable.default_album);
@@ -505,78 +532,154 @@ public class AudioPlayerManager {
         main.tvPlayerTimeCurrent.setText("00:00");
         main.tvPlayerTimeTotal.setText("00:00");
 
-        String ext = track.getName().toLowerCase();
-        isUsingLegacyPlayer = ext.endsWith(".flac"); // FLAC detector
+        final String ext = track.getName().toLowerCase();
+        final boolean useLegacy = ext.endsWith(".flac"); // FLAC detector
+        isUsingLegacyPlayer = useLegacy;
 
+        final int fIndex = index;
+        // Heavy work off the UI thread.
+        bgExecutor.execute(() -> prepareTrackBackground(main, track, fIndex, useLegacy, myGen));
+    }
+
+    /**
+     * Runs on {@link #bgExecutor}. Does everything that is safe off the UI thread —
+     * MediaMetadataRetriever extraction, embedded-art + blur decode, RenderScript blur,
+     * and the getMetaOverride / getBookmark DB reads — then posts the finished UI mutations
+     * and the engine startup back to the main thread via {@link #mainHandler}.
+     */
+    private void prepareTrackBackground(final MainActivity main, final File track, final int index,
+                                        final boolean useLegacy, final int myGen) {
+        // ── Metadata extraction (heavy: file I/O + parse) ──────────────────────────
+        String extractedTitle = null, extractedArtist = null;
+        byte[] artBytes = null;
         android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
         java.io.FileInputStream fisMmr = null;
         try {
-            // 🚀 Don't block FLAC files — parse their tags normally too!
             fisMmr = new java.io.FileInputStream(track);
             mmr.setDataSource(fisMmr.getFD());
-
-            String t = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
-            String a = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
-            main.lastAlbumArtBytes = mmr.getEmbeddedPicture();
-
-            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
-            File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
-
-            com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
-            if (metaOverride != null) {
-                if (metaOverride.title != null) t = metaOverride.title;
-                if (metaOverride.artist != null) a = metaOverride.artist;
-            }
-
-            boolean hasValidTags = (t != null && !t.trim().isEmpty() && a != null && !a.trim().isEmpty() && !a.equalsIgnoreCase("Unknown Artist"));
-
-            if (t != null && !t.trim().isEmpty()) main.tvPlayerTitle.setText(t);
-            else main.tvPlayerTitle.setText(safeFileName);
-
-            if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
-            else main.tvPlayerArtist.setText("Unknown Artist");
-
-            // 🚀 Synchronous rendering transitions smoothly, 100% flicker-free.
-            if (main.lastAlbumArtBytes != null && main.lastAlbumArtBytes.length > 0) {
-                main.updateMainMenuBackground();
-                main.refreshNowPlayingPreview();
-                try {
-                    android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
-                    optsCenter.inSampleSize = 2;
-                    android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeByteArray(main.lastAlbumArtBytes, 0, main.lastAlbumArtBytes.length, optsCenter);
-                    main.ivAlbumArt.setImageBitmap(bmpCenter);
-
-                    android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
-                    optsBg.inSampleSize = 4;
-                    android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(main.lastAlbumArtBytes, 0, main.lastAlbumArtBytes.length, optsBg);
-                    android.graphics.Bitmap blurredBg = main.applyGaussianBlur(sourceBg);
-                    main.ivPlayerBgBlur.setImageBitmap(blurredBg);
-                    if (sourceBg != blurredBg) sourceBg.recycle();
-
-                } catch (Throwable e) {}
-            } else if (coverFile.exists()) {
-                main.applyCachedCoverArt(coverFile.getAbsolutePath());
-            } else {
-                main.ivAlbumArt.setImageResource(R.drawable.default_album);
-                main.ivPlayerBgBlur.setImageResource(0);
-                main.updateMainMenuBackground();
-                main.refreshNowPlayingPreview();
-
-                boolean isAutoFetchEnabled = main.prefs.getBoolean("auto_fetch", true);
-                if (isAutoFetchEnabled) {
-                    String searchQuery = hasValidTags ? (a + " " + t) : safeFileName.replace("-", " ").replace("_", " ");
-                    main.fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
-                }
-            }
-        } catch (Throwable t) {
+            extractedTitle = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
+            extractedArtist = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            artBytes = mmr.getEmbeddedPicture();
+        } catch (Throwable ignore) {
         } finally {
             if (fisMmr != null) try { fisMmr.close(); } catch (Exception e) {}
             try { mmr.release(); } catch (Exception e) {}
         }
 
-        // 🚀 Engine startup section
+        final String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
+        final File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
+
+        // ── DB read: manual metadata override ─────────────────────────────────────
+        String t = extractedTitle, a = extractedArtist;
         try {
-            if (isUsingLegacyPlayer) {
+            com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
+            if (metaOverride != null) {
+                if (metaOverride.title != null) t = metaOverride.title;
+                if (metaOverride.artist != null) a = metaOverride.artist;
+            }
+        } catch (Throwable ignore) {}
+
+        final boolean hasValidTags = (t != null && !t.trim().isEmpty() && a != null && !a.trim().isEmpty() && !a.equalsIgnoreCase("Unknown Artist"));
+        final String finalTitle = t;
+        final String finalArtist = a;
+        final byte[] finalArtBytes = artBytes;
+
+        // ── Album-art decode + RenderScript blur (heavy) ──────────────────────────
+        android.graphics.Bitmap centerTmp = null;
+        android.graphics.Bitmap blurTmp = null;
+        if (artBytes != null && artBytes.length > 0) {
+            try {
+                android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
+                optsCenter.inSampleSize = 2;
+                centerTmp = android.graphics.BitmapFactory.decodeByteArray(artBytes, 0, artBytes.length, optsCenter);
+
+                android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
+                optsBg.inSampleSize = 4;
+                android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(artBytes, 0, artBytes.length, optsBg);
+                if (sourceBg != null) {
+                    android.graphics.Bitmap blurred = main.applyGaussianBlur(sourceBg);
+                    blurTmp = blurred;
+                    // Recycle the inSampleSize=4 intermediate now that the blurred output
+                    // exists — but only if the blur actually produced a distinct bitmap
+                    // (applyGaussianBlur returns the source unchanged on failure).
+                    if (sourceBg != blurred) sourceBg.recycle();
+                }
+            } catch (Throwable e) {}
+        }
+        final android.graphics.Bitmap centerBmp = centerTmp;
+        final android.graphics.Bitmap blurBmp = blurTmp;
+
+        // ── DB read: audiobook bookmark (used by the engine for the resume seek) ──
+        int savedPosTmp = 0;
+        try {
+            com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
+            savedPosTmp = savedBookmark != null ? savedBookmark.posMs : 0;
+        } catch (Throwable ignore) {}
+        final int savedPos = savedPosTmp;
+
+        // ── Back to the UI thread: apply UI + start the engine ────────────────────
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                // Stale-load guard: a newer prepareMusicTrack()/displayTrackMetadataOnly()
+                // has run since this background job started. Drop this result and recycle
+                // its decoded bitmaps so they don't clobber the current track or leak.
+                if (myGen != loadGeneration.get()) {
+                    if (centerBmp != null) centerBmp.recycle();
+                    if (blurBmp != null) blurBmp.recycle();
+                    return;
+                }
+                applyPreparedTrack(main, track, index, useLegacy, safeFileName, coverFile,
+                        finalTitle, finalArtist, hasValidTags, finalArtBytes, centerBmp, blurBmp, savedPos);
+            }
+        });
+    }
+
+    /**
+     * Runs on the UI thread. Applies the title/artist/art UI and starts the audio engine.
+     * ExoPlayer is built on (and asserts) the main thread, and prepare() is asynchronous, so
+     * this stays responsive for MP3/WAV. The FLAC MediaPlayer.prepare() is still synchronous
+     * here — see the note in the summary for why it was left on the UI thread.
+     */
+    private void applyPreparedTrack(MainActivity main, File track, int index, boolean useLegacy,
+                                    String safeFileName, File coverFile,
+                                    String t, String a, boolean hasValidTags,
+                                    byte[] artBytes, android.graphics.Bitmap centerBmp,
+                                    android.graphics.Bitmap blurBmp, int savedPos) {
+        // ── Title / artist ──
+        if (t != null && !t.trim().isEmpty()) main.tvPlayerTitle.setText(t);
+        else main.tvPlayerTitle.setText(safeFileName);
+
+        if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
+        else main.tvPlayerArtist.setText("Unknown Artist");
+
+        // ── Album art (bitmaps were decoded/blurred on the background thread) ──
+        main.lastAlbumArtBytes = artBytes;
+        if (artBytes != null && artBytes.length > 0) {
+            main.updateMainMenuBackground();
+            main.refreshNowPlayingPreview();
+            try {
+                if (centerBmp != null) main.ivAlbumArt.setImageBitmap(centerBmp);
+                if (blurBmp != null) main.ivPlayerBgBlur.setImageBitmap(blurBmp);
+            } catch (Throwable e) {}
+        } else if (coverFile.exists()) {
+            main.applyCachedCoverArt(coverFile.getAbsolutePath());
+        } else {
+            main.ivAlbumArt.setImageResource(R.drawable.default_album);
+            main.ivPlayerBgBlur.setImageResource(0);
+            main.updateMainMenuBackground();
+            main.refreshNowPlayingPreview();
+
+            boolean isAutoFetchEnabled = main.prefs.getBoolean("auto_fetch", true);
+            if (isAutoFetchEnabled) {
+                String searchQuery = hasValidTags ? (a + " " + t) : safeFileName.replace("-", " ").replace("_", " ");
+                main.fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
+            }
+        }
+
+        // 🚀 Engine startup section (main thread — ExoPlayer is main-thread-only)
+        try {
+            if (useLegacy) {
                 // FLAC: special engine for deadlock recovery
                 if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
 
@@ -602,8 +705,6 @@ public class AudioPlayerManager {
                 applyPlayerVolumeState(); // 💡 A new MediaPlayer always starts at volume 1.0, so reapply the mute state
 
                 // 🚀 [core logic 1] Right before playback, check if this is an audiobook and force-jump to the saved position!
-                com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
-                int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                     legacyPlayer.seekTo(savedPos);
                 }
@@ -631,11 +732,9 @@ public class AudioPlayerManager {
                 MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(mediaItem);
 
                 exoPlayer.setMediaSource(mediaSource);
-                exoPlayer.prepare(); // 💡 loaded and ready!
+                exoPlayer.prepare(); // 💡 loaded and ready! (async — returns immediately)
 
                 // 🚀 [core logic 2] Right before playback, check if this is an audiobook and force-jump to the saved position!
-                com.themoon.y1.db.LibraryCacheDb.Bookmark savedBookmark = main.libraryCacheDb.getBookmark(track.getAbsolutePath());
-                int savedPos = savedBookmark != null ? savedBookmark.posMs : 0;
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                     exoPlayer.seekTo(savedPos);
                 }
@@ -666,7 +765,7 @@ public class AudioPlayerManager {
                 main.updatePlayerUI();
                 main.consecutiveErrorCount = 0;
             } else {
-                new Handler().postDelayed(() -> nextTrack(), 2000);
+                mainHandler.postDelayed(() -> nextTrack(), 2000);
             }
         }
     }
@@ -726,53 +825,86 @@ public class AudioPlayerManager {
 
     /** Populates the player/preview UI (title, artist, art) for a track without touching the audio engine. */
     private void displayTrackMetadataOnly(File track) {
-        MainActivity main = MainActivity.instance;
+        final MainActivity main = MainActivity.instance;
         if (main == null) return;
-        try {
-            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
-            String t = null, a = null;
-            byte[] embeddedArt = null;
-            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-            java.io.FileInputStream fis = null;
-            try {
-                fis = new java.io.FileInputStream(track);
-                mmr.setDataSource(fis.getFD());
-                t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                embeddedArt = mmr.getEmbeddedPicture();
-            } catch (Exception ignored) {
-            } finally {
-                if (fis != null) try { fis.close(); } catch (Exception e) {}
-                try { mmr.release(); } catch (Exception e) {}
-            }
+        // Share the load-generation token with prepareMusicTrack: if a real playback
+        // starts before this restore-preview finishes, its stale result is dropped.
+        final int myGen = loadGeneration.incrementAndGet();
+        final File fTrack = track;
+        bgExecutor.execute(() -> displayTrackMetadataBackground(main, fTrack, myGen));
+    }
 
+    /** Background half of {@link #displayTrackMetadataOnly}: extraction + art decode off the UI thread. */
+    private void displayTrackMetadataBackground(final MainActivity main, final File track, final int myGen) {
+        final String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
+        String t = null, a = null;
+        byte[] embeddedArt = null;
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        java.io.FileInputStream fis = null;
+        try {
+            fis = new java.io.FileInputStream(track);
+            mmr.setDataSource(fis.getFD());
+            t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+            a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            embeddedArt = mmr.getEmbeddedPicture();
+        } catch (Exception ignored) {
+        } finally {
+            if (fis != null) try { fis.close(); } catch (Exception e) {}
+            try { mmr.release(); } catch (Exception e) {}
+        }
+
+        try {
             com.themoon.y1.db.LibraryCacheDb.MetaOverride metaOverride = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
             if (metaOverride != null) {
                 if (metaOverride.title != null) t = metaOverride.title;
                 if (metaOverride.artist != null) a = metaOverride.artist;
             }
+        } catch (Throwable ignored) {}
 
-            main.tvPlayerTitle.setText(t != null && !t.trim().isEmpty() ? t : safeFileName);
-            main.tvPlayerArtist.setText(a != null && !a.trim().isEmpty() ? a : "Unknown Artist");
-
-            main.lastAlbumArtBytes = embeddedArt;
-            if (embeddedArt != null && embeddedArt.length > 0) {
-                main.updateMainMenuBackground();
-                main.refreshNowPlayingPreview();
+        android.graphics.Bitmap centerTmp = null;
+        if (embeddedArt != null && embeddedArt.length > 0) {
+            try {
                 android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
                 opts.inSampleSize = 2;
-                main.ivAlbumArt.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts));
-            } else {
-                File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
-                if (coverFile.exists()) {
-                    main.applyCachedCoverArt(coverFile.getAbsolutePath());
-                } else {
-                    main.ivAlbumArt.setImageResource(R.drawable.default_album);
-                    main.updateMainMenuBackground();
-                    main.refreshNowPlayingPreview();
+                centerTmp = android.graphics.BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts);
+            } catch (Throwable e) {}
+        }
+
+        final String finalTitle = t;
+        final String finalArtist = a;
+        final byte[] finalArt = embeddedArt;
+        final android.graphics.Bitmap centerBmp = centerTmp;
+        final File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
+
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                // Stale-load guard — a newer load superseded this restore-preview.
+                if (myGen != loadGeneration.get()) {
+                    if (centerBmp != null) centerBmp.recycle();
+                    return;
                 }
+                try {
+                    main.tvPlayerTitle.setText(finalTitle != null && !finalTitle.trim().isEmpty() ? finalTitle : safeFileName);
+                    main.tvPlayerArtist.setText(finalArtist != null && !finalArtist.trim().isEmpty() ? finalArtist : "Unknown Artist");
+
+                    main.lastAlbumArtBytes = finalArt;
+                    if (finalArt != null && finalArt.length > 0) {
+                        main.updateMainMenuBackground();
+                        main.refreshNowPlayingPreview();
+                        if (centerBmp != null) main.ivAlbumArt.setImageBitmap(centerBmp);
+                    } else {
+                        if (coverFile.exists()) {
+                            main.applyCachedCoverArt(coverFile.getAbsolutePath());
+                        } else {
+                            main.ivAlbumArt.setImageResource(R.drawable.default_album);
+                            main.updateMainMenuBackground();
+                            main.refreshNowPlayingPreview();
+                        }
+                    }
+                } catch (Exception ignored) {}
             }
-        } catch (Exception ignored) {}
+        });
     }
 
     private void saveAudiobookBookmarkIfNeeded() {
