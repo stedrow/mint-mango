@@ -1580,23 +1580,25 @@ public class MainActivity extends Activity {
         installBundledThemes();
 
         ThemeManager.loadThemesFromStorage(themeFolder);
-        try {
-            // 🚀 [Bluetooth AVRCP 1.6 force-injection engine]
-            // Since Developer Options is blocked, send ADB shell commands directly to the system via su privileges.
-            String cmd1 = "setprop persist.bluetooth.avrcpversion 1.6";
-            String cmd2 = "settings put global bluetooth_avrcp_version 1.6";
+        // 🚀 [Bluetooth AVRCP 1.6 force-injection engine]
+        // Since Developer Options is blocked, send ADB shell commands directly to the system via su privileges.
+        // Nothing later in onCreate depends on this having finished -- run it off the UI thread
+        // so the root-shell spawn/wait can't stall cold start (this call was the exact frame
+        // caught blocking the main thread in an ANR trace during testing).
+        new Thread(() -> {
+            try {
+                String cmd1 = "setprop persist.bluetooth.avrcpversion 1.6";
+                String cmd2 = "settings put global bluetooth_avrcp_version 1.6";
 
-            // Chain the two commands together with &&(AND) and sync the system.
-            String combinedCmd = cmd1 + " && " + cmd2 + " && sync";
+                // Chain the two commands together with &&(AND) and sync the system.
+                String combinedCmd = cmd1 + " && " + cmd2 + " && sync";
 
-            Process proc = Runtime.getRuntime().exec(new String[]{"su", "-c", combinedCmd});
-            proc.waitFor(); // Wait briefly until the command finishes applying
-
-            // To apply this silently, feel free to remove the toast once testing is done.
-            // Toast.makeText(this, "Bluetooth AVRCP 1.6 forced via Root.", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+                Process proc = Runtime.getRuntime().exec(new String[]{"su", "-c", combinedCmd});
+                proc.waitFor();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }, "AvrcpVersionForce").start();
         try {
             // Load the saved index number. (Handled safely in case the file was deleted)
             int savedThemeIndex = prefs.getInt("app_theme_index", 0);
@@ -1678,27 +1680,37 @@ public class MainActivity extends Activity {
             // Load the previously saved format setting from the vault (SharedPreferences). (default is 12-hour format)
             is24HourFormat = prefs.getBoolean("is_24h_format", false);
         } catch (Exception e) {}
-        // 💡 [Auto-load EQ preset list] Fetches the list of equalizer presets the device supports.
-        try {
-            MediaPlayer dummyMp = new MediaPlayer();
-            Equalizer dummyEq = new Equalizer(0, dummyMp.getAudioSessionId());
-            short presets = dummyEq.getNumberOfPresets();
-            for (short i = 0; i < presets; i++) {
-                eqPresetNames.add(dummyEq.getPresetName(i));
-            }
-            dummyEq.release();
-            dummyMp.release();
-        } catch (Exception e) {
-            eqPresetNames.add("Normal (Default)");
-        }
-
         currentEqPresetIndex = prefs.getInt("eq_preset", 0);
         // 🚀 [Added] Links advanced effects and custom profile vault data
         currentEqProfile = prefs.getString("eq_profile_id", "preset_" + currentEqPresetIndex);
         currentBassBoostStep = prefs.getInt("bass_boost_step", 0);
         currentVirtualizerStep = prefs.getInt("virtualizer_step", 0);
-        if (currentEqPresetIndex >= eqPresetNames.size())
-            currentEqPresetIndex = 0;
+
+        // 💡 [Auto-load EQ preset list] Fetches the list of equalizer presets the device supports.
+        // Building a MediaPlayer/Equalizer just to enumerate names touches the audio HAL --
+        // nothing reads eqPresetNames until the user opens Settings > Equalizer (every call
+        // site there already guards with "index < eqPresetNames.size()"), so do it off the UI
+        // thread instead of paying that cost on every cold start.
+        new Thread(() -> {
+            final List<String> names = new ArrayList<>();
+            try {
+                MediaPlayer dummyMp = new MediaPlayer();
+                Equalizer dummyEq = new Equalizer(0, dummyMp.getAudioSessionId());
+                short presets = dummyEq.getNumberOfPresets();
+                for (short i = 0; i < presets; i++) {
+                    names.add(dummyEq.getPresetName(i));
+                }
+                dummyEq.release();
+                dummyMp.release();
+            } catch (Exception e) {
+                names.add("Normal (Default)");
+            }
+            runOnUiThread(() -> {
+                eqPresetNames.clear();
+                eqPresetNames.addAll(names);
+                if (currentEqPresetIndex >= eqPresetNames.size()) currentEqPresetIndex = 0;
+            });
+        }, "EqPresetLoad").start();
 
         if (!rootFolder.exists())
             rootFolder.mkdirs();
