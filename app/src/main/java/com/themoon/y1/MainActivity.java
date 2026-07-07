@@ -80,42 +80,9 @@ public class MainActivity extends Activity {
 
 
     private boolean isNavigatingToSubMenu = false; // 🚀 [Add one line here!] Guard that prevents focus tangling during direct access
-    // 🚀 [Added] Global variable that keeps the audio channel always on standby
-    private android.bluetooth.BluetoothProfile globalA2dp;
+    // Bluetooth A2DP proxy, target device, connecting-state, and reconnect-backoff state all live
+    // in BluetoothAudioManager now -- see that class for the field-level rationale.
     private Y1UsbFocusHelper usbFocusHelper;
-    private BluetoothDevice targetDeviceForAudio = null; // 🚀 [Added] Target device to keep latching onto like a zombie
-    private boolean isBtConnectingState = false;
-    // Reconnect watchdog. A hand over the antenna or the Y1 going in a pocket attenuates 2.4GHz
-    // enough to drop the AirPods link even at close range; the old logic fired a fixed budget of
-    // immediate retries and then gave up *forever*. Those retries burn instantly against a device
-    // that's still unreachable (hand still on it), and the budget only reset on a successful
-    // reconnect -- which can't happen while the obstruction is present -- so once the user cleared
-    // their hand there was no event left to trigger a retry and they had to tap Connect manually.
-    //
-    // Instead we keep a single backoff timer that never permanently gives up: it re-attempts with
-    // exponential backoff (RECONNECT_BACKOFF_MIN_MS, doubling up to RECONNECT_BACKOFF_MAX_MS) so
-    // the moment the obstruction clears it reconnects on its own. It's cancelled on a real
-    // STATE_CONNECTED, on Bluetooth off, and on unpair; and it backs off (no connect() spam) while
-    // isLikelyStowed() reports both buds deliberately in the case.
-    private final Handler reconnectHandler = new Handler();
-    private Runnable reconnectRunnable = null;
-    private long reconnectBackoffMs = 0;
-    private static final long RECONNECT_BACKOFF_MIN_MS = 2000;
-    private static final long RECONNECT_BACKOFF_MAX_MS = 15000;
-
-    // AirPods have their own in-ear-detection hardware that mutes their local output when a
-    // sensor read says "removed" -- independent of whatever the Bluetooth link is actually
-    // carrying. A brief false "out" reading (confirmed via web search as a known AirPods/non-Apple
-    // pairing quirk) can leave them muted even after AapService's own auto-resume calls
-    // AudioPlayerManager.resumeForAirpods(), since that only toggles play/pause and doesn't force
-    // a fresh audio session. The "ears just came back in" transition (see onAapStateChanged below)
-    // triggers AudioPlayerManager.restartAudioPipelineQuietly(), which rebuilds the local
-    // AudioTrack/A2DP session (stop -> reprepare -> resume) without touching the Bluetooth link;
-    // that falls back to a full BT disconnect+reconnect (nudgeAudioReconnectForAirpods(), the
-    // confirmed-but-heavier fix) only when there's no simple local file to reload (Navidrome).
-    private static final long AUDIO_NUDGE_COOLDOWN_MS = 20000;
-    private long lastAudioNudgeAtMs = 0;
-    private boolean aapLastBothInEar = true;
     // 🚀 [New] Control switch for the virtual screen-off (fake blackout)
     public boolean isFakeScreenOff = false;
 
@@ -805,7 +772,7 @@ public class MainActivity extends Activity {
                                 @Override
                                 public void onServiceConnected(int profile, BluetoothProfile proxy) {
                                     if (profile == BluetoothProfile.A2DP) {
-                                        globalA2dp = proxy;
+                                        com.themoon.y1.managers.BluetoothAudioManager.getInstance().setA2dp(proxy);
                                         updateBluetoothStatusIcon();
                                     }
                                 }
@@ -813,13 +780,13 @@ public class MainActivity extends Activity {
                                 @Override
                                 public void onServiceDisconnected(int profile) {
                                     if (profile == BluetoothProfile.A2DP)
-                                        globalA2dp = null;
+                                        com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp();
                                 }
                             }, BluetoothProfile.A2DP);
 
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
-                    globalA2dp = null; // 🚀 Reset the engine too when Bluetooth turns off
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp(); // 🚀 Reset the engine too when Bluetooth turns off
                     cancelAudioReconnect(); // nothing to reconnect to while the radio is off
                     AapService.deviceDisconnected(context);
                     applySpeakerSetting(); // 🚀 Bluetooth is off now, so re-evaluate speaker mute state
@@ -875,8 +842,9 @@ public class MainActivity extends Activity {
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
                     AapService.deviceDisconnected(context);
-                    if (targetDeviceForAudio != null && currentDevice != null
-                            && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
+                    BluetoothDevice audioTarget = com.themoon.y1.managers.BluetoothAudioManager.getInstance().getTargetDeviceForAudio();
+                    if (audioTarget != null && currentDevice != null
+                            && audioTarget.getAddress().equals(currentDevice.getAddress())) {
                         scheduleAudioReconnect();
                     }
                 } else if (profileState == BluetoothProfile.STATE_CONNECTED) {
@@ -892,7 +860,7 @@ public class MainActivity extends Activity {
                         new Handler().postDelayed(new Runnable() {
                             @Override
                             public void run() {
-                                if (isA2dpConnectedTo(aapTarget)) {
+                                if (com.themoon.y1.managers.BluetoothAudioManager.getInstance().isA2dpConnectedTo(aapTarget)) {
                                     AapService.deviceConnected(MainActivity.this, aapTarget);
                                 }
                             }
@@ -906,7 +874,7 @@ public class MainActivity extends Activity {
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
                         || profileState == BluetoothProfile.STATE_DISCONNECTED) {
-                    isBtConnectingState = false; // Unlock!
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().setBtConnectingState(false); // Unlock!
                     // Only rescan after a disconnect (to refresh the device as available again).
                     // Rescanning right after a successful connect makes the shared BT/Wi-Fi radio
                     // re-run inquiry while holding the fresh link, which destabilizes it and can
@@ -922,7 +890,7 @@ public class MainActivity extends Activity {
                     }
                 }
             } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
-                if (currentScreenState == STATE_BLUETOOTH && !isBtConnectingState) {
+                if (currentScreenState == STATE_BLUETOOTH && !com.themoon.y1.managers.BluetoothAudioManager.getInstance().isBtConnectingState()) {
                     new Handler().postDelayed(new Runnable() {
                         public void run() {
                             startBluetoothScan();
@@ -939,8 +907,9 @@ public class MainActivity extends Activity {
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 BluetoothDevice disconnectedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 // 🚀 [Ported from stock: zombie logic 3] The device's own radio link bounced -- let the watchdog recover it.
-                if (targetDeviceForAudio != null && disconnectedDevice != null
-                        && targetDeviceForAudio.getAddress().equals(disconnectedDevice.getAddress())) {
+                BluetoothDevice aclAudioTarget = com.themoon.y1.managers.BluetoothAudioManager.getInstance().getTargetDeviceForAudio();
+                if (aclAudioTarget != null && disconnectedDevice != null
+                        && aclAudioTarget.getAddress().equals(disconnectedDevice.getAddress())) {
                     scheduleAudioReconnect();
                 }
             } else if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
@@ -949,10 +918,11 @@ public class MainActivity extends Activity {
                 // came off the antenna) is a fresh signal that the device is reachable again --
                 // reset the backoff to its minimum so the watchdog grabs the audio channel fast
                 // instead of waiting out the previous long backoff interval.
-                if (targetDeviceForAudio != null && connectedDevice != null
-                        && targetDeviceForAudio.getAddress().equals(connectedDevice.getAddress())) {
+                BluetoothDevice aclConnectedTarget = com.themoon.y1.managers.BluetoothAudioManager.getInstance().getTargetDeviceForAudio();
+                if (aclConnectedTarget != null && connectedDevice != null
+                        && aclConnectedTarget.getAddress().equals(connectedDevice.getAddress())) {
                     cancelAudioReconnect();
-                    reconnectBackoffMs = RECONNECT_BACKOFF_MIN_MS;
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().resetBackoffToMin();
                     scheduleAudioReconnect();
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
@@ -975,251 +945,23 @@ public class MainActivity extends Activity {
         }
     };
 
-    // Reconnect watchdog. See the field declarations near the top of the class for the rationale
-    // (a hand over the antenna / pocket dropout must not dead-end into a manual "Connect" tap).
-    // scheduleAudioReconnect() starts a self-perpetuating backoff loop; the loop only stops when the
-    // device is actually connected again (STATE_CONNECTED cancels it, or attemptAudioReconnect sees
-    // the live connection), the radio goes off, or the device is unpaired.
+    // Bluetooth A2DP connection engine (proxy lifecycle, connect/pair, reconnect watchdog) lives
+    // in BluetoothAudioManager -- see that class for details. Kept as thin pass-throughs here
+    // since callers across this file (and AudioPlayerManager) already call these by name.
     private void scheduleAudioReconnect() {
-        if (targetDeviceForAudio == null) return;
-        if (reconnectRunnable != null) return; // a reconnect cycle is already in flight
-        if (reconnectBackoffMs < RECONNECT_BACKOFF_MIN_MS)
-            reconnectBackoffMs = RECONNECT_BACKOFF_MIN_MS; // fresh dropout -> start from the short interval
-        armAudioReconnect();
-    }
-
-    private void armAudioReconnect() {
-        cancelAudioReconnect();
-        reconnectRunnable = new Runnable() {
-            @Override
-            public void run() {
-                reconnectRunnable = null;
-                attemptAudioReconnect();
-            }
-        };
-        reconnectHandler.postDelayed(reconnectRunnable, reconnectBackoffMs);
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().scheduleAudioReconnect();
     }
 
     private void cancelAudioReconnect() {
-        if (reconnectRunnable != null) {
-            reconnectHandler.removeCallbacks(reconnectRunnable);
-            reconnectRunnable = null;
-        }
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().cancelAudioReconnect();
     }
 
-    private void attemptAudioReconnect() {
-        final BluetoothDevice target = targetDeviceForAudio;
-        if (target == null) return;
-
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter == null || !adapter.isEnabled()) {
-            // Radio off -- ACTION_STATE_CHANGED restarts everything if it comes back; stop watching.
-            return;
-        }
-
-        if (isA2dpConnectedTo(target)) {
-            // Recovered (possibly on its own) -- stop the loop and reset for next time.
-            reconnectBackoffMs = RECONNECT_BACKOFF_MIN_MS;
-            return;
-        }
-
-        if (AapService.isLikelyStowed()) {
-            // Both buds deliberately in the case: don't hammer connect(), just keep a slow watch.
-            // Popping a bud back into an ear fires ACL_CONNECTED, which resets us to a fast retry.
-            reconnectBackoffMs = RECONNECT_BACKOFF_MAX_MS;
-            armAudioReconnect();
-            return;
-        }
-
-        connectBluetoothAudio(target);
-
-        // Grow the backoff (capped) and keep watching. A real STATE_CONNECTED cancels this loop.
-        reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_BACKOFF_MAX_MS);
-        armAudioReconnect();
-    }
-
-    private boolean isA2dpConnectedTo(BluetoothDevice device) {
-        if (globalA2dp == null || device == null) return false;
-        try {
-            int state = (int) globalA2dp.getClass()
-                    .getMethod("getConnectionState", BluetoothDevice.class)
-                    .invoke(globalA2dp, device);
-            return state == BluetoothProfile.STATE_CONNECTED;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private final AapService.Listener aapEarListener = new AapService.Listener() {
-        @Override
-        public void onAapStateChanged(AapService.AapState state) {
-            boolean nowBothInEar = state.earLeft == AapService.EAR_IN_EAR && state.earRight == AapService.EAR_IN_EAR;
-            if (!aapLastBothInEar && nowBothInEar) {
-                onEarsReinserted();
-            }
-            aapLastBothInEar = nowBothInEar;
-        }
-
-        @Override
-        public void onAapConnectionChanged(boolean connected) {
-        }
-    };
-
-    private void onEarsReinserted() {
-        BluetoothDevice target = targetDeviceForAudio;
-        if (target == null || !isA2dpConnectedTo(target)) return;
-
-        long now = System.currentTimeMillis();
-        if (now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) return; // still cooling down
-
-        lastAudioNudgeAtMs = now;
-        com.themoon.y1.managers.AudioPlayerManager.getInstance().restartAudioPipelineQuietly();
-    }
-
-    /** Fallback for restartAudioPipelineQuietly() when there's no simple local file to reload
-     * (Navidrome streaming) -- falls back to the heavier but confirmed-working BT-level nudge. */
     public void nudgeAudioReconnectForAirpods() {
-        BluetoothDevice target = targetDeviceForAudio;
-        if (target != null) nudgeAudioReconnect(target);
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().nudgeAudioReconnectForAirpods();
     }
 
-    private void nudgeAudioReconnect(final BluetoothDevice target) {
-        if (target == null || globalA2dp == null) return;
-        try {
-            Method disconnectMethod = globalA2dp.getClass().getDeclaredMethod("disconnect", BluetoothDevice.class);
-            disconnectMethod.setAccessible(true);
-            disconnectMethod.invoke(globalA2dp, target);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        // AapService's ear-detection callback runs on its own background worker thread, not
-        // main, so this must use a Handler already bound to the main Looper -- a bare `new
-        // Handler()` here throws ("Can't create handler inside thread that has not called
-        // Looper.prepare()") and kills the AAP session every time the nudge fires.
-        reconnectHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                connectBluetoothAudio(target);
-            }
-        }, 1000);
-    }
-
-    // 🚀 [Fully ported from stock launcher] Centralized Bluetooth connection engine
-    private void connectBluetoothAudio(final BluetoothDevice targetDevice) {
-        if (targetDevice == null)
-            return;
-        targetDeviceForAudio = targetDevice; // 1. Permanently lock in the target!
-        isBtConnectingState = true; // block the bond/scan debounce until STATE_CONNECTED/DISCONNECTED clears it
-
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter != null && adapter.isDiscovering()) {
-            adapter.cancelDiscovery(); // 2. Always stop scanning first to avoid overload
-        }
-
-        // 3. If not paired yet, pair first! (once done, the receiver calls this function again)
-        if (targetDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
-            Toast.makeText(this, t("Pairing with ") + targetDevice.getName() + "...", Toast.LENGTH_SHORT).show();
-            try {
-                targetDevice.getClass().getMethod("createBond").invoke(targetDevice);
-            } catch (Exception e) {
-                Log.d(TAG, "connectBluetoothAudio failed", e);
-            }
-            return;
-        }
-
-        Toast.makeText(this, t("Connecting Audio..."), Toast.LENGTH_SHORT).show();
-
-        // 4. If the engine is alive, connect immediately; if not, revive it in the background then connect!
-        if (globalA2dp != null) {
-            executeA2dpConnect(targetDevice);
-        } else {
-            if (adapter != null) {
-                adapter.getProfileProxy(this, new android.bluetooth.BluetoothProfile.ServiceListener() {
-                    @Override
-                    public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                        if (profile == BluetoothProfile.A2DP) {
-                            globalA2dp = proxy;
-                            executeA2dpConnect(targetDevice);
-                        }
-                    }
-
-                    @Override
-                    public void onServiceDisconnected(int profile) {
-                        if (profile == BluetoothProfile.A2DP)
-                            globalA2dp = null;
-                    }
-                }, BluetoothProfile.A2DP);
-            }
-        }
-    }
-
-    // 🚀 [Core detail] The one actually handling the audio connection
-    private void executeA2dpConnect(BluetoothDevice targetDevice) {
-        if (globalA2dp == null || targetDevice == null)
-            return;
-        try {
-            // 💡 [Secret of the stock code] Before connecting, ruthlessly disconnect any other audio device already attached!
-            java.util.List<BluetoothDevice> connectedDevices = null;
-            try {
-                connectedDevices = globalA2dp.getConnectedDevices();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            if (connectedDevices != null) {
-                for (BluetoothDevice connected : connectedDevices) {
-                    if (!connected.getAddress().equals(targetDevice.getAddress())) {
-                        try {
-                            Method disconnectMethod = globalA2dp.getClass().getDeclaredMethod("disconnect",
-                                    BluetoothDevice.class);
-                            disconnectMethod.setAccessible(true);
-                            disconnectMethod.invoke(globalA2dp, connected);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-            }
-            
-            // 💡 Once the obstruction is gone, finally fire the audio beam at the target device!
-            Method connectMethod = null;
-            try {
-                connectMethod = globalA2dp.getClass().getDeclaredMethod("connect", BluetoothDevice.class);
-            } catch (NoSuchMethodException e) {
-                // If not found, try to iterate
-                for (Method m : globalA2dp.getClass().getMethods()) {
-                    if (m.getName().equals("connect") && m.getParameterTypes().length == 1) {
-                        connectMethod = m;
-                        break;
-                    }
-                }
-            }
-            
-            if (connectMethod == null) {
-                Toast.makeText(this, t("Audio connection error: connect method not found"), Toast.LENGTH_LONG).show();
-                return;
-            }
-            
-            connectMethod.setAccessible(true);
-            boolean result = (Boolean) connectMethod.invoke(globalA2dp, targetDevice);
-            if (!result) {
-                Toast.makeText(this, t("Audio connection rejected by system."), Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, t("Audio connection initiated."), Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            String errorStr = e.getClass().getSimpleName();
-            if (e instanceof java.lang.reflect.InvocationTargetException) {
-                Throwable cause = ((java.lang.reflect.InvocationTargetException) e).getCause();
-                if (cause != null) {
-                    errorStr += " (Cause: " + cause.getClass().getSimpleName() + " - " + cause.getMessage() + ")";
-                }
-            } else {
-                errorStr += " - " + e.getMessage();
-            }
-            Toast.makeText(this, "Audio error: " + errorStr, Toast.LENGTH_LONG).show();
-        }
+    private void connectBluetoothAudio(BluetoothDevice targetDevice) {
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().connectBluetoothAudio(this, targetDevice);
     }
     // Inside the init function (called once when the app launches)
     public void initRemoteControlClient(android.content.Context context) {
@@ -1309,7 +1051,7 @@ public class MainActivity extends Activity {
         // 🚀 Registers itself in a variable when the app launches.
         instance = this;
         usbFocusHelper = new Y1UsbFocusHelper(this);
-        AapService.addListener(aapEarListener);
+        AapService.addListener(com.themoon.y1.managers.BluetoothAudioManager.getInstance().aapEarListener);
         // 🚀 [Ultra-fast cache engine activated] Allocates 1/8 of the device's max memory as a vault dedicated to album art!
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
         final int cacheSize = maxMemory / 8; // (e.g. allocates 16MB)
@@ -1349,7 +1091,7 @@ public class MainActivity extends Activity {
                     @Override
                     public void onServiceConnected(int profile, android.bluetooth.BluetoothProfile proxy) {
                         if (profile == android.bluetooth.BluetoothProfile.A2DP) {
-                            globalA2dp = proxy; // Loaded and ready!
+                            com.themoon.y1.managers.BluetoothAudioManager.getInstance().setA2dp(proxy); // Loaded and ready!
                             updateBluetoothStatusIcon();
                             resyncAapWithConnectedDevice();
                         }
@@ -1358,7 +1100,7 @@ public class MainActivity extends Activity {
                     @Override
                     public void onServiceDisconnected(int profile) {
                         if (profile == android.bluetooth.BluetoothProfile.A2DP)
-                            globalA2dp = null;
+                            com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp();
                     }
                 }, android.bluetooth.BluetoothProfile.A2DP);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -3338,16 +3080,7 @@ public class MainActivity extends Activity {
         String name = (device.getName() != null && !device.getName().isEmpty()) ? device.getName()
                 : "Unknown (" + device.getAddress() + ")";
 
-        boolean isConnected = false;
-        if (globalA2dp != null) {
-            try {
-                int state = (int) globalA2dp.getClass().getMethod("getConnectionState", BluetoothDevice.class)
-                        .invoke(globalA2dp, device);
-                isConnected = (state == BluetoothProfile.STATE_CONNECTED);
-            } catch (Exception e) {
-                Log.d(TAG, "addPairedBluetoothItemToUI failed", e);
-            }
-        }
+        boolean isConnected = com.themoon.y1.managers.BluetoothAudioManager.getInstance().isA2dpConnectedTo(device);
 
         String prefix = isConnected ? "((♪)) [CONNECTED] " : "✔ ";
         final Button btnDevice = createListButton(prefix + name);
@@ -3392,11 +3125,7 @@ public class MainActivity extends Activity {
                 try {
                     // Deleting the device is a deliberate "stop connecting to this" -- drop it as the
                     // watchdog target and cancel any pending reconnect so we don't re-pair behind the user.
-                    if (targetDeviceForAudio != null
-                            && targetDeviceForAudio.getAddress().equals(device.getAddress())) {
-                        cancelAudioReconnect();
-                        targetDeviceForAudio = null;
-                    }
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().forgetTargetIfMatches(device);
                     device.getClass().getMethod("removeBond").invoke(device);
                     Toast.makeText(MainActivity.this, t("Device Deleted."), Toast.LENGTH_SHORT).show();
                     startBluetoothScan(); // Refresh the screen after removal
@@ -6397,17 +6126,7 @@ public class MainActivity extends Activity {
     // on resume (and right after the A2DP proxy first binds) self-heals that without needing a
     // manual reconnect.
     private void resyncAapWithConnectedDevice() {
-        if (globalA2dp == null) return;
-        try {
-            java.util.List<BluetoothDevice> connected = globalA2dp.getConnectedDevices();
-            if (!connected.isEmpty()) {
-                BluetoothDevice device = connected.get(0);
-                targetDeviceForAudio = device;
-                AapService.deviceConnected(this, device);
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "resyncAapWithConnectedDevice failed", e);
-        }
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().resyncAapWithConnectedDevice(this);
     }
 
     @Override
@@ -6522,13 +6241,7 @@ public class MainActivity extends Activity {
     // our own player's internal volume (AudioPlayerManager.setSpeakerMuted).
     // This stays predictable regardless of which physical output device is active.
     public void applySpeakerSetting() {
-        boolean externalAudioConnected = false;
-        try {
-            externalAudioConnected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
-        } catch (Exception e) {
-            Log.d(TAG, "applySpeakerSetting failed", e);
-        }
-        applySpeakerSetting(externalAudioConnected);
+        applySpeakerSetting(com.themoon.y1.managers.BluetoothAudioManager.getInstance().isAnyDeviceConnected());
     }
 
     public void applySpeakerSetting(boolean externalAudioConnected) {
@@ -6543,12 +6256,7 @@ public class MainActivity extends Activity {
 
     private void updateBluetoothStatusIcon() {
         if (ivStatusBluetooth == null) return;
-        boolean connected = false;
-        try {
-            connected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
-        } catch (Exception e) {
-            Log.d(TAG, "updateBluetoothStatusIcon failed", e);
-        }
+        boolean connected = com.themoon.y1.managers.BluetoothAudioManager.getInstance().isAnyDeviceConnected();
         ivStatusBluetooth.setColorFilter(connected ? BT_ICON_COLOR_CONNECTED : BT_ICON_COLOR_ON);
     }
 
