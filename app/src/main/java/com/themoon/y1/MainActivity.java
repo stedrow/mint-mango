@@ -68,8 +68,8 @@ import com.themoon.y1.views.WidgetBatteryBarView;
 public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
     // Note: Always add a trailing slash (/) at the end of the address!
-    private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
-    private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
+    public static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
+    public static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
     // 🚀 [Major overhaul complete] Smart control panel that lets you set the desired number of albums (odd numbers: 3, 5, 7, etc.) at any time
     private int visibleCoversCount = 7; // 💡 Back to 5! Just change this value (e.g. to 7) for testing and everything else updates automatically.
 
@@ -196,14 +196,14 @@ public class MainActivity extends Activity {
     public int[] customBandLevels = new int[32]; // Cache bank for custom tuning values
     public int settingsSubMode = 0;         // 0: general, 1: date/time, 2: equalizer routing
     public int currentAudioSessionId = -1;  // 🚀 [Added] Variable to remember the audio session ID currently in use
-    private int currentAdjustingBand = -1;   // 🚀 [Added] Remembers which frequency is currently being adjusted in the Graphic EQ.
-    private boolean isWidgetFocusImageOn = false; // 🚀 [Added] Power variable for the focus-image widget
+    public int currentAdjustingBand = -1;   // 🚀 [Added] Remembers which frequency is currently being adjusted in the Graphic EQ.
+    public boolean isWidgetFocusImageOn = false; // 🚀 [Added] Power variable for the focus-image widget
     // 💡 [Added] Home-screen widget related variables
-    private boolean isWidgetClockOn = false;
-    private boolean isWidgetBatteryOn = false;
-    private boolean isWidgetAlbumOn = false;
-    private boolean isWidgetAnalogClockOn = false;
-    private boolean isWidgetCircularBatteryOn = false;
+    public boolean isWidgetClockOn = false;
+    public boolean isWidgetBatteryOn = false;
+    public boolean isWidgetAlbumOn = false;
+    public boolean isWidgetAnalogClockOn = false;
+    public boolean isWidgetCircularBatteryOn = false;
 
     // 🚀 [New engine control variable] List-box hide and loop-scroll switch
 
@@ -313,7 +313,7 @@ public class MainActivity extends Activity {
     public com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     public int currentScreenState = STATE_MENU;
     // 💡 Temporary variable for the custom date/time settings
-    private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
+    public int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
     private View layoutMainMenu, layoutBrowserMode;
     public View layoutSettingsMode;
     private View layoutBluetoothMode, layoutWifiMode, layoutWifiKeyboard;
@@ -427,11 +427,11 @@ public class MainActivity extends Activity {
     public java.io.FileInputStream currentFileInputStream = null;
     private TextView tvMenuPreviewTitle, tvMenuPreviewArtist;
     public SharedPreferences prefs;
-    private boolean isShuffleMode = false;
-    private int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
-    private boolean isSoundEffectEnabled = true;
-    private boolean isSpeakerDisabled = false;
-    private boolean isVibrationEnabled = true;
+    public boolean isShuffleMode = false;
+    public int repeatMode = 0; // 0: OFF, 1: ONE (Repeat One), 2: ALL (Repeat Folder/All)
+    public boolean isSoundEffectEnabled = true;
+    public boolean isSpeakerDisabled = false;
+    public boolean isVibrationEnabled = true;
     public boolean isPickingBackground = false;
 
     // 💡 Variable that remembers the last-played album art
@@ -449,20 +449,20 @@ public class MainActivity extends Activity {
     private boolean lastKnownBatteryCharging = false;
     // 💡 Added equalizer related variable
     public Equalizer equalizer;
-    private List<String> eqPresetNames = new ArrayList<String>();
+    public List<String> eqPresetNames = new ArrayList<String>();
     public int currentEqPresetIndex = 0;
 
-    private int lastSettingsFocusIndex = 0;
+    public int lastSettingsFocusIndex = 0;
     public int currentSettingsDepth = 1;
-    private static final int GROUP_PLAYBACK = 0, GROUP_SOUND = 1, GROUP_CONNECTIVITY = 2, GROUP_DISPLAY = 3, GROUP_STORAGE = 4, GROUP_SYSTEM = 5;
-    private int currentSettingsGroup = GROUP_PLAYBACK;
+    public static final int GROUP_PLAYBACK = 0, GROUP_SOUND = 1, GROUP_CONNECTIVITY = 2, GROUP_DISPLAY = 3, GROUP_STORAGE = 4, GROUP_SYSTEM = 5;
+    public int currentSettingsGroup = GROUP_PLAYBACK;
     private boolean isScreenSleeping = false;
     public long lastScreenOnTime = 0;
     // 💡 [Added] Custom battery view variable
     private BatteryIconView batteryIconView;
-    private int currentTimeoutIndex = 1;
-    private final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
-    private final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
+    public int currentTimeoutIndex = 1;
+    public final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
+    public final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
     private TextView tvFocusPreviewClock; // 🚀 [New engine] Digital clock that ticks inside the live-preview box
     private ImageView ivWidgetFocusImage; // 🚀 [Added] Dynamic focus widget variable
 
@@ -478,9 +478,9 @@ public class MainActivity extends Activity {
 
     private Y1WebServer webServer;
     public boolean isServerRunning = false;
-    private int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
+    public int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
     // 🚀 Append parentheses to fully separate this into a key distinct from the equalizer's Normal!
-    private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
+    public final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
     // 💡 Key: 10ms (very short pulse), 25ms (normal wheel), 50ms (heavy rumble)
     private final int[] VIBE_DURATIONS = {10, 25, 50};
     // Pre-built so the once-a-second clock tick (and refreshWidgets, called from the same tick)
@@ -489,12 +489,12 @@ public class MainActivity extends Activity {
     private static final SimpleDateFormat STATUS_CLOCK_FORMAT_24 = new SimpleDateFormat("HH:mm", Locale.US);
     private static final SimpleDateFormat STATUS_CLOCK_FORMAT_12 = new SimpleDateFormat("hh:mm a", Locale.US);
 
-    private Handler clockHandler = new Handler();
+    public Handler clockHandler = new Handler();
     // Reused across every clock tick so we don't allocate a Date/Spannable every second.
     private final java.util.Date clockReusableDate = new java.util.Date();
     private String lastStatusClockText = null;
     private String lastFocusPreviewClockText = null;
-    private Runnable clockTask = new Runnable() {
+    public Runnable clockTask = new Runnable() {
         @Override
         public void run() {
             clockReusableDate.setTime(System.currentTimeMillis());
@@ -2373,11 +2373,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void startMediaLibraryScan() { startMediaLibraryScan(false); }
+    public void startMediaLibraryScan() { startMediaLibraryScan(false); }
 
     /** @param silent Skip the blocking "Scanning..." popup — used when the cache already
      *  populated the library instantly and this run is just reconciling with disk in the background. */
-    private void startMediaLibraryScan(final boolean silent) {
+    public void startMediaLibraryScan(final boolean silent) {
         if (isCustomScanning) return;
         isCustomScanning = true;
 
@@ -2504,7 +2504,7 @@ public class MainActivity extends Activity {
     // 💡 [Overhaul complete] Engine that shows download progress (%) and size (MB) in a live popup!
     // Overwrite the entire refreshWidgets() function located just above this comment!
 
-    private void refreshWidgets() {
+    public void refreshWidgets() {
         // 1. Update the digital clock widget
         if (tvWidgetClock != null) {
             clockReusableDate.setTime(System.currentTimeMillis());
@@ -2663,82 +2663,8 @@ public class MainActivity extends Activity {
         }
     }
     // 💡 [Added] A dedicated screen that shows the full theme list and lets the user pick one
-    private void buildThemeSelectorUI() {
-        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
-        File themeFolder = new File("/storage/sdcard0/Y1_Themes");
-        ThemeManager.loadThemesFromStorage(themeFolder);
-
-        containerSettingsItems.removeAllViews();
-
-        // Turn each theme read from the SD card folder into a button.
-        for (int i = 0; i < ThemeManager.availableThemes.size(); i++) {
-            final int index = i;
-            ThemeManager.ThemeData theme = ThemeManager.availableThemes.get(i);
-
-            String prefix = (ThemeManager.getCurrentThemeIndex() == i) ? "✔ " : "   ";
-            Button btn = createListButton(prefix + theme.name);
-
-            if (ThemeManager.getCurrentThemeIndex() == i) {
-                btn.setTypeface(null, android.graphics.Typeface.BOLD);
-                btn.setTextColor(0xFF00FF00); // Highlight the currently active theme in bold green!
-            }
-
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    ThemeManager.setThemeIndex(index);
-                    try {
-                        SharedPreferences.Editor editor = prefs.edit();
-                        editor.putInt("app_theme_index", index);
-                        editor.putBoolean("reboot_to_theme", true);
-
-                        // 🚀 [Smart automation] Scans the selected theme's parts (JSON) and automatically toggles the widget switches!
-                        boolean hasClock = false, hasAnalog = false, hasBattery = false, hasCircular = false, hasAlbum = false, hasFocusImage = false; // 🚀 Added variable
-
-                        for (ThemeManager.MenuElement el : theme.menuElements) {
-                            if ("widget_clock".equals(el.type)) hasClock = true;
-                            if ("widget_analog_clock".equals(el.type)) hasAnalog = true;
-                            if ("widget_battery".equals(el.type)) hasBattery = true;
-                            if ("widget_circular_battery".equals(el.type)) hasCircular = true;
-                            if ("widget_album".equals(el.type)) hasAlbum = true;
-                            if ("widget_focus_image".equals(el.type)) hasFocusImage = true; // 🚀 Added check
-                        }
-
-                        // Force-sync widgets included in the theme to 'ON' and ones not included to 'OFF'!
-                        editor.putBoolean("widget_clock", hasClock);
-                        editor.putBoolean("widget_analog_clock", hasAnalog);
-                        editor.putBoolean("widget_battery", hasBattery);
-                        editor.putBoolean("widget_circular_battery", hasCircular);
-                        editor.putBoolean("widget_album", hasAlbum);
-                        editor.putBoolean("widget_focus_image", hasFocusImage); // 🚀 Added save
-
-                        editor.apply(); // Settings saved
-                    } catch (Exception e) {
-                        Log.d(TAG, "buildThemeSelectorUI failed", e);
-                    }
-
-                    recreate(); // Refresh the screen! (the new widget settings take effect immediately)
-                }
-            });
-            containerSettingsItems.addView(btn);
-        }
-
-        containerSettingsItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                // Fixed the bug where focus escaped to index 1 (the second item), and went further to find and focus the theme I just selected!
-                int selectedIdx = ThemeManager.getCurrentThemeIndex();
-
-                if (containerSettingsItems.getChildCount() > selectedIdx && selectedIdx >= 0) {
-                    containerSettingsItems.getChildAt(selectedIdx).requestFocus();
-                }
-                // If an error occurs for any reason, safely fall back to focusing index 0 (the first item).
-                else if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
+    public void buildThemeSelectorUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildThemeSelectorUI(this);
     }
 
     private void triggerAutoReconnect() {
@@ -2814,7 +2740,7 @@ public class MainActivity extends Activity {
 
     // Returns true if the active theme ships a usable background image file. Used by the "Apply Theme
     // Background" setting to decide whether to engage theme-default mode or fall back to album blur.
-    private boolean currentThemeHasBackground() {
+    public boolean currentThemeHasBackground() {
         try {
             ThemeManager.ThemeData currentTheme = ThemeManager.getCurrentTheme();
             if (currentTheme.bgImage != null && !currentTheme.bgImage.isEmpty()
@@ -3733,7 +3659,7 @@ public class MainActivity extends Activity {
         containerWifiItems.addView(btnWifi);
     }
 
-    private void createCategoryHeader(String title) {
+    public void createCategoryHeader(String title) {
         TextView tv = new TextView(this);
         tv.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
         tv.setText(t(title)); // 🚀 [Fix] Run the incoming title through the translator once before setting it!
@@ -3830,12 +3756,12 @@ public class MainActivity extends Activity {
         return layout;
     }
     // 🚀 [Added engine] A helper function that auto-passes 0 (default theme color) when no color is specified, so existing code doesn't error out!
-    private android.view.View createListButtonWithIcon(String iconUnicode, String textLabel) {
+    public android.view.View createListButtonWithIcon(String iconUnicode, String textLabel) {
         return createListButtonWithIcon(iconUnicode, textLabel, 0);
     }
 
     // 🚀 [Main engine upgrade] Reworked to accept a third parameter, 'customColor' (the color to paint).
-    private android.view.View createListButtonWithIcon(String iconUnicode, String textLabel, final int customColor) {
+    public android.view.View createListButtonWithIcon(String iconUnicode, String textLabel, final int customColor) {
         float d = getResources().getDisplayMetrics().density;
 
         final android.widget.LinearLayout rowButton = new android.widget.LinearLayout(this);
@@ -3959,1052 +3885,63 @@ public class MainActivity extends Activity {
     }
 
     public void buildSettingsUI() {
-        currentSettingsDepth = 0; // 🚀 Main settings is depth 0
-
-        // 🚀 [Safeguard] Fully clears the radio UI flag when entering the general settings screen.
-        isRadioUIShowing = false;
-        isRadioSettingsMode = false;
-
-        // 🚀 [Added] Show the hidden top title text again when returning to the general settings screen.
-        android.view.ViewGroup settingsGroup = (android.view.ViewGroup) layoutSettingsMode;
-        if (settingsGroup != null && settingsGroup.getChildCount() > 0 && settingsGroup.getChildAt(0) instanceof TextView) {
-            settingsGroup.getChildAt(0).setVisibility(View.VISIBLE);
-        }
-
-        final int targetFocusIndex = lastSettingsFocusIndex;
-        containerSettingsItems.removeAllViews();
-
-        LinearLayout btnGroupPlayback = createSettingRow(t("Playback"), "〉 ");
-        btnGroupPlayback.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildPlaybackGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupPlayback);
-
-        LinearLayout btnGroupSound = createSettingRow(t("Sound & Vibration"), "〉 ");
-        btnGroupSound.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildSoundVibrationGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupSound);
-
-        LinearLayout btnGroupConnectivity = createSettingRow(t("Connectivity"), "〉 ");
-        btnGroupConnectivity.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildConnectivityGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupConnectivity);
-
-        LinearLayout btnGroupDisplay = createSettingRow(t("Display & Interface"), "〉 ");
-        btnGroupDisplay.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDisplayInterfaceGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupDisplay);
-
-        LinearLayout btnGroupStorage = createSettingRow(t("Storage & Library"), "〉 ");
-        btnGroupStorage.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildStorageLibraryGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupStorage);
-
-        LinearLayout btnGroupSystem = createSettingRow(t("System"), "〉 ");
-        btnGroupSystem.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildSystemGroupUI();
-            }
-        });
-        containerSettingsItems.addView(btnGroupSystem);
-
-        // 🚀 [Fix] Force-move to the correct position using the uncorrupted, safely backed-up index (targetFocusIndex)!
-        containerSettingsItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
-                    View target = containerSettingsItems.getChildAt(targetFocusIndex);
-                    target.requestFocus();
-
-                    // Force the ScrollView to find that button's position and scroll all the way down to it!
-                    if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
-                        ((android.widget.ScrollView) containerSettingsItems.getParent())
-                                .requestChildFocus(containerSettingsItems, target);
-                    }
-
-                    // Sync the variable state after the move is complete.
-                    lastSettingsFocusIndex = targetFocusIndex;
-                } else if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
-    } // end of buildSettingsUI function
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildSettingsUI(this);
+    }
 
     public void routeBackToSettingsGroup() {
-        switch (currentSettingsGroup) {
-            case GROUP_PLAYBACK: buildPlaybackGroupUI(); break;
-            case GROUP_SOUND: buildSoundVibrationGroupUI(); break;
-            case GROUP_CONNECTIVITY: buildConnectivityGroupUI(); break;
-            case GROUP_DISPLAY: buildDisplayInterfaceGroupUI(); break;
-            case GROUP_STORAGE: buildStorageLibraryGroupUI(); break;
-            case GROUP_SYSTEM: buildSystemGroupUI(); break;
-            default: buildSettingsUI();
-        }
+        com.themoon.y1.managers.SettingsUiManager.getInstance().routeBackToSettingsGroup(this);
     }
 
-    private void buildPlaybackGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_PLAYBACK;
-        containerSettingsItems.removeAllViews();
-
-        final LinearLayout btnShuffle = createSettingRow("Shuffle Mode", isShuffleMode ? t("ON") : t("OFF"));
-        btnShuffle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isShuffleMode = !isShuffleMode;
-                TextView tvStatus = (TextView) btnShuffle.getChildAt(1);
-                tvStatus.setText(isShuffleMode ? t("ON") : t("OFF"));
-                updatePlayerStatusIndicators();
-                try {
-                    prefs.edit().putBoolean("shuffle", isShuffleMode).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
-                }
-
-                if (!currentPlaylist.isEmpty() && !originalPlaylist.isEmpty()) {
-                    File currentSong = currentPlaylist.get(currentIndex);
-                    if (isShuffleMode) {
-                        java.util.Collections.shuffle(currentPlaylist);
-                    } else {
-                        currentPlaylist.clear();
-                        currentPlaylist.addAll(originalPlaylist);
-                    }
-                    currentIndex = currentPlaylist.indexOf(currentSong);
-                    if (currentIndex == -1)
-                        currentIndex = 0;
-                }
-            }
-        });
-        containerSettingsItems.addView(btnShuffle);
-
-        final LinearLayout btnRepeat = createSettingRow("Repeat Mode", t(getRepeatModeText(repeatMode)));
-        btnRepeat.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                repeatMode = (repeatMode + 1) % 3;
-                TextView tvStatus = (TextView) btnRepeat.getChildAt(1);
-                tvStatus.setText(t(getRepeatModeText(repeatMode)));
-                updatePlayerStatusIndicators();
-                try {
-                    prefs.edit().putInt("repeat_mode", repeatMode).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnRepeat);
-
-        String eqDisplayName = "Normal";
-        if (currentEqProfile.startsWith("preset_")) {
-            int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-            if (pIdx < eqPresetNames.size()) eqDisplayName = t(eqPresetNames.get(pIdx));
-        } else {
-            eqDisplayName = currentEqProfile.replace("custom_", "");
-        }
-        final LinearLayout btnEq = createSettingRow("Equalizer & Audio Effects", eqDisplayName + " 〉");
-
-        btnEq.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildEqualizerSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnEq);
-
-        final String[] speedLabels = {"1.0x (Normal)", "1.2x (Fast)", "1.5x (Faster)", "2.0x (Very Fast)"};
-        final float[] speedValues = {1.0f, 1.2f, 1.5f, 2.0f};
-
-        float currentSpd = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentSpeed();
-        int spdIdx = 0;
-        for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == currentSpd) spdIdx = i; }
-
-        final LinearLayout btnSpeed = createSettingRow("Playback Speed", t(speedLabels[spdIdx]));
-        btnSpeed.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                float current = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentSpeed();
-                int nextIdx = 0;
-                for (int i=0; i<speedValues.length; i++) { if (speedValues[i] == current) nextIdx = (i + 1) % speedValues.length; }
-
-                com.themoon.y1.managers.AudioPlayerManager.getInstance().setPlaybackSpeed(speedValues[nextIdx]);
-
-                TextView tvStatus = (TextView) btnSpeed.getChildAt(1);
-                tvStatus.setText(t(speedLabels[nextIdx]));
-                android.widget.Toast.makeText(MainActivity.this, t("Speed set to ") + t(speedLabels[nextIdx]), android.widget.Toast.LENGTH_SHORT).show();
-            }
-        });
-        containerSettingsItems.addView(btnSpeed);
-
-        final LinearLayout btnAutoFetch = createSettingRow("Auto Fetch Album Art", isAutoFetchEnabled ? t("ON") : t("OFF"));
-        btnAutoFetch.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isAutoFetchEnabled = !isAutoFetchEnabled;
-                ((TextView) btnAutoFetch.getChildAt(1)).setText(isAutoFetchEnabled ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("auto_fetch", isAutoFetchEnabled).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildPlaybackGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnAutoFetch);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildPlaybackGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildPlaybackGroupUI(this);
     }
 
-    private void buildSoundVibrationGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_SOUND;
-        containerSettingsItems.removeAllViews();
-
-        final LinearLayout btnSound = createSettingRow("Button Sound", isSoundEffectEnabled ? t("ON") : t("OFF"));
-        btnSound.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                isSoundEffectEnabled = !isSoundEffectEnabled;
-                applySoundSetting();
-                clickFeedback();
-                TextView tvStatus = (TextView) btnSound.getChildAt(1);
-                tvStatus.setText(isSoundEffectEnabled ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("sound", isSoundEffectEnabled).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildSoundVibrationGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnSound);
-
-        final LinearLayout btnSpeakerDisable = createSettingRow("Disable Built-in Speaker", isSpeakerDisabled ? t("ON") : t("OFF"));
-        btnSpeakerDisable.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                isSpeakerDisabled = !isSpeakerDisabled;
-                applySpeakerSetting();
-                clickFeedback();
-                TextView tvStatus = (TextView) btnSpeakerDisable.getChildAt(1);
-                tvStatus.setText(isSpeakerDisabled ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("speaker_disabled", isSpeakerDisabled).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildSoundVibrationGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnSpeakerDisable);
-
-        LinearLayout btnVibrateMenu = createSettingRow("Vibration", "〉 ");
-        btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildVibrationSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnVibrateMenu);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildSoundVibrationGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildSoundVibrationGroupUI(this);
     }
 
-    private void buildConnectivityGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_CONNECTIVITY;
-        containerSettingsItems.removeAllViews();
-
-        LinearLayout btnWifiMenu = createSettingRow(t("Wi-Fi"), "〉 ");
-        btnWifiMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_WIFI);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnWifiMenu);
-
-        LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
-        btnBtMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_BLUETOOTH);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnBtMenu);
-
-        LinearLayout btnServerMenu = createSettingRow(t("Web Server"), "〉 ");
-        btnServerMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_WEBSERVER);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnServerMenu);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildConnectivityGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildConnectivityGroupUI(this);
     }
 
-    private void buildDisplayInterfaceGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_DISPLAY;
-        containerSettingsItems.removeAllViews();
-
-        final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
-        btnTheme.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildThemeSelectorUI();
-            }
-        });
-        containerSettingsItems.addView(btnTheme);
-
-        LinearLayout btnBgMenu = createSettingRow("Background", "〉 ");
-        btnBgMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildBackgroundSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnBgMenu);
-
-        final LinearLayout btnMenuVisibility = createSettingRow("Main Menu Items", t("Edit") + " 〉");
-        btnMenuVisibility.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildMainMenuVisibilitySettingsUI();
-
-                containerSettingsItems.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (containerSettingsItems.getChildCount() > 0) {
-                            containerSettingsItems.getChildAt(0).requestFocus();
-                        }
-                    }
-                }, 50);
-            }
-        });
-        containerSettingsItems.addView(btnMenuVisibility);
-
-        final LinearLayout btnScreenOffCtrl = createSettingRow("Screen-Off Control",
-                isScreenOffControlEnabled ? t("ON") : t("OFF"));
-        btnScreenOffCtrl.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isScreenOffControlEnabled = !isScreenOffControlEnabled;
-                TextView tvStatus = (TextView) btnScreenOffCtrl.getChildAt(1);
-                tvStatus.setText(isScreenOffControlEnabled ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("screen_off_control", isScreenOffControlEnabled).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnScreenOffCtrl);
-
-        final com.themoon.y1.managers.WheelLockManager wheelLockManager = com.themoon.y1.managers.WheelLockManager.getInstance();
-        final LinearLayout btnWheelLock = createSettingRow("Lock Wheel on Wake", wheelLockManager.isEnabled() ? t("ON") : t("OFF"));
-        btnWheelLock.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                wheelLockManager.setEnabled(!wheelLockManager.isEnabled());
-                TextView tvStatus = (TextView) btnWheelLock.getChildAt(1);
-                tvStatus.setText(wheelLockManager.isEnabled() ? t("ON") : t("OFF"));
-                try {
-                    prefs.edit().putBoolean("wheel_lock_on_wake", wheelLockManager.isEnabled()).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnWheelLock);
-
-        final LinearLayout btnLoopScrollToggle = createSettingRow("Wheel Loop Scroll", isLoopScrollOn ? t("ON") : t("OFF"));
-        btnLoopScrollToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isLoopScrollOn = !isLoopScrollOn;
-                ((TextView) btnLoopScrollToggle.getChildAt(1)).setText(isLoopScrollOn ? t("ON") : t("OFF"));
-                prefs.edit().putBoolean("loop_scroll_on", isLoopScrollOn).apply();
-            }
-        });
-        containerSettingsItems.addView(btnLoopScrollToggle);
-
-        final LinearLayout btnTimeout = createSettingRow("Screen Timeout", t(TIMEOUT_NAMES[currentTimeoutIndex]));
-        btnTimeout.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                currentTimeoutIndex = (currentTimeoutIndex + 1) % TIMEOUT_VALUES.length;
-                ((TextView) btnTimeout.getChildAt(1)).setText(t(TIMEOUT_NAMES[currentTimeoutIndex]));
-
-                try {
-                    Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT,
-                            TIMEOUT_VALUES[currentTimeoutIndex]);
-                } catch (Exception e) {
-                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
-                }
-                try {
-                    prefs.edit().putInt("timeout_idx", currentTimeoutIndex).apply();
-                } catch (Exception e) {
-                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
-                }
-            }
-        });
-        containerSettingsItems.addView(btnTimeout);
-
-        LinearLayout btnBrightMenu = createSettingRow("Display Brightness", "〉 ");
-        btnBrightMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_BRIGHTNESS);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnBrightMenu);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildDisplayInterfaceGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildDisplayInterfaceGroupUI(this);
     }
 
-    private void buildStorageLibraryGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_STORAGE;
-        containerSettingsItems.removeAllViews();
-
-        LinearLayout btnStorageMenu = createSettingRow("Storage", "〉 ");
-        btnStorageMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                changeScreen(STATE_STORAGE);
-                clickFeedback();
-            }
-        });
-        containerSettingsItems.addView(btnStorageMenu);
-
-        LinearLayout btnClearCache = createSettingRow("Clear Album Art & Info", "〉 ");
-        btnClearCache.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Clear Cache & Track Info"))
-                        .setMessage(t("Delete all downloaded album covers and saved track information (Title/Artist)?"))
-                        .setPositiveButton(t("Clear"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    File coverFolder = new File("/storage/sdcard0/Y1_Covers");
-                                    int count = 0;
-                                    if (coverFolder.exists()) {
-                                        File[] files = coverFolder.listFiles();
-                                        if (files != null) {
-                                            for (File f : files) {
-                                                if (f.isFile() && f.delete())
-                                                    count++;
-                                            }
-                                        }
-                                    }
-
-                                    libraryCacheDb.clearAllMetaAndArt();
-
-                                    Toast.makeText(MainActivity.this, "Deleted " + count + " covers & cleared track info.",
-                                            Toast.LENGTH_SHORT).show();
-
-                                    ivAlbumArt.setImageResource(R.drawable.default_album);
-                                    ivPlayerBgBlur.setImageResource(0);
-                                    lastAlbumArtBytes = null;
-
-                                    if (!currentPlaylist.isEmpty()) {
-                                        File currentFile = currentPlaylist.get(currentIndex);
-                                        tvPlayerTitle.setText(currentFile.getName());
-                                        tvPlayerArtist.setText("Unknown Artist");
-                                    }
-
-                                    updateMainMenuBackground();
-                                    refreshNowPlayingPreview();
-                                } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this, "Failed to clear cache.", Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnClearCache);
-
-        LinearLayout btnRebuildCache = createSettingRow("Rebuild Library Cache", "〉 ");
-        btnRebuildCache.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Rebuild Library Cache"))
-                        .setMessage(t("Re-scan every song and re-read its tags from scratch? This is slower than a normal scan but fixes a stale or incorrect cache."))
-                        .setPositiveButton(t("Rebuild"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                if (libraryCacheDb != null) libraryCacheDb.clear();
-                                startMediaLibraryScan();
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnRebuildCache);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildStorageLibraryGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildStorageLibraryGroupUI(this);
     }
 
-    private void buildSystemGroupUI() {
-        currentSettingsDepth = 1;
-        currentSettingsGroup = GROUP_SYSTEM;
-        containerSettingsItems.removeAllViews();
-
-        LinearLayout btnTime = createSettingRow("Date & Time", "〉");
-        btnTime.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-
-                java.util.Calendar c = java.util.Calendar.getInstance();
-                dtYear = c.get(java.util.Calendar.YEAR);
-                dtMonth = c.get(java.util.Calendar.MONTH) + 1;
-                dtDay = c.get(java.util.Calendar.DAY_OF_MONTH);
-                dtHour = c.get(java.util.Calendar.HOUR_OF_DAY);
-                dtMinute = c.get(java.util.Calendar.MINUTE);
-
-                buildDateTimeUI();
-            }
-        });
-        containerSettingsItems.addView(btnTime);
-
-        String myVersionName = "1.0";
-        try {
-            myVersionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception e) {
-            Log.d(TAG, "buildSystemGroupUI failed", e);
-        }
-        String displayLang = com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName.replace(".json", "");
-        LinearLayout btnLangMenu = createSettingRow("Language", displayLang);
-        btnLangMenu.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildLanguageSelectorUI();
-            }
-        });
-        containerSettingsItems.addView(btnLangMenu);
-
-        LinearLayout btnUpdateCheck = createSettingRow("System Update", "v" + myVersionName);
-        btnUpdateCheck.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildUpdateSettingsUI();
-            }
-        });
-        containerSettingsItems.addView(btnUpdateCheck);
-
-        LinearLayout btnPowerOff = createSettingRow("Power Off", "〉 ");
-        btnPowerOff.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Power Off"))
-                        .setMessage(t("Do you want to shut down the device?"))
-                        .setPositiveButton(t("Shut Down"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", "reboot -p" });
-                                    proc.waitFor();
-                                } catch (Exception e) {
-                                    try {
-                                        Intent intent = new Intent("android.intent.action.ACTION_REQUEST_SHUTDOWN");
-                                        intent.putExtra("android.intent.extra.KEY_CONFIRM", false);
-                                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                        startActivity(intent);
-                                    } catch (Exception ex) {
-                                        Toast.makeText(MainActivity.this,
-                                                t("System security prevents powering off directly from the app."),
-                                                Toast.LENGTH_LONG).show();
-                                    }
-                                }
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnPowerOff);
-
-        LinearLayout btnSwitchRockbox = createSettingRow(t("Switch to Rockbox"), "〉 ");
-        btnSwitchRockbox.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-
-                boolean isRockboxInstalled = false;
-                try {
-                    getPackageManager().getPackageInfo("org.rockbox", 0);
-                    isRockboxInstalled = true;
-                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                    isRockboxInstalled = false;
-                }
-
-                if (!isRockboxInstalled) {
-                        new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                                .setTitle(t("Not Installed ⚠️"))
-                                .setMessage(t("Rockbox is not installed on this device.\nPlease install the Rockbox app (.apk) first."))
-                                .setPositiveButton(t("OK"), null)
-                            .show();
-                    return;
-                }
-
-                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle(t("Switch to Rockbox"))
-                        .setMessage(t("Do you want to switch to Rockbox instantly without rebooting?"))
-                        .setPositiveButton(t("Switch"), new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    Toast.makeText(MainActivity.this, "Switching to Rockbox...", Toast.LENGTH_SHORT).show();
-
-                                    String cmd = "pm enable org.rockbox && am start -n org.rockbox/.RockboxActivity && pm disable com.themoon.y1";
-
-                                    Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
-
-                                } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
-                                }
-                            }
-                        })
-                        .setNegativeButton(t("Cancel"), null)
-                        .show();
-            }
-        });
-        containerSettingsItems.addView(btnSwitchRockbox);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildSystemGroupUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildSystemGroupUI(this);
     }
     // 💡 [New] Screen dedicated to selecting a language pack
-    private void buildLanguageSelectorUI() {
-        currentSettingsDepth = 2;
-        containerSettingsItems.removeAllViews();
-
-        final com.themoon.y1.managers.LanguageManager langMgr = com.themoon.y1.managers.LanguageManager.getInstance(this);
-        langMgr.loadAvailableLanguages(); // Re-scan the folder
-
-        // 1. Default English button
-        String enPrefix = langMgr.currentLangFileName.equals("English (Default)") ? "✔ " : "   ";
-        Button btnEng = createListButton(enPrefix + "English (Default)");
-        if (langMgr.currentLangFileName.equals("English (Default)")) { btnEng.setTextColor(0xFF00FF00); }
-        btnEng.setOnClickListener(v -> {
-            clickFeedback();
-            prefs.edit().putString("app_language", "English (Default)").apply();
-            langMgr.applyLanguage("English (Default)");
-            recreate(); // Fully refresh the screen to apply immediately!
-        });
-        containerSettingsItems.addView(btnEng);
-
-        // 2. List the JSON language packs read in from external storage
-        for (final File f : langMgr.availableLangFiles) {
-            String prefix = langMgr.currentLangFileName.equals(f.getName()) ? "✔ " : "   ";
-            Button btnLang = createListButton(prefix + f.getName().replace(".json", ""));
-            if (langMgr.currentLangFileName.equals(f.getName())) { btnLang.setTextColor(0xFF00FF00); }
-
-            btnLang.setOnClickListener(v -> {
-                clickFeedback();
-                prefs.edit().putString("app_language", f.getName()).apply();
-                langMgr.applyLanguage(f.getName());
-                recreate(); // Reboot the activity immediately when the language changes!
-            });
-            containerSettingsItems.addView(btnLang);
-        }
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildLanguageSelectorUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildLanguageSelectorUI(this);
     }
     public void buildRadioUI() {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().build(this);
     }
 
-    private void buildUpdateSettingsUI() {
-        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
-        containerSettingsItems.removeAllViews();
-
-        // 1. Get my device's current version
-        String myVersionName = "1.0";
-        int tempCode = 1;
-        try {
-            android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
-            myVersionName = pInfo.versionName;
-            tempCode = pInfo.versionCode;
-        } catch (Exception e) {
-            Log.d(TAG, "buildUpdateSettingsUI failed", e);
-        }
-
-        final int myVersionCode = tempCode;
-
-        // 2. Current version display line
-        LinearLayout rowCurrent = createSettingRow("Current Version", "v" + myVersionName);
-        containerSettingsItems.addView(rowCurrent);
-
-        // 3. Server version display line (initially shows Checking...)
-        final LinearLayout rowServer = createSettingRow("Latest Version", "Checking...");
-        containerSettingsItems.addView(rowServer);
-
-        createCategoryHeader("━━━━━━━━━━━━━━");
-
-        // 4. Bottom update-execution button (hidden until the server check completes)
-        final Button btnExecuteUpdate = createListButton("🚀 " + t("DOWNLOAD & UPDATE"));;
-        btnExecuteUpdate.setVisibility(View.GONE);
-        containerSettingsItems.addView(btnExecuteUpdate);
-
-        // 🚀 5. As soon as the screen opens, read the server's output-metadata.json in the background!
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    java.net.URL url = new java.net.URL(METADATA_URL);
-                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-
-                    // 🚀 [Required 1] Break through GitHub's security (TLS 1.2): equip the secret weapon we built!
-                    if (conn instanceof javax.net.ssl.HttpsURLConnection) {
-                        try {
-                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
-                        } catch (Exception e) {
-                            Log.d(TAG, "buildUpdateSettingsUI failed", e);
-                        }
-                    }
-
-                    conn.setInstanceFollowRedirects(false); // Turn off the default auto-follow so we can track redirects manually
-                    conn.setConnectTimeout(5000);
-
-                    // 🚀 [Required 2] Chase GitHub redirects (address forwarding) all the way to the end!
-                    int status = conn.getResponseCode();
-                    if (status == 301 || status == 302 || status == 303) {
-                        String newUrl = conn.getHeaderField("Location");
-                        conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
-                        if (conn instanceof javax.net.ssl.HttpsURLConnection) {
-                            try {
-                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new TLSSocketFactory());
-                            } catch (Exception e) {
-                                Log.d(TAG, "buildUpdateSettingsUI failed", e);
-                            }
-                        }
-                    }
-
-                    java.io.BufferedReader in = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(conn.getInputStream()));
-                    StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = in.readLine()) != null)
-                        sb.append(line);
-                    in.close();
-
-                    org.json.JSONObject root = new org.json.JSONObject(sb.toString());
-                    org.json.JSONArray elements = root.getJSONArray("elements");
-                    org.json.JSONObject element = elements.getJSONObject(0);
-
-                    final int serverVersionCode = element.getInt("versionCode");
-                    final String serverVersionName = element.getString("versionName");
-                    final String apkFileName = element.getString("outputFile");
-
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            // Update the server version text (e.g. Checking... -> v1.2)
-                            TextView tvServer = (TextView) rowServer.getChildAt(1);
-                            tvServer.setText("v" + serverVersionName);
-
-                            // 🚀 [Comparison] When an update is needed
-                            if (serverVersionCode > myVersionCode) {
-                                tvServer.setTextColor(0xFF00FF00); // Make the server version an eye-catching green!
-
-                                btnExecuteUpdate.setVisibility(View.VISIBLE);
-                                btnExecuteUpdate.setTextColor(0xFFFFFFFF);
-                                btnExecuteUpdate.setTypeface(null, android.graphics.Typeface.BOLD);
-                                btnExecuteUpdate.setOnClickListener(new View.OnClickListener() {
-                                    @Override
-                                    public void onClick(View v) {
-                                        clickFeedback();
-                                        String downloadUrl = SERVER_BASE_URL + apkFileName;
-                                        downloadAndInstallApk(downloadUrl); // Call the download engine
-                                    }
-                                });
-                            }
-                            // 🚀 [Comparison] When already on the latest version
-                            else {
-                                tvServer.setTextColor(ThemeManager.getTextColorSecondary());
-
-                                btnExecuteUpdate.setText("✔ " + t("ALREADY UP TO DATE"));
-                                btnExecuteUpdate.setVisibility(View.VISIBLE);
-                                btnExecuteUpdate.setTextColor(ThemeManager.getTextColorSecondary());
-                                btnExecuteUpdate.setOnClickListener(new View.OnClickListener() {
-                                    @Override
-                                    public void onClick(View v) {
-                                        clickFeedback();
-                                        Toast.makeText(MainActivity.this, t("You are using the latest version."),
-                                                Toast.LENGTH_SHORT).show();
-                                    }
-                                });
-                            }
-                        }
-                    });
-                } catch (Exception e) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            TextView tvServer = (TextView) rowServer.getChildAt(1);
-                            tvServer.setText(t("Network Error"));
-                            tvServer.setTextColor(0xFFFF4444); // Red error indicator
-                        }
-                    });
-                }
-            }
-        }).start();
-
-        // Automatically focuses the second button (Current Version) on entry
-        if (containerSettingsItems.getChildCount() > 0) {
-            containerSettingsItems.getChildAt(0).requestFocus();
-        }
+    public void buildUpdateSettingsUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildUpdateSettingsUI(this);
     }
     // 💡 [New] Dedicated sub-menu for vibration ON/OFF and intensity control!
-    private void buildVibrationSettingsUI() {
-        currentSettingsDepth = 2; // Tell the system we've left the main settings screen
-        containerSettingsItems.removeAllViews();
-
-        // 1. Vibration power switch
-        final LinearLayout btnToggle = createSettingRow("Vibration Power", isVibrationEnabled ? t("ON") : t("OFF"));
-        btnToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                isVibrationEnabled = !isVibrationEnabled;
-                clickFeedback();
-                ((TextView) btnToggle.getChildAt(1)).setText(isVibrationEnabled ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("vibrate", isVibrationEnabled).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
-            }
-        });
-        containerSettingsItems.addView(btnToggle);
-
-        // 2. Vibration intensity switch (cycles Weak -> Normal -> Strong)
-        final LinearLayout btnStrength = createSettingRow("Vibration Strength", t(VIBE_STRENGTH_NAMES[vibrationStrengthLevel]));
-        btnStrength.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                vibrationStrengthLevel = (vibrationStrengthLevel + 1) % 3; // cycles 0, 1, 2
-
-                // 💡 Since a vibration at the new intensity fires immediately on press, you can feel the change right away!
-                clickFeedback();
-
-                // 🚀 [Fix complete] Make sure the text is always passed through the translator t() when it changes on button press too!
-                ((TextView) btnStrength.getChildAt(1)).setText(t(VIBE_STRENGTH_NAMES[vibrationStrengthLevel]));
-                try { prefs.edit().putInt("vibrate_strength", vibrationStrengthLevel).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
-            }
-        });
-        containerSettingsItems.addView(btnStrength);
-
-        // Focus the first button on entering the menu!
-        if (containerSettingsItems.getChildCount() > 0) {
-            containerSettingsItems.getChildAt(0).requestFocus();
-        }
+    public void buildVibrationSettingsUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildVibrationSettingsUI(this);
     }
     // 💡 [Added] Sub-menu screen dedicated to toggling widgets on and off
     // 💡 [Fix complete] Unified widget settings menu that can toggle all 5 widgets on and off
-    private void buildWidgetSettingsUI() {
-        currentSettingsDepth = 1; // Tell the system we've left the main settings screen
-        containerSettingsItems.removeAllViews();
-
-        // 1. Existing: digital clock & date widget switch
-        final LinearLayout btnClock = createSettingRow("Widget: Digital Clock", isWidgetClockOn ? t("ON") : t("OFF"));
-        btnClock.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetClockOn = !isWidgetClockOn;
-                ((TextView) btnClock.getChildAt(1)).setText(isWidgetClockOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_clock", isWidgetClockOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets(); // Instantly update the widget screen when the switch is turned on!
-            }
-        });
-        containerSettingsItems.addView(btnClock);
-
-        // 2. New: analog clock widget switch
-        final LinearLayout btnAnalogClock = createSettingRow("Widget: Analog Clock", isWidgetAnalogClockOn ? t("ON") : t("OFF"));
-        btnAnalogClock.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetAnalogClockOn = !isWidgetAnalogClockOn;
-                ((TextView) btnAnalogClock.getChildAt(1)).setText(isWidgetAnalogClockOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_analog_clock", isWidgetAnalogClockOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets();
-            }
-        });
-        containerSettingsItems.addView(btnAnalogClock);
-
-        // 3. Existing: bar-style battery widget switch
-        final LinearLayout btnBattery = createSettingRow("Widget: Battery Bar", isWidgetBatteryOn ? t("ON") : t("OFF"));
-        btnBattery.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetBatteryOn = !isWidgetBatteryOn;
-                ((TextView) btnBattery.getChildAt(1)).setText(isWidgetBatteryOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_battery", isWidgetBatteryOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets();
-            }
-        });
-        containerSettingsItems.addView(btnBattery);
-
-        // 4. New: circular battery widget switch
-        final LinearLayout btnCircularBattery = createSettingRow("Widget: Circular Battery", isWidgetCircularBatteryOn ? t("ON") : t("OFF"));
-        btnCircularBattery.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetCircularBatteryOn = !isWidgetCircularBatteryOn;
-                ((TextView) btnCircularBattery.getChildAt(1)).setText(isWidgetCircularBatteryOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_circular_battery", isWidgetCircularBatteryOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets();
-            }
-        });
-        containerSettingsItems.addView(btnCircularBattery);
-
-        // 5. Existing: album art widget switch
-        final LinearLayout btnAlbum = createSettingRow("Widget: Now Playing Album", isWidgetAlbumOn ? t("ON") : t("OFF"));
-        btnAlbum.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetAlbumOn = !isWidgetAlbumOn;
-                ((TextView) btnAlbum.getChildAt(1)).setText(isWidgetAlbumOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_album", isWidgetAlbumOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets();
-            }
-        });
-        containerSettingsItems.addView(btnAlbum);
-
-        // 🚀 6. New: added dynamic focus-image widget switch!
-        final LinearLayout btnFocusImage = createSettingRow("Widget: Dynamic Focus Image", isWidgetFocusImageOn ? t("ON") : t("OFF"));
-        btnFocusImage.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isWidgetFocusImageOn = !isWidgetFocusImageOn;
-                ((TextView) btnFocusImage.getChildAt(1)).setText(isWidgetFocusImageOn ? t("ON") : t("OFF"));
-                try { prefs.edit().putBoolean("widget_focus_image", isWidgetFocusImageOn).apply(); } catch (Exception e) { Log.d(TAG, "buildWidgetSettingsUI failed", e); }
-                refreshWidgets(); // Reflect it on screen immediately when the switch is turned on!
-            }
-        });
-        containerSettingsItems.addView(btnFocusImage);
-
-        // Automatically focuses the second item on entry.
-        if (containerSettingsItems.getChildCount() > 0) {
-            containerSettingsItems.getChildAt(0).requestFocus();
-        }
+    public void buildWidgetSettingsUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildWidgetSettingsUI(this);
     }
     // 💡 [Added] Sub-menu screen that combines setting and clearing the wallpaper into one
-    private void buildBackgroundSettingsUI() {
-        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
-        containerSettingsItems.removeAllViews();
-
-        // 1. Set-new-background button
-        LinearLayout btnSelectBg = createSettingRow("Select New Background", "〉 ");
-        btnSelectBg.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                isPickingBackground = true;
-                currentFolder = new File("/storage/sdcard0");
-                changeScreen(STATE_BROWSER);
-                Toast.makeText(MainActivity.this, t("Select a JPG/PNG image"), Toast.LENGTH_SHORT).show();
-            }
-        });
-        containerSettingsItems.addView(btnSelectBg);
-
-        // 🚀 2. Force the active theme's own background image (falls back to album blur if the theme has none)
-        LinearLayout btnThemeBg = createSettingRow("Apply Theme Background", "〉 ");
-        btnThemeBg.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                if (currentThemeHasBackground()) {
-                    prefs.edit().putString("bg_path", "THEME_DEFAULT").apply();
-                    Toast.makeText(MainActivity.this, t("Theme background applied."), Toast.LENGTH_SHORT).show();
-                } else {
-                    // The theme ships no background image — don't force a blank; drop back to album blur.
-                    prefs.edit().remove("bg_path").apply();
-                    Toast.makeText(MainActivity.this, t("This theme has no background. Switched to Album Blur."), Toast.LENGTH_SHORT).show();
-                }
-                updateMainMenuBackground(); // Render the change immediately
-            }
-        });
-        containerSettingsItems.addView(btnThemeBg);
-
-        // 3. Clear-existing-background button (returns to album-art blur mode)
-        LinearLayout btnClearBg = createSettingRow("Clear Custom Background", "〉 ");
-        btnClearBg.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                if (prefs.contains("bg_path")) {
-                    prefs.edit().remove("bg_path").apply();
-                    Toast.makeText(MainActivity.this, t("Custom background cleared."), Toast.LENGTH_SHORT).show();
-                    updateMainMenuBackground(); // Instantly revert to the original theme background!
-                } else {
-                    Toast.makeText(MainActivity.this, t("No custom background set."), Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
-        containerSettingsItems.addView(btnClearBg);
-
-        // Automatically focuses the first button on entering the menu!
-        if (containerSettingsItems.getChildCount() > 0) {
-            containerSettingsItems.getChildAt(0).requestFocus();
-        }
+    public void buildBackgroundSettingsUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildBackgroundSettingsUI(this);
     }
 
     // 💡 [Overhaul complete] Engine that shows download progress (%) and size (MB) in a live popup!
-    private void downloadAndInstallApk(final String apkUrl) {
+    public void downloadAndInstallApk(final String apkUrl) {
         // 🚀 1. Assemble the design of the 'download progress popup' shown on screen directly in Java code.
         final ProgressBar progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -7229,7 +6166,7 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private String getRepeatModeText(int mode) {
+    public String getRepeatModeText(int mode) {
         switch (mode) {
             case 1:
                 return "ONE";
@@ -7240,7 +6177,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void updatePlayerStatusIndicators() {
+    public void updatePlayerStatusIndicators() {
         try {
             // 1. Shuffle icon setup
             if (ivPlayerShuffleStatus != null) {
@@ -7562,7 +6499,7 @@ public class MainActivity extends Activity {
         // (screen unlock) — nulling it here silently breaks background media-button control.
     }
     // 💡 Function that directly blocks/allows the Android system's own hardware click-sound stream
-    private void applySoundSetting() {
+    public void applySoundSetting() {
         try {
             if (audioManager != null) {
                 audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, !isSoundEffectEnabled);
@@ -7584,7 +6521,7 @@ public class MainActivity extends Activity {
     // In the end, instead of touching the system's audio routing at all, we only adjust
     // our own player's internal volume (AudioPlayerManager.setSpeakerMuted).
     // This stays predictable regardless of which physical output device is active.
-    private void applySpeakerSetting() {
+    public void applySpeakerSetting() {
         boolean externalAudioConnected = false;
         try {
             externalAudioConnected = globalA2dp != null && !globalA2dp.getConnectedDevices().isEmpty();
@@ -7594,7 +6531,7 @@ public class MainActivity extends Activity {
         applySpeakerSetting(externalAudioConnected);
     }
 
-    private void applySpeakerSetting(boolean externalAudioConnected) {
+    public void applySpeakerSetting(boolean externalAudioConnected) {
         boolean shouldMute = isSpeakerDisabled && !externalAudioConnected;
         com.themoon.y1.managers.AudioPlayerManager.getInstance().setSpeakerMuted(shouldMute);
     }
@@ -7631,195 +6568,13 @@ public class MainActivity extends Activity {
     }
 
     // 💡 1. Main date/time settings screen (time-error and focus-lock bugs fully fixed version)
-    private void buildDateTimeUI() {
-        currentSettingsDepth = 2; // 🚀 Main settings is depth 0
-        containerSettingsItems.removeAllViews();
-        // 🚀 [Fix] Wrap the 12-hour/24-hour text with t() so it also goes through the translator!
-        String formatRightText = is24HourFormat ? t("24 Hour") : t("12 Hour");
-        final LinearLayout rowFormat = createSettingRow("Time Format", formatRightText);
-        rowFormat.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                is24HourFormat = !is24HourFormat; // toggle
-                prefs.edit().putBoolean("is_24h_format", is24HourFormat).apply(); // save permanently
-
-                // 💡 Force-nudge the runtime thread once so the clock hands update immediately
-                clockHandler.removeCallbacks(clockTask);
-                clockHandler.post(clockTask);
-
-                buildDateTimeUI(); // Refresh the settings screen
-            }
-        });
-        containerSettingsItems.addView(rowFormat);
-        final LinearLayout rowYear = createSettingRow("Year", String.valueOf(dtYear));
-        rowYear.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeSelectorUI("Year", 2020, 2035, dtYear);
-            }
-        });
-        containerSettingsItems.addView(rowYear);
-
-        final LinearLayout rowMonth = createSettingRow("Month", String.format(java.util.Locale.US, "%02d", dtMonth));
-        rowMonth.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeSelectorUI("Month", 1, 12, dtMonth);
-            }
-        });
-        containerSettingsItems.addView(rowMonth);
-
-        final LinearLayout rowDay = createSettingRow("Day", String.format(java.util.Locale.US, "%02d", dtDay));
-        rowDay.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeSelectorUI("Day", 1, 31, dtDay);
-            }
-        });
-        containerSettingsItems.addView(rowDay);
-
-        final LinearLayout rowHour = createSettingRow("Hour (24H)", String.format(java.util.Locale.US, "%02d", dtHour));
-        rowHour.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeSelectorUI("Hour", 0, 23, dtHour);
-            }
-        });
-        containerSettingsItems.addView(rowHour);
-
-        final LinearLayout rowMinute = createSettingRow("Minute", String.format(java.util.Locale.US, "%02d", dtMinute));
-        rowMinute.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildDateTimeSelectorUI("Minute", 0, 59, dtMinute);
-            }
-        });
-        containerSettingsItems.addView(rowMinute);
-
-        createCategoryHeader("━━━━━━━━━━━━━━");
-
-        final Button btnApply = createListButton("✅ " + t("APPLY DATE & TIME"));
-        btnApply.setTextColor(0xFFFFFFFF);
-        btnApply.setTypeface(null, android.graphics.Typeface.BOLD);
-        btnApply.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                try {
-                    // 🚀 [Time error permanently fixed] Sets the time without touching the device's existing timezone.
-                    // Android's built-in `date` command parses completely differently depending on the shell built into the device (Toolbox vs Toybox),
-                    // and there's a serious bug where an incorrect format always resets the clock to 1970 or 1980.
-                    // To fully prevent this, we apply one format, then check that the year/month/day were actually applied correctly, and if it failed, try the next format —
-                    // we write a self-verifying script that follows this approach!
-
-                    String cmd = "settings put global auto_time 0; settings put system auto_time 0; ";
-
-                    // Build the target date as YYYYMMDD (for verification)
-                    String targetYMD = String.format(java.util.Locale.US, "%04d%02d%02d", dtYear, dtMonth, dtDay);
-
-                    // Format 1: legacy-Android (Toolbox) only format -> YYYYMMDD.HHmmss
-                    String dateToolbox = String.format(java.util.Locale.US, "%04d%02d%02d.%02d%02d%02d", dtYear,
-                            dtMonth, dtDay, dtHour, dtMinute, 0);
-                    // Format 2: POSIX international standard format (Toybox/Busybox compatible) -> MMDDhhmmYYYY.ss
-                    String datePosix = String.format(java.util.Locale.US, "%02d%02d%02d%02d%04d.00", dtMonth, dtDay,
-                            dtHour, dtMinute, dtYear);
-                    // Format 3: modern-Android (Toybox) string format -> YYYY-MM-DD HH:MM:SS
-                    String dateString = String.format(java.util.Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", dtYear,
-                            dtMonth, dtDay, dtHour, dtMinute, 0);
-
-                    // 💡 Self-verifying shell script:
-                    // 1. Try the Toolbox format first. (Toybox devices will error out or scramble the time)
-                    // 2. Immediately check the applied time, and if it differs from the target date (e.g. reset to 1970), try the POSIX format.
-                    // 3. If that still doesn't work, try the string format.
-                    String executeCmd = cmd +
-                            "date -s " + dateToolbox + "; " +
-                            "if [ \"$(date +%Y%m%d)\" != \"" + targetYMD + "\" ]; then " +
-                            "  date " + datePosix + "; " +
-                            "  if [ \"$(date +%Y%m%d)\" != \"" + targetYMD + "\" ]; then " +
-                            "    date -s \"" + dateString + "\"; " +
-                            "  fi; " +
-                            "fi; " +
-                            "hwclock -w; sync";
-
-                    Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", executeCmd });
-                    proc.waitFor(); // 💡 Wait briefly until the time is fully applied to the system.
-
-                    // Force-broadcast system-wide that the time has changed, to sync the main page clock and system apps.
-                    sendBroadcast(new Intent(Intent.ACTION_TIME_CHANGED));
-
-                    Toast.makeText(MainActivity.this, "Time applied successfully!", Toast.LENGTH_SHORT).show();
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
-                }
-
-                // 🚀 [Focus bug fix 1] Force-purge the corrupted index to the 'Date & Time Settings' menu position (item #14)
-                lastSettingsFocusIndex = 14;
-                buildSettingsUI();
-
-                // 🚀 [Focus bug fix 2] Add a tiny 50ms safety delay so focus locks in reliably once the UI has fully laid out.
-                containerSettingsItems.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (containerSettingsItems != null && containerSettingsItems.getChildCount() > 0) {
-                            containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1)
-                                    .requestFocus();
-                        }
-                    }
-                }, 50);
-            }
-        });
-        containerSettingsItems.addView(btnApply);
-
-        if (containerSettingsItems.getChildCount() > 0)
-            containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildDateTimeUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildDateTimeUI(this);
     }
 
     // 💡 2. Vertical list screen for selecting numbers (year/month/day/hour/minute)
-    private void buildDateTimeSelectorUI(final String type, int min, int max, int currentValue) {
-        currentSettingsDepth = 3; // 🚀 Main settings is depth 0
-        containerSettingsItems.removeAllViews();
-
-        Button focusBtn = null;
-        for (int i = min; i <= max; i++) {
-            final int val = i;
-            String displayVal = (type.equals("Minute") || type.equals("Hour") || type.equals("Month")
-                    || type.equals("Day")) ? String.format(java.util.Locale.US, "%02d", val) : String.valueOf(val);
-            Button btn = createListButton(displayVal);
-            btn.setGravity(android.view.Gravity.CENTER); // Nicely center-aligned!
-
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    if (type.equals("Year"))
-                        dtYear = val;
-                    else if (type.equals("Month"))
-                        dtMonth = val;
-                    else if (type.equals("Day"))
-                        dtDay = val;
-                    else if (type.equals("Hour"))
-                        dtHour = val;
-                    else if (type.equals("Minute"))
-                        dtMinute = val;
-                    buildDateTimeUI(); // Automatically returns to the previous screen once selected!
-                }
-            });
-            containerSettingsItems.addView(btn);
-            if (val == currentValue)
-                focusBtn = btn;
-        }
-
-        // Auto-move focus to the currently configured time
-        if (focusBtn != null)
-            focusBtn.requestFocus();
-        else if (containerSettingsItems.getChildCount() > 0)
-            containerSettingsItems.getChildAt(0).requestFocus();
+    public void buildDateTimeSelectorUI(final String type, int min, int max, int currentValue) {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildDateTimeSelectorUI(this, type, min, max, currentValue);
     }
 
     // 💡 [Receiver dedicated to screen-off] While the screen is off, the system sends button signals here!
@@ -8044,7 +6799,7 @@ public class MainActivity extends Activity {
         }).start();
     }
     // 💡 [Added] A dedicated socket factory that forces legacy Android's dormant modern security (TLS 1.2) to wake up
-    private static class TLSSocketFactory extends javax.net.ssl.SSLSocketFactory {
+    public static class TLSSocketFactory extends javax.net.ssl.SSLSocketFactory {
         private javax.net.ssl.SSLSocketFactory internalSSLSocketFactory;
 
         public TLSSocketFactory() throws java.security.KeyManagementException, java.security.NoSuchAlgorithmException {
@@ -8253,364 +7008,19 @@ public class MainActivity extends Activity {
     }
     // Advanced EQ main sub-page builder
     public void buildEqualizerSettingsUI() {
-        currentSettingsDepth = 2;
-        settingsSubMode = 2; // Activate the EQ sub-mode
-        com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
-        com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
-        containerSettingsItems.removeAllViews();
-
-        // 🚀 2. Show EQ on the sub-settings screen
-        String activeName = "Normal";
-        if (currentEqProfile.startsWith("preset_")) {
-            int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-            if (pIdx < eqPresetNames.size()) activeName = t(eqPresetNames.get(pIdx)); // 🚀 Translation applied
-        } else {
-            activeName = currentEqProfile.replace("custom_", ""); // 🚀 Translate the label
-        }
-        LinearLayout rowSelect = createSettingRow("EQ Profile / Preset", activeName + " 〉");
-
-        // 🚀 [Bug fix] Attach the click event to the button we built and slot it onto the screen!
-        rowSelect.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                buildEqProfileSelectorUI(); // 🚀 Open the hidden preset-selector list screen!
-            }
-        });
-        containerSettingsItems.addView(rowSelect);
-
-        // 2. 4-band bass booster
-        final String[] steps = {"OFF", "Weak", "Normal", "Strong"};
-        final LinearLayout rowBass = createSettingRow("Bass Boost", t(steps[currentBassBoostStep]));
-        rowBass.setOnClickListener(v -> {
-            clickFeedback();
-            currentBassBoostStep = (currentBassBoostStep + 1) % 4;
-            ((TextView) rowBass.getChildAt(1)).setText(t(steps[currentBassBoostStep])); // 🚀 t() applied!
-            com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
-            prefs.edit().putInt("bass_boost_step", currentBassBoostStep).apply();
-        });
-        containerSettingsItems.addView(rowBass);
-
-        // 3. 4-band virtualizer (spatial effect)
-        final LinearLayout rowVirt = createSettingRow("Virtualizer", t(steps[currentVirtualizerStep]));
-        rowVirt.setOnClickListener(v -> {
-            clickFeedback();
-            currentVirtualizerStep = (currentVirtualizerStep + 1) % 4;
-            ((TextView) rowVirt.getChildAt(1)).setText(t(steps[currentVirtualizerStep])); // 🚀 t() applied!
-            com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
-            prefs.edit().putInt("virtualizer_step", currentVirtualizerStep).apply();
-        });
-        containerSettingsItems.addView(rowVirt);
-
-        // 4. Custom vault management panel
-        createCategoryHeader("━ "+t("PROFILE MANAGEMENT")+" ━");
-        if (currentEqProfile.startsWith("custom_")) {
-            android.view.View btnSave = createListButtonWithIcon("\uE161", t("Save Current Configuration"));
-            btnSave.setOnClickListener(v -> {
-                clickFeedback();
-                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
-                Toast.makeText(this, t("Configuration Saved!"), Toast.LENGTH_SHORT).show();
-            });
-            containerSettingsItems.addView(btnSave);
-
-            android.view.View btnDel = createListButtonWithIcon("\uE872", t("Delete Current Profile"), 0xFFFF4444);
-
-            btnDel.setOnClickListener(v -> {
-                clickFeedback();
-                com.themoon.y1.managers.AudioEffectManager.getInstance().deleteCustomEqProfile(currentEqProfile.replace("custom_", ""));
-                currentEqProfile = "preset_0";
-                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
-                buildEqualizerSettingsUI();
-            });
-            containerSettingsItems.addView(btnDel);
-        }
-
-        android.view.View btnCreate = createListButtonWithIcon("\uE145", t("Create New Profile"));
-        btnCreate.setOnClickListener(v -> {
-            clickFeedback();
-            String listStr = prefs.getString("custom_eq_list", "");
-            int count = 1;
-            while (listStr.contains("User EQ " + count)) count++;
-            String newName = "User EQ " + count;
-            if (!listStr.isEmpty()) listStr += ",";
-            listStr += newName;
-            prefs.edit().putString("custom_eq_list", listStr).apply();
-
-            currentEqProfile = "custom_" + newName;
-
-            // 🚀 [Bug fix] So the cached values from previous edits don't carry over when creating a new profile,
-            // force-format every frequency band to a clean 0 dB (flat default) state!
-            short bands = (equalizer != null) ? equalizer.getNumberOfBands() : 5;
-            for (short i = 0; i < bands; i++) {
-                customBandLevels[i] = 0;
-                if (equalizer != null) {
-                    try { equalizer.setBandLevel(i, (short) 0); } catch (Exception e) { Log.d(TAG, "buildEqualizerSettingsUI failed", e); }
-                }
-            }
-
-            com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(newName);
-            com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(newName); // Also immediately export it as a standalone shareable file the moment it's created!
-            com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
-
-            // 🚀 [UX overhaul] Boldly skip the main-screen reload step and warp straight into the graph studio!
-            buildGraphicEqualizerUI();
-        });
-        containerSettingsItems.addView(btnCreate);
-
-        // 🚀 5. Advanced Graphic Equalizer (Graphic EQ) studio entry button
-        createCategoryHeader("━ "+t("GRAPHIC EQUALIZER")+" ━");
-        LinearLayout btnGraphicEq = createSettingRow("Graphic Equalizer", t("Open Editor")+" 〉");
-        btnGraphicEq.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override
-            public void onClick(android.view.View v) {
-                clickFeedback();
-                if (currentEqProfile.startsWith("preset_")) {
-                    android.widget.Toast.makeText(MainActivity.this, t("Please create a Custom Profile to edit!"), android.widget.Toast.LENGTH_LONG).show();
-                } else {
-                    buildGraphicEqualizerUI(); // Enter the long-awaited Graphic EQ studio screen!
-                }
-            }
-        });
-        containerSettingsItems.addView(btnGraphicEq);
-
-        if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildEqualizerSettingsUI(this);
     }
 
     // Preset and profile selection window (Depth 2)
-    private void buildEqProfileSelectorUI() {
-        currentSettingsDepth = 3;
-        containerSettingsItems.removeAllViews();
-
-        // 🚀 3. Translate when pulling out the list
-        if (equalizer != null) {
-            for (int i = 0; i < eqPresetNames.size(); i++) {
-                final int pIdx = i;
-                final String pId = "preset_" + pIdx;
-                String prefix = currentEqProfile.equals(pId) ? "✔ " : "   ";
-                // 🚀 Intercept the English name pulled from the system and feed it straight into the translator!
-                Button btn = createListButton(prefix + t(eqPresetNames.get(i)));
-                if (currentEqProfile.equals(pId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = pId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
-                containerSettingsItems.addView(btn);
-            }
-        }
-
-        createCategoryHeader("━ "+t("SELECT USER PROFILES")+" ━");
-        String listStr = prefs.getString("custom_eq_list", "");
-        if (!listStr.trim().isEmpty()) {
-            for (final String prof : listStr.split(",")) {
-                if (prof.trim().isEmpty()) continue;
-                final String cId = "custom_" + prof;
-                String prefix = currentEqProfile.equals(cId) ? "✔ " : "   ";
-                Button btn = createListButton(prefix + prof);
-                if (currentEqProfile.equals(cId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = cId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
-                containerSettingsItems.addView(btn);
-            }
-        } else {
-            TextView tvEmpty = new TextView(this); tvEmpty.setText("   " + t("No custom profiles found."));
-            tvEmpty.setTextColor(0xFF888888); tvEmpty.setPadding(20, 10, 20, 10);
-            containerSettingsItems.addView(tvEmpty);
-        }
-
-        // 🚀 [Focus bug fix] Once the screen has fully rendered (50ms delay), explicitly force-assign focus.
-        containerSettingsItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
+    public void buildEqProfileSelectorUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildEqProfileSelectorUI(this);
     }
 
     // =========================================================================
     // 🚀 [Fully fixed] Graphic EQ studio with zero-pixel error and the focus-clipping bug resolved
     // =========================================================================
-    private void buildGraphicEqualizerUI() {
-        currentSettingsDepth = 3;
-        settingsSubMode = 3;
-        currentAdjustingBand = -1;
-
-        containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ "+t("GRAPHIC EQUALIZER")+" ━");
-
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText(t("Editing: ") + currentEqProfile.replace("custom_", "") + " (User)");
-        tvTitle.setTextColor(0xFFFF8800);
-        tvTitle.setGravity(android.view.Gravity.CENTER);
-        tvTitle.setPadding(0, 10, 0, 20);
-        containerSettingsItems.addView(tvTitle);
-
-        final android.widget.RelativeLayout eqContainer = new android.widget.RelativeLayout(this);
-        eqContainer.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int)(280 * getResources().getDisplayMetrics().density)));
-        eqContainer.setGravity(android.view.Gravity.CENTER);
-
-        if (equalizer != null) {
-            final short bands = equalizer.getNumberOfBands();
-            short[] range = equalizer.getBandLevelRange();
-            int prevId = -1;
-
-            for (short i = 0; i < bands; i++) {
-                final short bandIdx = i;
-                int freq = equalizer.getCenterFreq(bandIdx) / 1000;
-                int currentLevel = customBandLevels[bandIdx];
-
-                final LinearLayout bandLayout = new LinearLayout(this);
-                bandLayout.setOrientation(LinearLayout.VERTICAL);
-                bandLayout.setFocusable(true);
-                bandLayout.setGravity(android.view.Gravity.CENTER);
-                bandLayout.setId(8000 + i); // 8000, 8001, 8002... assigns a unique ID
-
-                // 🚀 [Core technique 1] Force-specify the neighbor node to move to on wheel input, to prevent random system crashes!
-                int nextFocusId = (i == bands - 1) ? 8500 : (8000 + i + 1); // if it's the last one, go to the close button (8500)
-                int prevFocusId = (i == 0) ? 8500 : (8000 + i - 1);         // if it's the first one, go to the close button (8500)
-
-                bandLayout.setNextFocusDownId(nextFocusId); // wheel down (move right)
-                bandLayout.setNextFocusUpId(prevFocusId);   // wheel up (move left)
-
-                android.widget.RelativeLayout.LayoutParams lp = new android.widget.RelativeLayout.LayoutParams((int)(60 * getResources().getDisplayMetrics().density), android.view.ViewGroup.LayoutParams.MATCH_PARENT);
-                if (prevId != -1) {
-                    lp.addRule(android.widget.RelativeLayout.RIGHT_OF, prevId);
-                    lp.leftMargin = (int)(5 * getResources().getDisplayMetrics().density);
-                }
-                bandLayout.setLayoutParams(lp);
-                prevId = 8000 + i;
-
-                final EqSliderView slider = new EqSliderView(this);
-                slider.setRange(range[0], range[1]);
-                slider.setLevel(currentLevel);
-                slider.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
-
-                TextView tvFreq = new TextView(this);
-                tvFreq.setText(freq >= 1000 ? (freq/1000) + "k" : freq + "");
-                tvFreq.setTextColor(0xFFFFFFFF);
-                tvFreq.setTextSize(12f);
-                tvFreq.setGravity(android.view.Gravity.CENTER);
-                tvFreq.setPadding(0, 0, 0, 10);
-
-                bandLayout.addView(slider);
-                bandLayout.addView(tvFreq);
-
-                bandLayout.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
-                    @Override
-                    public void onFocusChange(android.view.View v, boolean hasFocus) {
-                        if (hasFocus) {
-                            bandLayout.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg() & 0x66FFFFFF));
-                        } else {
-                            bandLayout.setBackgroundColor(0x00000000);
-                            if (currentAdjustingBand == bandIdx) {
-                                currentAdjustingBand = -1;
-                                slider.setAdjusting(false);
-                            }
-                        }
-                        slider.setFocused(hasFocus);
-                    }
-                });
-
-                bandLayout.setOnClickListener(new android.view.View.OnClickListener() {
-                    @Override
-                    public void onClick(android.view.View v) {
-                        clickFeedback();
-                        if (currentAdjustingBand == bandIdx) {
-                            currentAdjustingBand = -1;
-                            slider.setAdjusting(false);
-                        } else {
-                            if (currentAdjustingBand != -1) {
-                                LinearLayout prevBand = (LinearLayout) eqContainer.findViewById(8000 + currentAdjustingBand);
-                                if (prevBand != null) ((EqSliderView) prevBand.getChildAt(0)).setAdjusting(false);
-                            }
-                            currentAdjustingBand = bandIdx;
-                            slider.setAdjusting(true);
-                        }
-                    }
-                });
-
-                bandLayout.setOnKeyListener(new android.view.View.OnKeyListener() {
-                    @Override
-                    public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
-                        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && currentAdjustingBand == bandIdx) {
-                            if (keyCode == 21 || keyCode == 22) {
-                                int step = 100;
-                                int level = customBandLevels[bandIdx];
-                                if (keyCode == 21) level += step;
-                                if (keyCode == 22) level -= step;
-
-                                if (level > range[1]) level = range[1];
-                                if (level < range[0]) level = range[0];
-
-                                customBandLevels[bandIdx] = level;
-                                try { equalizer.setBandLevel(bandIdx, (short) level); } catch (Exception e) { Log.d(TAG, "buildGraphicEqualizerUI failed", e); }
-                                slider.setLevel(level);
-                                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
-                                clickFeedback();
-                                return true;
-                            }
-                        }
-                        return false;
-                    }
-                });
-                eqContainer.addView(bandLayout);
-            }
-        }
-
-        containerSettingsItems.addView(eqContainer);
-
-        // 🚀 [UX overhaul 1] Replaced the ambiguous "Done/Close" wording with the mixing-console-native term "Save"!
-        Button btnClose = createListButton(t("Save Profile"));
-        btnClose.setId(8500);
-
-        btnClose.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override
-            public void onClick(android.view.View v) {
-                clickFeedback();
-                String name = currentEqProfile.replace("custom_", "");
-                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(name); // 1. Save to the internal local vault
-                com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(name); // 2. 🚀 [Key] Export it live to a separate external file (.json) for user sharing!
-                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); // 3. Apply the sound pressure to the audio chipset live, immediately
-
-                android.widget.Toast.makeText(MainActivity.this, t("File saved successfully!"), android.widget.Toast.LENGTH_SHORT).show();
-                buildEqualizerSettingsUI(); // 4. Returning to the previous page immediately syncs and displays the name we just set at the top-level router!
-            }
-        });
-
-        btnClose.setOnKeyListener(new android.view.View.OnKeyListener() {
-            @Override
-            public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
-                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                    if (equalizer != null) {
-                        int totalBands = equalizer.getNumberOfBands();
-                        if (keyCode == 21) {
-                            android.view.View lastBand = eqContainer.findViewById(8000 + totalBands - 1);
-                            if (lastBand != null) lastBand.requestFocus();
-                            clickFeedback();
-                            return true;
-                        }
-                        if (keyCode == 22) {
-                            android.view.View firstBand = eqContainer.findViewById(8000);
-                            if (firstBand != null) firstBand.requestFocus();
-                            clickFeedback();
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            }
-        });
-        containerSettingsItems.addView(btnClose);
-
-        containerSettingsItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                // 🚀 [UX overhaul 2] Instead of the very top, magnetically snap focus straight to the first mixing fader (node 8000) so wheel input is ready to go!
-                android.view.View firstBand = eqContainer.findViewById(8000);
-                if (firstBand != null) {
-                    firstBand.requestFocus();
-                } else if (containerSettingsItems.getChildCount() > 2) {
-                    containerSettingsItems.getChildAt(2).requestFocus();
-                }
-            }
-        }, 50);
+    public void buildGraphicEqualizerUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildGraphicEqualizerUI(this);
     }
     // 🚀 [Native engine 1] Build the M3U list screen
     public void buildM3uPlaylistUI() {
@@ -9220,66 +7630,8 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [Smart bug-fix complete] Removes the top header and keeps the focus lock intact while controlling the middle menu, in the editor sub-menu
-    private void buildMainMenuVisibilitySettingsUI() {
-        currentSettingsDepth = 2;
-        containerSettingsItems.removeAllViews();
-
-        // ❌ Per the artist's request, completely and traceless removed the top category header text ("― SHOW / HIDE MENUS ―")!
-
-        // 1. Fetch the current theme's main-menu buttons in order.
-        List<ThemeManager.MenuElement> buttons = new ArrayList<>();
-        for (ThemeManager.MenuElement el : ThemeManager.getCurrentTheme().menuElements) {
-            if (el.type.equals("button")) buttons.add(el);
-        }
-        java.util.Collections.sort(buttons, new java.util.Comparator<ThemeManager.MenuElement>() {
-            @Override
-            public int compare(ThemeManager.MenuElement e1, ThemeManager.MenuElement e2) {
-                return e1.focusIndex - e2.focusIndex;
-            }
-        });
-
-        // 2. Attach a hide/show (HIDDEN/SHOW) switch to each button.
-        for (int i = 0; i < buttons.size(); i++) {
-            final ThemeManager.MenuElement el = buttons.get(i);
-            final int currentItemIndex = i; // 🚀 Stamp the index of which row this button is
-
-            final boolean isHidden = prefs.getBoolean("hide_btn_" + el.id, false);
-            String btnName = (el.textNormal != null && !el.textNormal.trim().isEmpty()) ? el.textNormal : el.id;
-
-            final LinearLayout row = createSettingRow(btnName, isHidden ? t("HIDDEN") : t("SHOW"));
-
-            if (isHidden) ((TextView) row.getChildAt(1)).setTextColor(ThemeManager.getTextColorSecondary());
-            else ((TextView) row.getChildAt(1)).setTextColor(ThemeManager.getTextColorPrimary());
-
-            row.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    boolean newState = !prefs.getBoolean("hide_btn_" + el.id, false);
-                    prefs.edit().putBoolean("hide_btn_" + el.id, newState).apply();
-
-                    // 🚀 [Fix 1] Instead of tearing down the whole screen, just swap the text of the row that was pressed!
-                    TextView tvRight = (TextView) row.getChildAt(1);
-                    tvRight.setText(newState ? t("HIDDEN") : t("SHOW"));
-
-                    // 🚀 [Fix 2] Since wheel focus is currently on it, keep the focus color (usually black) as-is.
-                    if (row.hasFocus()) {
-                        tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                    } else {
-                        if (newState) tvRight.setTextColor(ThemeManager.getTextColorSecondary());
-                        else tvRight.setTextColor(ThemeManager.getTextColorPrimary());
-                    }
-
-                    // 💡 [Fix 3] Leave the screen untouched and quietly re-assemble just the invisible main-menu blueprint in the background.
-                  //  applyThemeToMainMenu();
-
-                    // ❌ [Root cause removed] The re-call to 'buildMainMenuVisibilitySettingsUI()', which used to wipe and redraw the screen,
-                    // and the delayed function (postDelayed) that used to force focus back in, have both been traceless removed!
-                }
-            });
-            containerSettingsItems.addView(row);
-        }
-
+    public void buildMainMenuVisibilitySettingsUI() {
+        com.themoon.y1.managers.SettingsUiManager.getInstance().buildMainMenuVisibilitySettingsUI(this);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
