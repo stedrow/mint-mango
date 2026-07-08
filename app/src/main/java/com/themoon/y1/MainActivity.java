@@ -71,10 +71,10 @@ public class MainActivity extends Activity {
     public static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
     public static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
     // 🚀 [Major overhaul complete] Smart control panel that lets you set the desired number of albums (odd numbers: 3, 5, 7, etc.) at any time
-    private int visibleCoversCount = 7; // 💡 Back to 5! Just change this value (e.g. to 7) for testing and everything else updates automatically.
+    public int visibleCoversCount = 7; // 💡 Back to 5! Just change this value (e.g. to 7) for testing and everything else updates automatically.
 
-    private android.widget.FrameLayout coverFlowContainer;
-    private android.view.View[] cfViews; // 💡 Size is determined dynamically by the UI builder below.
+    public android.widget.FrameLayout coverFlowContainer;
+    public android.view.View[] cfViews; // 💡 Size is determined dynamically by the UI builder below.
 
 
 
@@ -83,6 +83,10 @@ public class MainActivity extends Activity {
     // Bluetooth A2DP proxy, target device, connecting-state, and reconnect-backoff state all live
     // in BluetoothAudioManager now -- see that class for the field-level rationale.
     private Y1UsbFocusHelper usbFocusHelper;
+    // 🚀 [New] Zero-delay, ultra-fast album-art RAM cache memory. Initialized in onCreate(),
+    // read by MusicBrowserManager's Cover Flow binding.
+    public android.util.LruCache<String, android.graphics.Bitmap> albumArtCache;
+    public long lastCoverFlowTime = 0; // 🚀 Time-machine variable for smart speed shifting
     // 🚀 [New] Control switch for the virtual screen-off (fake blackout)
     public boolean isFakeScreenOff = false;
 
@@ -104,8 +108,8 @@ public class MainActivity extends Activity {
     public java.util.List<Float> savedRadioStations = new java.util.ArrayList<>();
 
     public static final int BROWSER_COVER_FLOW = 9;
-    private java.util.List<SongItem> uniqueAlbumList = new java.util.ArrayList<>();
-    private int currentCoverFlowIndex = 0;
+    public java.util.List<SongItem> uniqueAlbumList = new java.util.ArrayList<>();
+    public int currentCoverFlowIndex = 0;
 
     // 🚀 [Unified engine] Perfectly syncs the status bar (ivStatusPlay) regardless of whether radio or the music player is active!
     public void updateGlobalStatusPlayIcon() {
@@ -259,7 +263,7 @@ public class MainActivity extends Activity {
     private int scannedAudioFiles = 0;
     // 💡 [Ultra-fast engine] Recycler ListView (to handle thousands of tracks) alongside the existing ScrollView
     public android.widget.ListView listVirtualSongs;
-    private View scrollViewBrowser;
+    public View scrollViewBrowser;
     public boolean isScreenOffControlEnabled = false;
     public boolean isAutoFetchEnabled = true; // 🚀 [Added] Default value for the automatic internet lookup switch
     public static List<SongItem> customLibrary = new ArrayList<>();
@@ -275,7 +279,7 @@ public class MainActivity extends Activity {
 
     public int lastRadioFocusIndex = 1;
     // (Volume-only variables and the complex focus index are no longer needed, so they were boldly removed!)
-    private boolean isCustomScanning = false;
+    public boolean isCustomScanning = false;
     public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
     public com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     public int currentScreenState = STATE_MENU;
@@ -303,7 +307,7 @@ public class MainActivity extends Activity {
     // Everything else Navidrome-specific (selected album, download queue, wake/wifi locks, etc.)
     // lives in NavidromeManager -- see that class for the field-level rationale.
 
-    private LinearLayout containerBrowserItems;
+    public LinearLayout containerBrowserItems;
     public LinearLayout containerSettingsItems;
     public LinearLayout containerBtItems, containerWifiItems;
 
@@ -3372,7 +3376,7 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private boolean isAudioFile(File f) {
+    public boolean isAudioFile(File f) {
         if (f == null || !f.isFile())
             return false;
         String name = f.getName().toLowerCase();
@@ -3380,13 +3384,13 @@ public class MainActivity extends Activity {
                 || name.endsWith(".m4a") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma");
     }
 
-    private boolean isApkFile(File f) {
+    public boolean isApkFile(File f) {
         if (f == null || !f.isFile())
             return false;
         return f.getName().toLowerCase().endsWith(".apk");
     }
 
-    private boolean isImageFile(File f) {
+    public boolean isImageFile(File f) {
         if (f == null || !f.isFile())
             return false;
         String name = f.getName().toLowerCase();
@@ -3409,7 +3413,7 @@ public class MainActivity extends Activity {
 
 
     // 🚀 [New] Song list generator dedicated to '💖 My Favorites'
-    private void buildVirtualSongsForFavorites() {
+    public void buildVirtualSongsForFavorites() {
         // Only block on a scan that's still in progress if there's no cached library to show
         // yet at all — a background reconciliation scan shouldn't hide already-available data.
         if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
@@ -3460,1052 +3464,36 @@ public class MainActivity extends Activity {
     }
     // 💡 2. Library main router (with the custom scan button applied)
     // 💡 Existing code modified
+    // Music library browser (folder tree, virtual categories, audiobook mode) and Cover Flow
+    // (3D transform math, reflection bitmaps, z-index layering) live in MusicBrowserManager --
+    // see that class for details. Kept as thin pass-throughs here for call sites elsewhere in
+    // this Activity, KeyEventRouter, and CategoryListAdapter.
     public void buildFileBrowserUI() {
-        if (scrollViewBrowser != null)
-            scrollViewBrowser.setVisibility(View.VISIBLE);
-        if (listVirtualSongs != null)
-            listVirtualSongs.setVisibility(View.GONE);
-        containerBrowserItems.removeAllViews();
-
-        // 🚀 [Fix] Group the condition so the folder-browser frame also applies in audiobook mode.
-        if (isPickingBackground || currentBrowserMode == BROWSER_FOLDER || currentBrowserMode == BROWSER_AUDIOBOOKS) {
-            buildFolderBrowserUI();
-            return;
-        }
-
-        if (currentBrowserMode == BROWSER_ROOT) {
-
-            // 🎵 [Music library mode]
-            if (!isAudiobookLibraryMode) {
-                tvBrowserPath.setText(t("Library") + ": " + t("Music"));
-
-                android.view.View btnCoverFlow = createListButtonWithIcon("\uE3B6", t("Cover Flow"));
-
-                // setOnClickListener works exactly the same even if the returned view is a LinearLayout!
-                btnCoverFlow.setOnClickListener(v -> { clickFeedback(); buildCoverFlowUI(); });
-                containerBrowserItems.addView(btnCoverFlow);
-
-                // \u2601\uFE0F Navidrome \uC2A4\uD2B8\uB9AC\uBC0D \u2014 back returns here, not the main menu
-                android.view.View btnNavidromeLib = createListButtonWithIcon("\uE2BD", t("Navidrome"));
-                btnNavidromeLib.setOnClickListener(v -> {
-                    clickFeedback();
-                    navidromeBrowseDepth = NAV_ARTISTS;
-                    selectedNavidromeArtist = null;
-                    com.themoon.y1.managers.NavidromeManager.getInstance().clearSelectedAlbum();
-                    isNavidromeLetterView = false;
-                    navidromeBackTarget = STATE_BROWSER;
-                    changeScreen(STATE_NAVIDROME);
-                });
-                containerBrowserItems.addView(btnNavidromeLib);
-
-                android.view.View btnM3uPlaylist = createListButtonWithIcon("\uE05F", t("Playlists"));
-                btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
-                containerBrowserItems.addView(btnM3uPlaylist);
-
-                //Button btnFolder = createListButton("📁 " + t("Folders"));
-                android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
-                btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = rootFolder; buildFileBrowserUI(); });
-                containerBrowserItems.addView(btnFolder);
-
-               /// Button btnArtist = createListButton("👤 " + t("Artists"));
-                android.view.View btnArtist = createListButtonWithIcon("\uE7FD", t("Artists"));
-                btnArtist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ARTISTS; virtualQueryValue = ""; buildVirtualCategories("ARTIST"); });
-                containerBrowserItems.addView(btnArtist);
-
-              //  Button btnAlbum = createListButton("💿 " + t("Albums"));
-                android.view.View btnAlbum = createListButtonWithIcon("\uE019", t("Albums"));
-                btnAlbum.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
-                containerBrowserItems.addView(btnAlbum);
-
-                android.view.View btnYear = createListButtonWithIcon("\uE916", t("Years"));
-                btnYear.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_YEARS; virtualQueryValue = ""; buildVirtualCategories("YEAR"); });
-                containerBrowserItems.addView(btnYear);
-
-                android.view.View btnGenre = createListButtonWithIcon("\uE030", t("Genres"));
-                btnGenre.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_GENRES; virtualQueryValue = ""; buildVirtualCategories("GENRE"); });
-                containerBrowserItems.addView(btnGenre);
-               // Button btnAll = createListButton("🎵 " + t("All Songs"));
-                android.view.View btnAll = createListButtonWithIcon("\uE03D", t("All Songs"));
-                btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
-                containerBrowserItems.addView(btnAll);
-
-
-                android.view.View btnFav = createListButtonWithIcon("\uE87D", t("My Favorites"));
-
-//                btnFav.setTextColor(0xFFFF8888);
-                btnFav.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FAVORITES; buildVirtualSongsForFavorites(); });
-                containerBrowserItems.addView(btnFav);
-                // 🎧 Switch-to-audiobook-mode button
-               // Button btnAudiobook = createListButton("🎧 " + t("Switch to Audiobooks"));
-                android.view.View btnAudiobook = createListButtonWithIcon("\uE86D", t("Switch to Audiobooks"));
-          //      btnAudiobook.setTextColor(0xFF00FFFF);
-                btnAudiobook.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = true; buildFileBrowserUI(); });
-                containerBrowserItems.addView(btnAudiobook);
-            }
-            // 📚 [Audiobook library mode]
-            else {
-                tvBrowserPath.setText(t("Library") + ": " + t("Audiobooks"));
-
-//                Button btnFolder = createListButton("📁 " + t("Folders"));
-                android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
-                btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = audiobookRootFolder; buildFileBrowserUI(); });
-                containerBrowserItems.addView(btnFolder);
-
-                android.view.View btnAuthor = createListButtonWithIcon("\uE7FD", t("Authors"));
-                btnAuthor.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ARTISTS; virtualQueryValue = ""; buildVirtualCategories("ARTIST"); });
-                containerBrowserItems.addView(btnAuthor);
-
-                android.view.View btnBook = createListButtonWithIcon("\uE86D", t("Books"));
-                btnBook.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
-                containerBrowserItems.addView(btnBook);
-
-                android.view.View btnAll = createListButtonWithIcon("\uE8FE", t("All Audiobooks"));
-
-                btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
-                containerBrowserItems.addView(btnAll);
-
-                // 🎵 Switch-back-to-music-mode button
-                android.view.View btnMusic = createListButtonWithIcon("\uE03D", t("Switch to Music"));
-
-                btnMusic.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = false; buildFileBrowserUI(); });
-                containerBrowserItems.addView(btnMusic);
-            }
-            // Uses the hourglass unicode (\uE88B) while scanning, and the sync-arrow unicode (\uE863) otherwise.
-            String scanIcon = isCustomScanning ? "\uE88B" : "\uE863";
-            String scanText = isCustomScanning ? t("Scanning Media...") : t("Scan Media Library");
-
-            android.view.View btnScan = createListButtonWithIcon(scanIcon, scanText);
-
-            btnScan.setOnClickListener(v -> {
-                clickFeedback();
-                startMediaLibraryScan();
-            });
-            containerBrowserItems.addView(btnScan);
-
-            if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
-        }
-        // 🚀 [Added] Once the screen finishes drawing (50ms later), find the folder/menu that just appeared and auto-focus it!
-        containerBrowserItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                boolean found = false;
-                if (!lastBrowserFocusText.isEmpty()) {
-                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
-                        View v = containerBrowserItems.getChildAt(i);
-                        boolean isMatch = (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText))
-                                || lastBrowserFocusText.equals(v.getTag());
-                        if (isMatch) {
-                            v.requestFocus();
-                            if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
-                                ((android.widget.ScrollView) containerBrowserItems.getParent())
-                                        .requestChildFocus(containerBrowserItems, v);
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                if (!found && containerBrowserItems.getChildCount() > 0) {
-                    containerBrowserItems.getChildAt(0).requestFocus(); // Fall back to the top if not found
-                }
-                lastBrowserFocusText = ""; // 🚀 One-shot, so reset the memory right after use
-            }
-        }, 50);
+        com.themoon.y1.managers.MusicBrowserManager.getInstance().buildFileBrowserUI(this);
     }
 
-    // 💡 3. Extract artist/album categories from the local DB (ultra-fast engine applied!)
     public void buildVirtualCategories(final String type) {
-        // Only block on a scan that's still in progress if there's no cached library to show
-        // yet at all — a background reconciliation scan shouldn't hide already-available data.
-        if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
-            showLoadingPopup(); // 🚀 Show the nice loading popup if a scan is in progress!
-            currentBrowserMode = BROWSER_ROOT;
-            buildFileBrowserUI();
-            return;
-        }
-
-        // 🚀 Turn off the slow ScrollView for the category tabs too, and turn on the ultra-fast ListView!
-        scrollViewBrowser.setVisibility(View.GONE);
-        listVirtualSongs.setVisibility(View.VISIBLE);
-
-        // 🚀 [Fix] Corrected so the top title syncs correctly for both the music library (Artists/Albums) and the audiobook library (Authors/Books)!
-        if (isAudiobookLibraryMode) {
-            tvBrowserPath.setText(t("Library") + ": " + (type.equals("ARTIST") ? t("Authors") : t("Books")));
-        } else {
-            tvBrowserPath.setText(t("Library") + ": " + (type.equals("ARTIST") ? t("Artists") : t("Albums")));
-        }
-
-        // 🚀 Swap the bucket to search through depending on the switch!
-        List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
-
-        java.util.HashSet<String> uniqueCategories = new java.util.HashSet<>();
-        for (SongItem song : activeLibrary) {
-            // ❌ existing code: String val = type.equals("ARTIST") ? song.artist : song.album;
-
-            // 🟢 [Fully fixed] Added YEAR and GENRE branches to gather a duplicate-free list of values.
-            String val = "Unknown";
-            if (type.equals("ARTIST")) val = song.artist;
-            else if (type.equals("ALBUM")) val = song.album;
-            else if (type.equals("YEAR")) val = song.year;
-            else if (type.equals("GENRE")) val = song.genre;
-
-            uniqueCategories.add(val);
-        }
-
-        List<String> categories = new ArrayList<>(uniqueCategories);
-        // 🚀 [Fix] Sort perfectly in alphabetical order, case-insensitively!
-        java.util.Collections.sort(categories, String.CASE_INSENSITIVE_ORDER);
-        // 🚀 [Added] Remember the artist/album name for jumping
-        // 🚀 [Added] Remember the artist/album name for jumping
-        currentScrollIndexList.clear();
-        currentScrollIndexList.addAll(categories);
-        // 🚀 Push hundreds of artist/album entries into the recycler engine (adapter) too.
-        CategoryListAdapter adapter = new CategoryListAdapter(categories, type);
-        listVirtualSongs.setAdapter(adapter);
-
-        // 🚀 [Overwrite from here!] Find the name of the previously entered artist/album and compute its index.
-        // 🚀 [Fix] Find the name of the previously entered artist/album and compute its index.
-        final int targetIndex = categories.indexOf(virtualQueryValue);
-
-        listVirtualSongs.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (targetIndex >= 0) {
-                    // 1. Instantly pull that position to the very top of the screen! (perfectly pinned)
-                    listVirtualSongs.setSelectionFromTop(targetIndex, 0);
-
-                    // 2. After a short delay for the layout to settle, snap the wheel focus precisely onto that cell.
-                    listVirtualSongs.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            int visiblePos = targetIndex - listVirtualSongs.getFirstVisiblePosition();
-                            if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
-                                listVirtualSongs.getChildAt(visiblePos).requestFocus();
-                            }
-                        }
-                    }, 50);
-                } else if (listVirtualSongs.getChildCount() > 0) {
-                    listVirtualSongs.getChildAt(0).requestFocus();
-                }
-            }
-        }, 50);
-    } // end of buildVirtualCategories function
-      // 💡 [Added] Function that ignores leading special characters in a name and extracts only the pure first letter
+        com.themoon.y1.managers.MusicBrowserManager.getInstance().buildVirtualCategories(this, type);
+    }
 
     public char getInitialChar(String text) {
-        if (text == null || text.isEmpty())
-            return '#';
-        String clean = text.replace("📁 ", "").replace("👤 ", "")
-                .replace("💿 ", "").replace("🎵 ", "").trim().toUpperCase();
-        if (clean.isEmpty())
-            return '#';
-        return clean.charAt(0);
+        return com.themoon.y1.managers.MusicBrowserManager.getInstance().getInitialChar(this, text);
     }
-
-
-    // 🚀 [New] Zero-delay, ultra-fast album-art RAM cache memory
-    private android.util.LruCache<String, android.graphics.Bitmap> albumArtCache;
-
-    // Menu icons get rescaled with createScaledBitmap on every focus change (the wheel fires this
-    // per scroll step), which allocates a fresh bitmap each time even though ThemeManager already
-    // caches the decoded source. Cache the scaled result too, keyed by theme+icon+target size.
-    private static final android.util.LruCache<String, android.graphics.Bitmap> scaledIconCache = new android.util.LruCache<>(80);
 
     private android.graphics.Bitmap getScaledThemedIcon(String iconFileName, int size) {
-        String key = ThemeManager.getCurrentThemeIndex() + "|" + iconFileName + "|" + size;
-        android.graphics.Bitmap cached = scaledIconCache.get(key);
-        if (cached != null) return cached;
-
-        android.graphics.Bitmap raw = ThemeManager.getCustomIcon(iconFileName, this, 0);
-        if (raw == null) return null;
-
-        android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(raw, size, size, true);
-        scaledIconCache.put(key, scaled);
-        return scaled;
+        return com.themoon.y1.managers.MusicBrowserManager.getInstance().getScaledThemedIcon(this, iconFileName, size);
     }
-    // 🚀 [Stock 3D engine 1] Screen build
-    // 🚀 [Stock 3D engine 1] Screen build (invisibility-cloak bug fully fixed version)
-// 🚀 [Stock 3D engine 1] Screen build (dynamic slot allocation version)
+
     public void buildCoverFlowUI() {
-        currentBrowserMode = BROWSER_COVER_FLOW;
-        if (scrollViewBrowser != null) scrollViewBrowser.setVisibility(View.VISIBLE);
-        if (listVirtualSongs != null) listVirtualSongs.setVisibility(View.GONE);
-        containerBrowserItems.removeAllViews();
-
-        uniqueAlbumList.clear();
-        java.util.HashSet<String> seenAlbums = new java.util.HashSet<>();
-        List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
-        for (SongItem song : activeLibrary) {
-            if (!seenAlbums.contains(song.album)) {
-                seenAlbums.add(song.album);
-                uniqueAlbumList.add(song);
-            }
-        }
-        java.util.Collections.sort(uniqueAlbumList, (s1, s2) -> s1.album.compareToIgnoreCase(s2.album));
-
-        if (uniqueAlbumList.isEmpty()) {
-            TextView tvEmpty = new TextView(this);
-            tvEmpty.setText(t("No albums found."));
-            tvEmpty.setTextColor(0xFF888888);
-            tvEmpty.setGravity(android.view.Gravity.CENTER);
-            tvEmpty.setPadding(20, 50, 20, 50);
-            containerBrowserItems.addView(tvEmpty);
-            return;
-        }
-
-        if(currentCoverFlowIndex >= uniqueAlbumList.size()) currentCoverFlowIndex = 0;
-
-        coverFlowContainer = new android.widget.FrameLayout(this);
-        coverFlowContainer.setClipChildren(false);
-        coverFlowContainer.setClipToPadding(false);
-
-        // 🚀 [Bug fully resolved] Completely suppresses the parent layouts' instinct to 'crop margins'!
-        // Now the album image is no longer clipped like a knife even when it extends into the margin/padding zones at the screen edges.
-        containerBrowserItems.setClipChildren(false);
-        containerBrowserItems.setClipToPadding(false);
-        if (scrollViewBrowser instanceof android.view.ViewGroup) {
-            ((android.view.ViewGroup) scrollViewBrowser).setClipChildren(false);
-            ((android.view.ViewGroup) scrollViewBrowser).setClipToPadding(false);
-        }
-
-        int height = (int)(320 * getResources().getDisplayMetrics().density);
-        android.widget.LinearLayout.LayoutParams containerLp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, height);
-        containerLp.topMargin = (int)(15 * getResources().getDisplayMetrics().density);
-        coverFlowContainer.setLayoutParams(containerLp);
-
-        // 🚀 [Key] Dynamically spawns as many slots as the configured variable (visibleCoversCount)!
-        cfViews = new android.view.View[visibleCoversCount];
-        for(int i = 0; i < visibleCoversCount; i++) {
-            cfViews[i] = createSingleCoverView();
-            coverFlowContainer.addView(cfViews[i]);
-        }
-
-        containerBrowserItems.addView(coverFlowContainer);
-        initCoverFlowPositions();
+        com.themoon.y1.managers.MusicBrowserManager.getInstance().buildCoverFlowUI(this);
     }
 
-    // 🚀 [Stock 3D engine 4] Initial position setup (fully algorithmic now)
-    private void initCoverFlowPositions() {
-        int total = uniqueAlbumList.size();
-        if(total == 0) return;
-
-        int centerIdx = visibleCoversCount / 2;
-
-        // Bind data by calculating the forward/backward indices relative to dead center
-        for(int i = 0; i < visibleCoversCount; i++) {
-            int offsetFromCenter = i - centerIdx;
-            int targetIdx = (currentCoverFlowIndex + offsetFromCenter + total * 3) % total;
-            bindCoverData(cfViews[i], targetIdx);
-        }
-
-        float d = getResources().getDisplayMetrics().density;
-
-        // 🚀 Mathematical-algorithm loop: scale/coordinate formulas map automatically regardless of view count
-        for(int i = 0; i < visibleCoversCount; i++) {
-            int dist = Math.abs(i - centerIdx);
-            float sign = (i < centerIdx) ? -1f : 1f; // negative (-) to the left, positive (+) to the right
-
-            float transX = sign * getTransXForDist(dist, d);
-            float rotY = -sign * getRotYForDist(dist);
-            float scale = getScaleForDist(dist);
-            float alpha = getAlphaForDist(dist);
-
-            applyTransform(cfViews[i], transX, rotY, scale, alpha);
-        }
-
-        arrangeZIndex();
-
-        for(int i = 0; i < visibleCoversCount; i++) {
-            setCardTitleAlpha(cfViews[i], i == centerIdx, 0);
-        }
-
-        tvBrowserPath.setText(t("Cover Flow") + " (" + (currentCoverFlowIndex + 1) + "/" + total + ")");
-    }
-    // 🚀 [Algorithm engine] Computes the X-axis travel distance based on distance from center
-//    private float getTransXForDist(int dist, float d) {
-//        if (dist == 0) return 0f;
-//        if (dist == 1) return 110 * d;
-//        if (dist == 2) return 180 * d;
-//        return 230 * d; // when distance is 3 or more
-//    }
-
-    private float getTransXForDist(int dist, float d) {
-        if (dist == 0) return 0f;
-        if (dist == 1) return 130 * d;
-        if (dist == 2) return 170 * d;
-        return 220 * d; // when distance is 3 or more
-    }
-
-    // 🚀 The higher the number, the sharper the angle, like books tilted on a bookshelf!
-//    private float getRotYForDist(int dist) {
-//        if (dist == 0) return 0f;
-//        if (dist == 1) return 60f;  // 💡 45 degrees -> a deeper 60 degrees!
-//        if (dist == 2) return 75f;  // 💡 60 degrees -> a deeper 75 degrees!
-//        return 80f;
-//    }
-    private float getRotYForDist(int dist) {
-        if (dist == 0) return 0f;
-        if (dist == 1) return 65f;  // 💡 45 degrees -> a deeper 60 degrees!
-//        if (dist == 2) return 75f;  // 💡 60 degrees -> a deeper 75 degrees!
-        return 65f;
-    }
-    // 🚀 [Algorithm engine] Computes the size-shrink ratio based on distance from center
-    private float getScaleForDist(int dist) {
-        if (dist == 0) return 1.0f;
-        if (dist == 1) return 0.8f;
-        if (dist == 2) return 0.8f;
-        return 0.8f;
-    }
-    // 🚀 [Algorithm engine] Computes opacity based on distance from center
-//    private float getAlphaForDist(int dist) {
-//        if (dist == 0) return 1.0f;
-//        if (dist == 1) return 0.8f;
-//        if (dist == 2) return 0.5f;
-//        return 0.1f;
-//    }
-    private float getAlphaForDist(int dist) {
-//        if (dist == 0) return 1.0f;
-//        if (dist == 1) return 0.8f;
-//        if (dist == 2) return 0.5f;
-        return 1f;
-    }
-    // 🚀 [Stock 3D engine 3] Data binding with a forced 3D lookup back through the cache folder!
-    // 🚀 [Hybrid 3D binding engine] Links the original and reflection images with the RAM cache to maintain 60fps scrolling.
-    private void bindCoverData(View card, int dataIndex) {
-        if(uniqueAlbumList.isEmpty() || dataIndex < 0 || dataIndex >= uniqueAlbumList.size()) return;
-        SongItem item = uniqueAlbumList.get(dataIndex);
-
-        final ImageView ivCover = card.findViewById(1001);
-        final ImageView ivReflection = card.findViewById(1004); // 🚀 Obtain the reflection layer
-        TextView tvTitle = card.findViewById(1002);
-        TextView tvArtist = card.findViewById(1003);
-
-        tvTitle.setText(item.album);
-        tvArtist.setText(item.artist);
-
-        final String path = item.file.getAbsolutePath();
-        ivCover.setTag(path); // Fully blocks async race conditions
-
-        // 1. Search the ultra-fast RAM cache vault (searches for both the original and reflection image sets at once)
-        android.graphics.Bitmap cachedBmp = null;
-        android.graphics.Bitmap cachedRef = null;
-        if (albumArtCache != null) {
-            cachedBmp = albumArtCache.get(path);
-            cachedRef = albumArtCache.get("ref_" + path);
-        }
-
-        if (cachedBmp != null) {
-            // 💡 If both are in the RAM vault, double-bind them instantly in 0.0001 seconds!
-            ivCover.setImageBitmap(cachedBmp);
-            if (ivReflection != null) {
-                ivReflection.setImageBitmap(cachedRef);
-                ivReflection.setVisibility(cachedRef != null ? View.VISIBLE : View.INVISIBLE);
-            }
-            return;
-        }
-
-        // If not cached, bind a blank placeholder canvas and dispatch a worker thread
-        ivCover.setImageBitmap(ThemeManager.getCustomIcon("icon_default_album.png", MainActivity.this, R.drawable.default_album));
-        if (ivReflection != null) ivReflection.setImageBitmap(null);
-
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                android.graphics.Bitmap bmp = null;
-                String cachedArtPath = libraryCacheDb.getAlbumArtPath(path);
-
-                if (cachedArtPath != null && new File(cachedArtPath).exists()) {
-                    bmp = BitmapFactory.decodeFile(cachedArtPath);
-                } else {
-                    try {
-                        String songName = item.file.getName();
-                        int dot = songName.lastIndexOf(".");
-                        if (dot > 0) songName = songName.substring(0, dot);
-
-                        File fallbackFile = new File("/storage/sdcard0/Y1_Covers", songName + ".jpg");
-                        if (fallbackFile.exists()) {
-                            bmp = BitmapFactory.decodeFile(fallbackFile.getAbsolutePath());
-                        }
-                    } catch (Exception e) {
-                        Log.d(TAG, "bindCoverData failed", e);
-                    }
-                }
-
-                if (bmp == null) {
-                    try {
-                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                        mmr.setDataSource(path);
-                        byte[] embeddedArt = mmr.getEmbeddedPicture();
-                        mmr.release();
-                        if (embeddedArt != null) {
-                            BitmapFactory.Options opts = new BitmapFactory.Options();
-                            opts.inSampleSize = 2;
-                            bmp = BitmapFactory.decodeByteArray(embeddedArt, 0, embeddedArt.length, opts);
-                        }
-                    } catch (Exception e) {
-                        Log.d(TAG, "bindCoverData failed", e);
-                    }
-                }
-
-                final android.graphics.Bitmap finalBmp = bmp;
-
-                // 🚀 [Important] The reflection is generated on this background thread, not the main thread, so there is 0% performance overhead!
-                final android.graphics.Bitmap finalRef = getReflectionBitmap(finalBmp);
-
-                // Store the original and reflection images side by side in the RAM vault for the next lookup
-                if (finalBmp != null && albumArtCache != null) {
-                    albumArtCache.put(path, finalBmp);
-                    if (finalRef != null) {
-                        albumArtCache.put("ref_" + path, finalRef);
-                    }
-                }
-
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        // Only render to the screen if the target hasn't changed to a different track while the wheel was spinning
-                        if (path.equals(ivCover.getTag())) {
-                            if (finalBmp != null) ivCover.setImageBitmap(finalBmp);
-                            if (ivReflection != null) {
-                                ivReflection.setImageBitmap(finalRef);
-                                ivReflection.setVisibility(finalRef != null ? View.VISIBLE : View.INVISIBLE);
-                            }
-                        }
-                    }
-                });
-            }
-        }).start();
-    }
-    // 🚀 [Bug completely eliminated] Fixes the cover-image clipping issue at its root by locking the overall frame margin to 0.
-    private View createSingleCoverView() {
-        float d = getResources().getDisplayMetrics().density;
-        android.widget.LinearLayout card = new android.widget.LinearLayout(this);
-        card.setOrientation(android.widget.LinearLayout.VERTICAL);
-        card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-
-        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                (int)(350 * d), (int)(320 * d));
-        lp.gravity = android.view.Gravity.CENTER;
-
-        // 🚀 [Core fix] Changed the existing -25 value to '0'! This stops the cover image from being forced to bounce upward.
-        lp.topMargin = 0;
-
-        card.setLayoutParams(lp);
-
-        ImageView ivCover = new ImageView(this);
-        ivCover.setId(1001);
-        android.widget.LinearLayout.LayoutParams imgLp = new android.widget.LinearLayout.LayoutParams((int)(200 * d), (int)(200 * d));
-        imgLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        ivCover.setLayoutParams(imgLp);
-        ivCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        ivCover.setBackground(createButtonBackground(0x00000000));
-
-        ImageView ivReflection = new ImageView(this);
-        ivReflection.setId(1004);
-        android.widget.LinearLayout.LayoutParams refLp = new android.widget.LinearLayout.LayoutParams((int)(200 * d), (int)(50 * d));
-        refLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        refLp.topMargin = (int)(2 * d);
-        ivReflection.setLayoutParams(refLp);
-        ivReflection.setScaleType(ImageView.ScaleType.CENTER_CROP);
-
-        TextView tvTitle = new TextView(this);
-        tvTitle.setId(1002);
-        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
-        tvTitle.setTextSize(18f);
-        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        tvTitle.setGravity(android.view.Gravity.CENTER);
-        tvTitle.setSingleLine(true);
-        tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        tvTitle.setAlpha(0f);
-
-        android.widget.LinearLayout.LayoutParams titleLp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-
-        // 🚀 Positions the album title with a nice gap directly under the reflection image only.
-        titleLp.topMargin = (int)(-40 * d);
-        titleLp.bottomMargin = (int)(0 * d);
-        tvTitle.setLayoutParams(titleLp);
-
-        TextView tvArtist = new TextView(this);
-        tvArtist.setId(1003);
-        tvArtist.setTextColor(ThemeManager.getTextColorSecondary());
-        tvArtist.setTextSize(14f);
-        tvArtist.setGravity(android.view.Gravity.CENTER);
-        tvArtist.setSingleLine(true);
-        tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        tvArtist.setAlpha(0f);
-
-        android.widget.LinearLayout.LayoutParams artistLp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        artistLp.topMargin = (int)(2 * d);
-        tvArtist.setLayoutParams(artistLp);
-
-        card.addView(ivCover);
-        card.addView(ivReflection);
-        card.addView(tvTitle);
-        card.addView(tvArtist);
-
-        card.setOnClickListener(v -> {
-            int centerIdx = visibleCoversCount / 2;
-            if (v == cfViews[centerIdx] && currentCoverFlowIndex >= 0 && currentCoverFlowIndex < uniqueAlbumList.size()) {
-                clickFeedback();
-                SongItem chosen = uniqueAlbumList.get(currentCoverFlowIndex);
-                currentBrowserMode = BROWSER_VIRTUAL_SONGS;
-                virtualQueryType = "COVER_FLOW_ALBUM";
-                virtualQueryValue = chosen.album;
-                buildVirtualSongs();
-            }
-        });
-
-        return card;
-    }
-    // 🚀 [Reflection graphics parser] Flips the original upside down, applies a gradient mask, and renders it in stock Jelly Bean style.
-    private android.graphics.Bitmap getReflectionBitmap(android.graphics.Bitmap src) {
-        if (src == null) return null;
-        try {
-            int w = src.getWidth();
-            int h = src.getHeight();
-            int reqH = h / 4; // Use only the bottom 25% of the original as the reflection area
-            if (reqH <= 0) return null;
-
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            matrix.preScale(1, -1); // Apply a vertical-flip matrix
-
-            // Crop just the bottom part and generate a flipped bitmap
-            android.graphics.Bitmap flipped = android.graphics.Bitmap.createBitmap(src, 0, h - reqH, w, reqH, matrix, false);
-            android.graphics.Bitmap reflection = android.graphics.Bitmap.createBitmap(w, reqH, android.graphics.Bitmap.Config.ARGB_8888);
-
-            android.graphics.Canvas canvas = new android.graphics.Canvas(reflection);
-            canvas.drawBitmap(flipped, 0, 0, null);
-            flipped.recycle();
-
-            // Paint a gradient mask that fades away toward the bottom
-            android.graphics.Paint paint = new android.graphics.Paint();
-            android.graphics.LinearGradient shader = new android.graphics.LinearGradient(
-                    0, 0, 0, reqH,
-                    0x44FFFFFF, 0x00FFFFFF, // Starts at ~25% subtle reflection opacity -> fully transparent at 0%
-                    android.graphics.Shader.TileMode.CLAMP);
-            paint.setShader(shader);
-            paint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
-            canvas.drawRect(0, 0, w, reqH, paint);
-
-            return reflection;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-    // 🚀 [Helper function 4] Only the card that's centered shows its title; cards pushed to the side hide theirs!
-    private void setCardTitleAlpha(View card, boolean isCenter, int duration) {
-        View tvTitle = card.findViewById(1002);
-        View tvArtist = card.findViewById(1003);
-        if (tvTitle != null && tvArtist != null) {
-            float targetAlpha = isCenter ? 1.0f : 0.0f; // 100% if centered, 0% otherwise
-            if (duration > 0) {
-                tvTitle.animate().alpha(targetAlpha).setDuration(duration).start();
-                tvArtist.animate().alpha(targetAlpha).setDuration(duration).start();
-            } else {
-                tvTitle.setAlpha(targetAlpha);
-                tvArtist.setAlpha(targetAlpha);
-            }
-        }
-    }
-    // 🚀 [Helper function 1] Function that instantly moves and transforms a view
-    private void applyTransform(View v, float transX, float rotY, float scale, float alpha) {
-        v.setTranslationX(transX);
-        v.setRotationY(rotY);
-        v.setScaleX(scale); v.setScaleY(scale);
-        v.setAlpha(alpha);
-    }
-
-    private void animateTransform(View v, float transX, float rotY, float scale, float alpha, int duration) {
-        v.animate().translationX(transX).rotationY(rotY).scaleX(scale).scaleY(scale).alpha(alpha).setDuration(duration).start();
-    }
-
-    // 🚀 [Depth engine] Stacks cards in order from the outermost to dead center, according to the configured count.
-    private void arrangeZIndex() {
-        int centerIdx = visibleCoversCount / 2;
-
-        // Bring-to-front the cards in reverse order, from the farthest distance down to dead center (0)
-        for (int d = centerIdx; d >= 0; d--) {
-            int leftViewIdx = centerIdx - d;
-            int rightViewIdx = centerIdx + d;
-
-            if (leftViewIdx >= 0) cfViews[leftViewIdx].bringToFront();
-            if (rightViewIdx < visibleCoversCount) cfViews[rightViewIdx].bringToFront();
-        }
-
-        for(int i = 0; i < visibleCoversCount; i++) cfViews[i].invalidate();
-        coverFlowContainer.invalidate();
-    }
-
-    private long lastCoverFlowTime = 0; // 🚀 Time-machine variable for smart speed shifting
-
-    // 🚀 [Stock 3D engine 5] Ultra-fast sliding engine (fully variable-count-aware geometry)
     public void scrollCoverFlow(boolean isNext) {
-        int total = uniqueAlbumList.size();
-        if(total == 0) return;
-
-        float d = getResources().getDisplayMetrics().density;
-        int centerIdx = visibleCoversCount / 2;
-
-        long now = System.currentTimeMillis();
-        long diff = now - lastCoverFlowTime;
-        lastCoverFlowTime = now;
-        int duration = (diff < 80) ? 30 : 180;
-
-        if (isNext) {
-            currentCoverFlowIndex = (currentCoverFlowIndex + 1) % total;
-            View oldLeft = cfViews[0];
-
-            // 🚀 Dynamic index shuffling
-            for(int i = 0; i < visibleCoversCount - 1; i++) cfViews[i] = cfViews[i+1];
-            cfViews[visibleCoversCount - 1] = oldLeft;
-
-            bindCoverData(cfViews[visibleCoversCount - 1], (currentCoverFlowIndex + centerIdx + total * 3) % total);
-
-            float maxOff = getTransXForDist(centerIdx, d);
-            float maxRot = getRotYForDist(centerIdx);
-            float maxScale = getScaleForDist(centerIdx);
-            applyTransform(cfViews[visibleCoversCount - 1], maxOff * 1.5f, -maxRot, maxScale, 0f);
-        } else {
-            currentCoverFlowIndex = (currentCoverFlowIndex - 1 + total) % total;
-            View oldRight = cfViews[visibleCoversCount - 1];
-
-            for(int i = visibleCoversCount - 1; i > 0; i--) cfViews[i] = cfViews[i-1];
-            cfViews[0] = oldRight;
-
-            bindCoverData(cfViews[0], (currentCoverFlowIndex - centerIdx + total * 3) % total);
-
-            float maxOff = getTransXForDist(centerIdx, d);
-            float maxRot = getRotYForDist(centerIdx);
-            float maxScale = getScaleForDist(centerIdx);
-            applyTransform(cfViews[0], -maxOff * 1.5f, maxRot, maxScale, 0f);
-        }
-
-        arrangeZIndex();
-
-        // 🚀 Fire off the full dynamic-slot animation barrage!
-        for(int i = 0; i < visibleCoversCount; i++) {
-            setCardTitleAlpha(cfViews[i], i == centerIdx, duration);
-
-            int dist = Math.abs(i - centerIdx);
-            float sign = (i < centerIdx) ? -1f : 1f;
-
-            float transX = sign * getTransXForDist(dist, d);
-            float rotY = -sign * getRotYForDist(dist);
-            float scale = getScaleForDist(dist);
-            float alpha = getAlphaForDist(dist);
-
-            animateTransform(cfViews[i], transX, rotY, scale, alpha, duration);
-        }
-
-        tvBrowserPath.setText(t("Cover Flow") + " (" + (currentCoverFlowIndex + 1) + "/" + total + ")");
+        com.themoon.y1.managers.MusicBrowserManager.getInstance().scrollCoverFlow(this, isNext);
     }
-    // 💡 4. Function that pulls songs from the local DB and pushes them into the 'recycler engine'
+
     public void buildVirtualSongs() {
-        // Only block on a scan that's still in progress if there's no cached library to show
-        // yet at all — a background reconciliation scan shouldn't hide already-available data.
-        if (isCustomScanning && customLibrary.isEmpty() && audiobookLibrary.isEmpty()) {
-            showLoadingPopup(); // 🚀 Show a large spinner popup instead of hard-to-see text!
-            currentBrowserMode = BROWSER_ROOT;
-            buildFileBrowserUI();
-            return;
-        }
-        // 🚀 Turn off the existing bloated, slow ScrollView and turn on the ultra-fast ListView!
-        scrollViewBrowser.setVisibility(View.GONE);
-        listVirtualSongs.setVisibility(View.VISIBLE);
-
-        // 🚀 [Fix] Changed so the top header title displays correctly for both all-music and all-audiobooks mode!
-        if (virtualQueryType.equals("ALL")) {
-            tvBrowserPath.setText(t("Library") + ": " + (isAudiobookLibraryMode ? t("All Audiobooks") : t("All Songs")));
-        } else {
-            tvBrowserPath.setText(t("Library") + ": " + virtualQueryValue); // Output the artist/album name as-is
-        }
-        virtualSongList.clear();
-        currentScrollIndexList.clear(); // 🚀 [Added] Reset the existing index
-        final List<SongItem> targetSongs = new ArrayList<>();
-
-        // 🚀 Swap the bucket to search through depending on the switch!
-        List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
-
-        for (SongItem song : activeLibrary) {
-            if (virtualQueryType.equals("ALL") ||
-                    (virtualQueryType.equals("ARTIST") && song.artist.equals(virtualQueryValue)) ||
-                    (virtualQueryType.equals("ALBUM") && song.album.equals(virtualQueryValue)) ||
-                    (virtualQueryType.equals("COVER_FLOW_ALBUM") && song.album.equals(virtualQueryValue)) || // 🚀 [2 lines added below!]
-                    (virtualQueryType.equals("YEAR") && song.year.equals(virtualQueryValue)) ||
-                    (virtualQueryType.equals("GENRE") && song.genre.equals(virtualQueryValue))) {
-                targetSongs.add(song);
-            }
-        }
-
-        java.util.Collections.sort(targetSongs, new java.util.Comparator<SongItem>() {
-            @Override
-            public int compare(SongItem s1, SongItem s2) {
-                // 🚀 [Path-recovery 2] Also add sorting by track number for the cover-flow-dedicated tag.
-                if ("ALBUM".equals(virtualQueryType) || "COVER_FLOW_ALBUM".equals(virtualQueryType)) {
-                    int t1 = trackNumberMap.containsKey(s1.file.getAbsolutePath()) ? trackNumberMap.get(s1.file.getAbsolutePath()) : 0;
-                    int t2 = trackNumberMap.containsKey(s2.file.getAbsolutePath()) ? trackNumberMap.get(s2.file.getAbsolutePath()) : 0;
-
-                    if (t1 != t2) {
-                        return Integer.valueOf(t1).compareTo(t2);
-                    }
-                }
-                return s1.title.compareToIgnoreCase(s2.title);
-            }
-        });
-        // ... (rest below unchanged)
-
-        // 🚀 Fill the actual playback list and the fast-scroll index in the sorted order.
-        for (SongItem song : targetSongs) {
-            virtualSongList.add(song.file);
-            currentScrollIndexList.add(song.title);
-        }
-
-        // 🚀 Load thousands of tracks' worth of data into the recycler engine (adapter).
-
-        // 🚀 Load thousands of tracks' worth of data into the recycler engine (adapter).
-        SongListAdapter adapter = new SongListAdapter(targetSongs);
-        listVirtualSongs.setAdapter(adapter);
-        listVirtualSongs.post(new Runnable() {
-            @Override
-            public void run() {
-                if (listVirtualSongs.getChildCount() > 0) {
-                    listVirtualSongs.getChildAt(0).requestFocus();
-                }
-            }
-        });
-    }
-
-    private void buildFolderBrowserUI() {
-        containerBrowserItems.removeAllViews();
-        tvBrowserPath.setText(t("Path") + ": " + currentFolder.getAbsolutePath().replace("/storage/sdcard0", ""));
-        File[] files = currentFolder.listFiles();
-
-        if (files == null || files.length == 0) {
-            Button btnEmpty = createListButton(files == null ? "⚠️ " + t("USB Disconnect Required (Tap to go back)") : "📂 " + t("Empty Folder (Tap to go back)"));
-            btnEmpty.setTextColor(0xFFFF5555);
-            btnEmpty.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    // 🚀 [Fix] Handle the whole-folder case here too
-                    if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath()) || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
-                        if (isPickingBackground) {
-                            isPickingBackground = false;
-                            changeScreen(STATE_SETTINGS);
-                            buildBackgroundSettingsUI();
-                        } else {
-                            currentBrowserMode = BROWSER_ROOT;
-                            buildFileBrowserUI();
-                        }
-                    } else {
-                        currentFolder = currentFolder.getParentFile();
-                        buildFileBrowserUI();
-                    }
-                }
-            });
-            containerBrowserItems.addView(btnEmpty);
-            return;
-        }
-
-        List<File> folders = new ArrayList<File>();
-        List<File> audioFiles = new ArrayList<File>();
-        List<File> apkFiles = new ArrayList<File>();
-        List<File> imageFiles = new ArrayList<File>();
-
-        for (File f : files) {
-            if (f.isDirectory())
-                folders.add(f);
-            else if (isPickingBackground && isImageFile(f))
-                imageFiles.add(f);
-            else if (!isPickingBackground && isAudioFile(f))
-                audioFiles.add(f);
-            else if (!isPickingBackground && isApkFile(f))
-                apkFiles.add(f);
-        }
-        // 🚀 [10 new lines added here!!] Sort the collected files and folders by name (alphabetical A-Z, case-insensitive)!
-        java.util.Comparator<File> fileSorter = new java.util.Comparator<File>() {
-            @Override
-            public int compare(File f1, File f2) {
-                return f1.getName().compareToIgnoreCase(f2.getName());
-            }
-        };
-        java.util.Collections.sort(folders, fileSorter);
-        java.util.Collections.sort(audioFiles, fileSorter);
-        java.util.Collections.sort(apkFiles, fileSorter);
-        java.util.Collections.sort(imageFiles, fileSorter);
-        // 🚀🚀🚀 [Add here!] If the current folder has even one audio file, create a 'Play All' button at the top
-        if (!isPickingBackground && (audioFiles.size() > 0 || folders.size() > 0)) {
-            Button btnPlayAll = createListButton("▶ " + t("Play All"));
-            btnPlayAll.setTextColor(0xFFFFFFFF); // green!
-            btnPlayAll.setTypeface(null, android.graphics.Typeface.BOLD);
-
-            btnPlayAll.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-
-                    // 1. Prepare a large empty bucket to sweep up subfolders too
-                    final List<File> allAudioInFolder = new ArrayList<>();
-
-                    // 2. In case there are a lot of files, lock the wheel and show a popup!
-                    showLoadingPopup();
-
-                    // 3. Run the background engine (to avoid freezing the system)
-                    new Thread(new Runnable() {
-                        @Override
-                        public void run() {
-                            // Call the vacuum-cleaner function we just built!
-                            collectAudioFilesAsFile(currentFolder, allAudioInFolder);
-
-                            // Sort the collected files neatly by name (reusing the existing fileSorter)
-                            java.util.Collections.sort(allAudioInFolder, fileSorter);
-
-                            // 4. Once the collection is done, come back to the screen and issue the play command.
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    // Close the loading popup
-                                    if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(View.GONE);
-
-                                    if (allAudioInFolder.isEmpty()) {
-                                        Toast.makeText(MainActivity.this, t("No audio files found in subfolders."), Toast.LENGTH_SHORT).show();
-                                    } else {
-//                                        Toast.makeText(MainActivity.this, "Loaded " + allAudioInFolder.size() + " songs!", Toast.LENGTH_SHORT).show();
-                                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(allAudioInFolder, 0); // Start playing right from track 0!
-
-                                        // 🚀 [Fix] Automatically switch to the player screen after Play All!
-                                        changeScreen(STATE_PLAYER);
-                                    }
-                                }
-                            });
-                        }
-                    }).start();
-                }
-            });
-            containerBrowserItems.addView(btnPlayAll);
-        }
-        // 🚀🚀🚀 [End of addition]
-        for (final File folder : folders) {
-            android.view.View b = createListButtonWithIcon("\uE2C7",folder.getName());
-         //   Button b = createListButton("📁 " + folder.getName());
-            b.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    currentFolder = folder;
-                    buildFileBrowserUI();
-                }
-            });
-            containerBrowserItems.addView(b);
-        }
-
-        if (isPickingBackground) {
-            for (final File img : imageFiles) {
-//                Button b = createListButton("🖼 " + img.getName());
-                android.view.View b = createListButtonWithIcon("\uE410",img.getName());
-                b.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        clickFeedback();
-                        try {
-                            prefs.edit().putString("bg_path", img.getAbsolutePath()).apply();
-                        } catch (Exception e) {
-                            Log.d(TAG, "buildFolderBrowserUI failed", e);
-                        }
-
-                        updateMainMenuBackground(); // 💡 Apply the blur to the main screen immediately on selection
-
-                        Toast.makeText(MainActivity.this, t("Background Applied!"), Toast.LENGTH_SHORT).show();
-                        isPickingBackground = false;
-                        changeScreen(STATE_SETTINGS);
-                        buildBackgroundSettingsUI();
-                    }
-                });
-                containerBrowserItems.addView(b);
-            }
-        } else {
-            for (final File apk : apkFiles) {
-                Button b = createListButton("📦 [" + t("INSTALL") + "] " + apk.getName());
-                b.setTextColor(0xFF00FFFF);
-                b.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        clickFeedback();
-                        installApk(apk);
-                    }
-                });
-                containerBrowserItems.addView(b);
-            }
-            for (final File audio : audioFiles) {
-                Button b = createListButton("🎵 " + audio.getName());
-
-                // 🚀 [Added] Draw the progress bar if we're in audiobook mode or inside an audiobook folder!
-                if (isAudiobookLibraryMode || currentBrowserMode == BROWSER_AUDIOBOOKS) {
-                    com.themoon.y1.db.LibraryCacheDb.Bookmark bm = libraryCacheDb.getBookmark(audio.getAbsolutePath());
-                    if (bm != null && bm.posMs > 0 && bm.durMs > 0) {
-                        setupAudiobookProgress(b, bm.posMs, bm.durMs); // 💡 Replaced with a call to the new engine!
-                    }
-                }
-
-                b.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        clickFeedback();
-                        if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
-                            com.themoon.y1.managers.AudiobookManager.getInstance(MainActivity.this).setupBookPlaylist(MainActivity.this, audio, currentFolder);
-                        } else {
-                            com.themoon.y1.managers.AudioPlayerManager.getInstance().setupFolderPlaylist(audio, currentFolder);
-                        }
-                        // 🚀 [Fix] Automatically switch to the player screen when playing an individual song from a folder!
-                        changeScreen(STATE_PLAYER);
-                    }
-                });
-
-                b.setOnLongClickListener(new View.OnLongClickListener() {
-                    @Override
-                    public boolean onLongClick(View v) {
-                        clickFeedback();
-                        isLongPressConsumed = true; // 🚀 [Bug fix] Force-enable the long-press guard the instant the popup appears!
-                        showAddToPlaylistDialog(audio);
-                        return true;
-                    }
-                });
-                containerBrowserItems.addView(b);
-            }
-        }
-        if (containerBrowserItems.getChildCount() > 0)
-            containerBrowserItems.getChildAt(0).requestFocus();
-
-        // 🚀 [Added] Once the screen finishes drawing (50ms later), find the folder/menu that just appeared and auto-focus it!
-        containerBrowserItems.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                boolean found = false;
-                if (!lastBrowserFocusText.isEmpty()) {
-                    for (int i = 0; i < containerBrowserItems.getChildCount(); i++) {
-                        View v = containerBrowserItems.getChildAt(i);
-                        boolean isMatch = (v instanceof Button && ((Button) v).getText().toString().equals(lastBrowserFocusText))
-                                || lastBrowserFocusText.equals(v.getTag());
-                        if (isMatch) {
-                            v.requestFocus();
-                            if (containerBrowserItems.getParent() instanceof android.widget.ScrollView) {
-                                ((android.widget.ScrollView) containerBrowserItems.getParent())
-                                        .requestChildFocus(containerBrowserItems, v);
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                if (!found && containerBrowserItems.getChildCount() > 0) {
-                    containerBrowserItems.getChildAt(0).requestFocus(); // Fall back to the top if not found
-                }
-                lastBrowserFocusText = ""; // 🚀 One-shot, so reset the memory right after use
-            }
-        }, 50);
+        com.themoon.y1.managers.MusicBrowserManager.getInstance().buildVirtualSongs(this);
     }
     // 🚀 [Added tool 1] Function that translates an English gravity string into something Android understands
     private int parseGravity(String gravityStr) {
@@ -5179,7 +4167,7 @@ public class MainActivity extends Activity {
             }, 50);
         }
     }
-    private void collectAudioFilesAsFile(File dir, List<File> list) {
+    public void collectAudioFilesAsFile(File dir, List<File> list) {
         File[] files = dir.listFiles();
         if (files != null) {
             for (File f : files) {
@@ -5191,7 +4179,7 @@ public class MainActivity extends Activity {
             }
         }
     }
-    private void installApk(File apkFile) {
+    public void installApk(File apkFile) {
         try {
             // 1. Keep the existing permission opening (for installer access)
             try {
