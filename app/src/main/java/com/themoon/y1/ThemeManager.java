@@ -329,6 +329,17 @@ public class ThemeManager {
                 }
             }
         }
+
+        // MintMango is this fork's own theme -- keep it first in the list (and therefore the
+        // default for a fresh install, since app_theme_index defaults to 0) regardless of where
+        // folder scan order would otherwise place it.
+        for (int i = 0; i < availableThemes.size(); i++) {
+            if ("MintMango".equalsIgnoreCase(availableThemes.get(i).name)) {
+                ThemeData mintMango = availableThemes.remove(i);
+                availableThemes.add(0, mintMango);
+                break;
+            }
+        }
     }
 
     public static void setThemeIndex(int index) { if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index; else currentThemeIndex = 0; }
