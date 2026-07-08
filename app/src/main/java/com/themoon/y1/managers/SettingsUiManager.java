@@ -875,7 +875,7 @@ public class SettingsUiManager {
                     // 🚀 [Required 1] Break through GitHub's security (TLS 1.2): equip the secret weapon we built!
                     if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
-                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new MainActivity.TLSSocketFactory());
+                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new com.themoon.y1.managers.NetworkTrustManager.TLSSocketFactory());
                         } catch (Exception e) {
                             Log.d(TAG, "buildUpdateSettingsUI failed", e);
                         }
@@ -891,7 +891,7 @@ public class SettingsUiManager {
                         conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
                         if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                             try {
-                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new MainActivity.TLSSocketFactory());
+                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new com.themoon.y1.managers.NetworkTrustManager.TLSSocketFactory());
                             } catch (Exception e) {
                                 Log.d(TAG, "buildUpdateSettingsUI failed", e);
                             }

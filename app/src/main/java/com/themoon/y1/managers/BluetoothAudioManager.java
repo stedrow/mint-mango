@@ -413,4 +413,90 @@ public class BluetoothAudioManager {
         reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_BACKOFF_MAX_MS);
         armAudioReconnect();
     }
+
+    // 🚀 Jelly Bean-era RemoteControlClient: feeds track metadata/playback state to car
+    // head units and Bluetooth AVRCP targets over the same registered media button receiver.
+    public void initRemoteControlClient(Context context) {
+        MainActivity a = MainActivity.instance;
+        if (a.remoteControlClient == null) {
+            android.media.AudioManager audioManager = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+            // Connect the media button receiver (MediaBtnReceiver) we built earlier.
+            a.mediaButtonReceiver = new android.content.ComponentName(context.getPackageName(), MainActivity.MediaBtnReceiver.class.getName());
+            audioManager.registerMediaButtonEventReceiver(a.mediaButtonReceiver);
+
+            // Create the intent for the remote-control client
+            android.content.Intent mediaButtonIntent = new android.content.Intent(android.content.Intent.ACTION_MEDIA_BUTTON);
+            mediaButtonIntent.setComponent(a.mediaButtonReceiver);
+            int pendingIntentFlags = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                    ? android.app.PendingIntent.FLAG_IMMUTABLE : 0;
+            android.app.PendingIntent mediaPendingIntent = android.app.PendingIntent.getBroadcast(context, 0, mediaButtonIntent, pendingIntentFlags);
+
+            // 🚀 Launching the Jelly Bean-only broadcast station!
+            a.remoteControlClient = new android.media.RemoteControlClient(mediaPendingIntent);
+
+            // Grant permission for which buttons can be pressed from the car steering wheel and Bluetooth devices
+            int flags = android.media.RemoteControlClient.FLAG_KEY_MEDIA_PLAY
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PAUSE
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PLAY_PAUSE
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_NEXT
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PREVIOUS;
+            a.remoteControlClient.setTransportControlFlags(flags);
+
+            audioManager.registerRemoteControlClient(a.remoteControlClient);
+        }
+    }
+
+    // 🚀 Called when the track changes!
+    public void updateBluetoothMetadata(String title, String artist, String album, android.graphics.Bitmap albumArtBmp) {
+        MainActivity a = MainActivity.instance;
+        if (a.remoteControlClient == null) return;
+
+        android.media.RemoteControlClient.MetadataEditor editor = a.remoteControlClient.editMetadata(true);
+
+        // 1. Fill in text info (Jelly Bean uses MediaMetadataRetriever's constants)
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE, title != null ? title : "Unknown Title");
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST, artist != null ? artist : "Unknown Artist");
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM, album != null ? album : "Unknown Album");
+
+        // 2. 🚀 [Key] Send the album art bitmap to the car display!
+        if (albumArtBmp != null) {
+            editor.putBitmap(android.media.RemoteControlClient.MetadataEditor.BITMAP_KEY_ARTWORK, albumArtBmp);
+        }
+
+        // Send to the system once packaging is complete
+        editor.apply();
+    }
+
+    // 🚀 Called when music starts or stops playing!
+    public void updateBluetoothPlaybackState(boolean isPlaying) {
+        MainActivity a = MainActivity.instance;
+        if (a.remoteControlClient == null) return;
+
+        int state = isPlaying ? android.media.RemoteControlClient.PLAYSTATE_PLAYING : android.media.RemoteControlClient.PLAYSTATE_PAUSED;
+
+        // On Jelly Bean, the car runs its own timer even without sending the current position (currentPosition).
+        a.remoteControlClient.setPlaybackState(state);
+    }
+
+    // 🚀 [New helper] Function that reads the current screen's track info and image and sends it over Bluetooth
+    public void sendBluetoothMetaToCar() {
+        MainActivity a = MainActivity.instance;
+        String title = a.tvPlayerTitle != null ? a.tvPlayerTitle.getText().toString() : "Unknown";
+        String artist = a.tvPlayerArtist != null ? a.tvPlayerArtist.getText().toString() : "Unknown";
+        android.graphics.Bitmap bmp = null;
+
+        // If album art exists, compress it slightly to fit the Bluetooth transfer size before sending.
+        if (a.lastAlbumArtBytes != null && a.lastAlbumArtBytes.length > 0) {
+            try {
+                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                opts.inSampleSize = 2;
+                bmp = android.graphics.BitmapFactory.decodeByteArray(a.lastAlbumArtBytes, 0, a.lastAlbumArtBytes.length, opts);
+            } catch (Exception e) {
+                Log.d(TAG, "sendBluetoothMetaToCar failed", e);
+            }
+        }
+
+        updateBluetoothMetadata(title, artist, "Y1 Player", bmp);
+    }
 }

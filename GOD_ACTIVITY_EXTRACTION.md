@@ -136,6 +136,32 @@ a "safe" extraction breaks something.
   hardware: power on/off/on cycles, paired-device sub-menu, real network scan with correct
   locked/open icons and connected-network-first sort.
 
+- `managers/NetworkTrustManager` — `TLSSocketFactory` + `installTls12TrustAll()`. Zero
+  MainActivity field dependencies, moved verbatim as static methods/nested class; two existing
+  external callers (`ApkInstallManager`, `SettingsUiManager`) updated from
+  `MainActivity.TLSSocketFactory` to `NetworkTrustManager.TLSSocketFactory`.
+- `managers/NowPlayingUiManager` — player-screen UI refresh, volume overlay, spectrum
+  visualizer, and lyrics (LRC file + embedded ID3 USLT) loading/scroll/highlight. No clean field
+  boundary (shares view state with the progress-tick Runnable that stays in MainActivity since
+  NavidromeManager/MainMenuManager reference it by field name), so it takes the MainActivity
+  instance as a parameter. Widened several player-screen fields and two Bluetooth/Navidrome
+  helper methods from private to public. Verified on-device: play/pause, progress tick, volume
+  adjust, visualizer toggle with live spectrum render, no exceptions across the session.
+- Folded Bluetooth remote-control metadata (`initRemoteControlClient`,
+  `updateBluetoothMetadata`, `updateBluetoothPlaybackState`, `sendBluetoothMetaToCar`) into the
+  existing `managers/BluetoothAudioManager` rather than a new class -- same subsystem (Jelly Bean
+  `RemoteControlClient` feeding car head units/AVRCP), same `MainActivity.instance` callback
+  pattern that manager already uses. `MediaBtnReceiver` stayed in MainActivity since it's
+  registered by fully-qualified name in `AndroidManifest.xml`.
+
+**Note:** several other managers now exist that predate this note but were never logged here
+(`MusicBrowserManager`, `MainMenuManager`, `MediaLibraryScanManager`, `TrackInfoFetchManager`,
+`LanguageManager`, `ApkInstallManager`, `BundledAssetsInstaller`, `AudiobookProgressManager`,
+`PlaylistFavoritesManager`, `SongContextMenuManager`) -- this doc had drifted out of sync with
+actual extraction history well before the three entries above. Treat the "Extractions completed
+so far" list as incomplete for anything before `NetworkTrustManager`; check `managers/` directly
+for the current true state.
+
 ## Next candidates, ranked by isolation / risk
 
 ### 1. Wheel-lock overlay — DONE, see above.
