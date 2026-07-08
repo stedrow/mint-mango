@@ -25,8 +25,6 @@ import java.io.File;
  * instance as a parameter. MainActivity keeps thin pass-through methods for
  * downloadAndInstallApk() and installApk() since SettingsUiManager (the update checker) and
  * MusicBrowserManager (tapping a .apk file in the folder browser) call them by name.
- * MainActivity.TLSSocketFactory stays in MainActivity -- SettingsUiManager already references it
- * as MainActivity.TLSSocketFactory, so it's not part of this extraction's boundary.
  */
 public class ApkInstallManager {
     private static final String TAG = "ApkInstallManager";
@@ -79,7 +77,7 @@ public class ApkInstallManager {
                     // 🚀 [Required 1] Break through GitHub's security (TLS 1.2)
                     if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
-                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new MainActivity.TLSSocketFactory());
+                            ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new com.themoon.y1.managers.NetworkTrustManager.TLSSocketFactory());
                         } catch (Exception e) {
                             Log.d(TAG, "downloadAndInstallApk failed", e);
                         }
@@ -98,7 +96,7 @@ public class ApkInstallManager {
                         conn = (java.net.HttpURLConnection) new java.net.URL(newUrl).openConnection();
                         if (conn instanceof javax.net.ssl.HttpsURLConnection) {
                             try {
-                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new MainActivity.TLSSocketFactory());
+                                ((javax.net.ssl.HttpsURLConnection) conn).setSSLSocketFactory(new com.themoon.y1.managers.NetworkTrustManager.TLSSocketFactory());
                             } catch (Exception e) {
                                 Log.d(TAG, "downloadAndInstallApk failed", e);
                             }
