@@ -98,11 +98,16 @@ public class BundledAssetsInstaller {
             e.printStackTrace();
         }
 
-        // 🚀 [Core guard] Skip if a theme at the same version or higher is already installed!
-        // If the app version has gone up (e.g. 1 -> 2), pass through this condition and overwrite the theme.
-        if (lastInstalledVersion >= currentAppVersion) return;
-
         File targetDir = new File("/storage/sdcard0/Y1_Themes");
+
+        // 🚀 [Core guard] Skip if a theme at the same version or higher is already installed --
+        // unless the bundled MintMango theme itself is missing (e.g. app version never bumped
+        // across reflashes, so this gate never re-opened, but the theme folder was wiped or
+        // never got created in the first place). Self-heals instead of leaving the user stuck
+        // on the hardcoded "Dark (Default)" theme forever.
+        boolean mintMangoMissing = !new File(targetDir, "mint_mango/config.json").exists();
+        if (lastInstalledVersion >= currentAppVersion && !mintMangoMissing) return;
+
         if (!targetDir.exists()) targetDir.mkdirs();
 
         try {

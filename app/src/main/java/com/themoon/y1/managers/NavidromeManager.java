@@ -138,6 +138,13 @@ public class NavidromeManager {
             return;
         }
 
+        android.net.wifi.WifiManager wifiManager = (android.net.wifi.WifiManager)
+                a.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wifiManager == null || !wifiManager.isWifiEnabled()) {
+            showNavidromeWifiOffMessage(a);
+            return;
+        }
+
         if (a.navidromeBrowseDepth == a.NAV_ARTISTS) {
             a.tvNavidromePath.setText("NAVIDROME  ▸  Artists");
             // Already have the list from this session? Show it instantly and only
@@ -219,6 +226,37 @@ public class NavidromeManager {
             if (!x.id.equals(y.id) || !x.name.equals(y.name) || x.albumCount != y.albumCount) return false;
         }
         return true;
+    }
+
+    private void showNavidromeWifiOffMessage(MainActivity a) {
+        showNavidromeMessage(a, "WI-FI OFF", "Connect to Wi-Fi to browse Navidrome.");
+
+        LinearLayout btnTurnOnWifi = a.createSettingRow("Turn On Wi-Fi", "");
+        btnTurnOnWifi.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                        a.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm != null) {
+                    Toast.makeText(a, a.t("Turning Wi-Fi ON..."), Toast.LENGTH_SHORT).show();
+                    wm.setWifiEnabled(true);
+                }
+            }
+        });
+        a.containerNavidromeItems.addView(btnTurnOnWifi);
+
+        LinearLayout btnGoToWifi = a.createSettingRow("Go to Wi-Fi Settings", "");
+        btnGoToWifi.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                a.changeScreen(MainActivity.STATE_WIFI);
+            }
+        });
+        a.containerNavidromeItems.addView(btnGoToWifi);
+
+        btnTurnOnWifi.requestFocus();
     }
 
     public void showNavidromeMessage(MainActivity a, String title, String body) {

@@ -796,6 +796,8 @@ public class MainActivity extends Activity {
                     buildSettingsUI();
                 else if (currentScreenState == STATE_WIFI)
                     startWifiScan();
+                else if (currentScreenState == STATE_NAVIDROME)
+                    com.themoon.y1.managers.NavidromeManager.getInstance().buildNavidromeUI(MainActivity.this);
             } else if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)) {
                 NetworkInfo networkInfo = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
                 if (networkInfo != null && networkInfo.isConnected()) {
