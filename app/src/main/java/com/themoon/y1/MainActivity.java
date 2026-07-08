@@ -265,6 +265,7 @@ public class MainActivity extends Activity {
     public android.widget.ListView listVirtualSongs;
     public View scrollViewBrowser;
     public boolean isScreenOffControlEnabled = false;
+    public boolean isShowBatteryPercent = false;
     public boolean isAutoFetchEnabled = true; // 🚀 [Added] Default value for the automatic internet lookup switch
     public static List<SongItem> customLibrary = new ArrayList<>();
     public static List<SongItem> audiobookLibrary = new ArrayList<>(); // 🚀 New bucket dedicated to audiobooks!
@@ -408,7 +409,7 @@ public class MainActivity extends Activity {
     private boolean isScreenSleeping = false;
     public long lastScreenOnTime = 0;
     // 💡 [Added] Custom battery view variable
-    private BatteryIconView batteryIconView;
+    public BatteryIconView batteryIconView;
     public int currentTimeoutIndex = 1;
     public final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
     public final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
@@ -1306,6 +1307,7 @@ public class MainActivity extends Activity {
 // 🚀 Restores the existing setting values of the new switches from the storage vault.
 
         isLoopScrollOn = prefs.getBoolean("loop_scroll_on", true);
+        isShowBatteryPercent = prefs.getBoolean("show_battery_percent", false);
         updateMainMenuBackground(); // 💡 Automatically applies the background based on saved state when the app launches
 
         layoutBrowserMode = findViewById(R.id.layout_browser_mode);
@@ -1470,13 +1472,15 @@ public class MainActivity extends Activity {
         // 🚀 [Add here!] Hide the existing battery number (text) and insert a flat icon in its place.
         tvStatusBattery.setVisibility(View.GONE);
         batteryIconView = new BatteryIconView(this);
+        batteryIconView.setShowPercent(isShowBatteryPercent);
+        batteryIconView.setTypeface(ThemeManager.getCustomFont());
         android.view.ViewGroup statusParent = (android.view.ViewGroup) tvStatusBattery.getParent();
         int bIdx = statusParent.indexOfChild(tvStatusBattery);
 
         float density = getResources().getDisplayMetrics().density;
-        // 🚀 [Size boost] Made much bigger and cleaner at 54dp wide by 24dp tall!
+        // 🚀 [Size boost] Made much bigger and cleaner at 60dp wide by 24dp tall, wide enough to fit "100%" as negative space!
         android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(
-                (int) (54 * density), (int) (24 * density));
+                (int) (60 * density), (int) (24 * density));
         blp.gravity = android.view.Gravity.CENTER_VERTICAL;
         blp.setMargins((int) (15 * density), 0, (int) (6 * density), 0); // Slightly adjusted margins to match the size increase
         statusParent.addView(batteryIconView, bIdx, blp);
@@ -1969,7 +1973,10 @@ public class MainActivity extends Activity {
             if (tvMenuPreviewArtist != null) tvMenuPreviewArtist.setTextColor(secondary);
             if (tvStatusClock != null) tvStatusClock.setTextColor(primary);
             if (tvStatusBattery != null) tvStatusBattery.setTextColor(primary);
-            if (batteryIconView != null) batteryIconView.setColor(primary);
+            if (batteryIconView != null) {
+                batteryIconView.setColor(primary);
+                batteryIconView.setTypeface(ThemeManager.getCustomFont());
+            }
 
             int themeFocusColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
             if (playerProgress != null) {

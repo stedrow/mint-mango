@@ -508,6 +508,25 @@ public class SettingsUiManager {
         });
         a.containerSettingsItems.addView(btnScreenOffCtrl);
 
+        final LinearLayout btnBatteryPercent = a.createSettingRow("Show Battery %",
+                a.isShowBatteryPercent ? a.t("ON") : a.t("OFF"));
+        btnBatteryPercent.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                a.isShowBatteryPercent = !a.isShowBatteryPercent;
+                TextView tvStatus = (TextView) btnBatteryPercent.getChildAt(1);
+                tvStatus.setText(a.isShowBatteryPercent ? a.t("ON") : a.t("OFF"));
+                if (a.batteryIconView != null) a.batteryIconView.setShowPercent(a.isShowBatteryPercent);
+                try {
+                    a.prefs.edit().putBoolean("show_battery_percent", a.isShowBatteryPercent).apply();
+                } catch (Exception e) {
+                    Log.d(TAG, "buildDisplayInterfaceGroupUI failed", e);
+                }
+            }
+        });
+        a.containerSettingsItems.addView(btnBatteryPercent);
+
         final com.themoon.y1.managers.WheelLockManager wheelLockManager = com.themoon.y1.managers.WheelLockManager.getInstance();
         final LinearLayout btnWheelLock = a.createSettingRow("Lock Wheel on Wake", wheelLockManager.isEnabled() ? a.t("ON") : a.t("OFF"));
         btnWheelLock.setOnClickListener(new View.OnClickListener() {

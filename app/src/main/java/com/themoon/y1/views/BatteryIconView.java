@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.view.View;
 
@@ -11,9 +12,11 @@ public class BatteryIconView extends View {
     private int level = 100;
     private boolean isCharging = false;
     private int color = Color.WHITE;
+    private boolean showPercent = false;
 
-    private Paint paintFill, paintStroke;
+    private Paint paintFill, paintStroke, paintText;
     private RectF rectShell, rectFill, rectTerminal;
+    private Rect textBounds = new Rect();
 
     public BatteryIconView(Context context) {
         super(context);
@@ -29,6 +32,11 @@ public class BatteryIconView extends View {
         paintStroke.setStyle(Paint.Style.STROKE);
         paintStroke.setStrokeWidth(3f); // border thickness
 
+        // Paint for the percentage number
+        paintText = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintText.setTextAlign(Paint.Align.CENTER);
+        paintText.setFakeBoldText(true);
+
         rectShell = new RectF();
         rectFill = new RectF();
         rectTerminal = new RectF();
@@ -42,6 +50,16 @@ public class BatteryIconView extends View {
 
     public void setColor(int color) {
         this.color = color;
+        invalidate();
+    }
+
+    public void setShowPercent(boolean showPercent) {
+        this.showPercent = showPercent;
+        invalidate();
+    }
+
+    public void setTypeface(android.graphics.Typeface typeface) {
+        paintText.setTypeface(typeface);
         invalidate();
     }
 
@@ -74,7 +92,7 @@ public class BatteryIconView extends View {
         canvas.drawRoundRect(rectTerminal, 2f, 2f, paintFill);
 
         // 🚀 4. Fill the inner area proportionally to the remaining capacity!
-        float padding = 6f; // breathing room (margin) between the border and the fill
+        float padding = 2f; // flush with the border stroke, no black gap ring
         float maxFillWidth = shellWidth - (padding * 2f); // width at 100%
         float currentFillWidth = maxFillWidth * (level / 100f); // trim the width to the current percentage
 
@@ -82,6 +100,17 @@ public class BatteryIconView extends View {
         if (currentFillWidth > 0) {
             rectFill.set(padding, padding, padding + currentFillWidth, h - padding);
             canvas.drawRoundRect(rectFill, 2f, 2f, paintFill);
+        }
+
+        // Percentage number centered in the shell, solid white.
+        if (showPercent) {
+            String text = String.valueOf(level);
+            paintText.setTextSize(h * 0.6f);
+            paintText.setColor(Color.WHITE);
+            paintText.getTextBounds(text, 0, text.length(), textBounds);
+            float cx = shellWidth / 2f;
+            float cy = h / 2f - textBounds.exactCenterY();
+            canvas.drawText(text, cx, cy, paintText);
         }
     }
 }
