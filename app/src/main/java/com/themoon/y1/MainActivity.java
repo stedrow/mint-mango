@@ -499,10 +499,12 @@ public class MainActivity extends Activity {
         if (wm == null) return;
 
         if (isGoingToSleep) {
-            // 💡 On sleep: force Wi-Fi off if the web server isn't running!
+            // 💡 On sleep: force Wi-Fi off if the web server isn't running and we're not
+            // mid-stream from Navidrome (killing the radio out from under a live stream is
+            // exactly the stall this exemption avoids -- see AudioPlayerManager.isNavidromeStreamActive).
             if (wm.isWifiEnabled()) {
                 wasWifiOnBeforeSleep = true; // Remember that it was originally on
-                if (!isServerRunning) {
+                if (!isServerRunning && !com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeStreamActive()) {
                     wm.setWifiEnabled(false);
                 }
             } else {
