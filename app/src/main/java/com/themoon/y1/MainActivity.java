@@ -2667,13 +2667,7 @@ public class MainActivity extends Activity {
         layoutVolumeOverlay.setVisibility(View.GONE);
         View statusBar = findViewById(R.id.layout_status_bar);
         if (statusBar != null) {
-            if (state == STATE_PLAYER) {
-                // On the player screen (music playback screen), always make it fully transparent!
-                statusBar.setBackgroundColor(0x00000000);
-            } else {
-                // On any other screen (menu, settings, file browser, etc.), restore the status bar color specified by the theme!
-                statusBar.setBackgroundColor(ThemeManager.getStatusBarBackgroundColor());
-            }
+            statusBar.setBackgroundColor(ThemeManager.getStatusBarBackgroundColor());
         }
         if (state == STATE_MENU) {
             isPickingBackground = false;
