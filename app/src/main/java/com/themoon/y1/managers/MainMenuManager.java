@@ -359,6 +359,12 @@ public class MainMenuManager {
             btn.setTag(el.action);
             btn.setSoundEffectsEnabled(false);
             btn.setFocusable(true);
+            // Cold boot starts in touch mode (this is a touchscreen digitizer even though the
+            // wheel drives normal navigation) -- requestFocus() silently fails on a merely
+            // focusable() view while in touch mode, only exiting once a key event arrives. That's
+            // why the main menu showed no highlight until navigating into a submenu and back
+            // (a key event by then had already taken the device out of touch mode).
+            btn.setFocusableInTouchMode(true);
             // 🚀 [Focus-vanish fix 3] Inject the clickable instinct, since Android ignores a button's existence when the clickable attribute is missing!
             btn.setClickable(true);
             btn.setOrientation(LinearLayout.HORIZONTAL);

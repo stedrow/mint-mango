@@ -1892,7 +1892,7 @@ public class MainActivity extends Activity {
             Log.d(TAG, "onCreate failed", e);
         }
 
-        btnNowPlaying.requestFocus();
+        focusFirstMainMenuButton();
 
         // 🚀 1. Also swap the main screen's background and text color to match the theme manager!
         applyThemeToMainMenu();
@@ -1911,7 +1911,7 @@ public class MainActivity extends Activity {
             buildThemeSelectorUI(); // Properly display the long-awaited theme list screen!
             isNavigatingToSubMenu = false; // Clear the flag since processing is complete
         } else {
-            btnNowPlaying.requestFocus(); // On a normal app launch, focus the main menu as usual
+            focusFirstMainMenuButton(); // On a normal app launch, focus the main menu as usual
         }
     }
     public void startMediaLibraryScan() { com.themoon.y1.managers.MediaLibraryScanManager.getInstance().startMediaLibraryScan(this); }
@@ -2325,6 +2325,39 @@ public class MainActivity extends Activity {
         });
     }
 
+    // 🚀 [Focus-vanish fix 1] Dynamic themes replace the static list menu (btnNowPlaying) with
+    // buttons built at runtime by MainMenuManager; btnNowPlaying is GONE for those themes, so
+    // requestFocus() on it is a silent no-op. Find the real dynamically created button 0 (ID:
+    // 10000) first, and only fall back to btnNowPlaying if the dynamic menu hasn't been built yet.
+    private void focusFirstMainMenuButton() {
+        View dynamicFirstBtn = findViewById(10000);
+        if (dynamicFirstBtn != null) {
+            dynamicFirstBtn.requestFocus();
+        } else if (btnNowPlaying != null) {
+            btnNowPlaying.requestFocus();
+        }
+    }
+
+    // A view can't take real (visible, window-level) focus until its window actually has input
+    // focus -- calling requestFocus() during onCreate() sets the view's local focus state but
+    // gets silently dropped once the window really attaches/focuses shortly after, which is why
+    // the main menu showed no highlight on cold boot until navigating into a submenu and back
+    // (that path runs after the window already has focus, so the same call works fine there).
+    // Re-applies focus every time the window regains focus while sitting on the menu with
+    // nothing focused -- window focus can be lost/regained more than once during boot (boot
+    // animation, the wheel-lock overlay), so this can't be a one-shot "first call only" guard;
+    // it just needs to be idempotent, same as changeScreen(STATE_MENU)'s equivalent restore.
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && currentScreenState == STATE_MENU) {
+            View cur = getCurrentFocus();
+            if (cur == null || cur.getVisibility() != View.VISIBLE) {
+                focusFirstMainMenuButton();
+            }
+        }
+    }
+
     public void changeScreen(int state) {
 // 🚀 [Path-tracking engine] Right before the screen changes, precisely record where we started in the rearview mirror!
         if (state == STATE_PLAYER) {
@@ -2378,14 +2411,8 @@ public class MainActivity extends Activity {
                 lastFocused.requestFocus();
             } else {
                 View c = getCurrentFocus();
-                // 🚀 [Focus-vanish fix 1] Instead of the hidden legacy button (btnNowPlaying), find the real dynamically created button 0 (ID: 10000) and focus it!
                 if (c == null || c.getVisibility() != View.VISIBLE) {
-                    View dynamicFirstBtn = findViewById(10000); // Fetch dynamic button 0
-                    if (dynamicFirstBtn != null) {
-                        dynamicFirstBtn.requestFocus();
-                    } else if (btnNowPlaying != null) {
-                        btnNowPlaying.requestFocus(); // Safety net in case it hasn't been assembled yet
-                    }
+                    focusFirstMainMenuButton();
                 }
             }
             refreshNowPlayingPreview();
