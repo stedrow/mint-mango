@@ -70,6 +70,14 @@ public class AudioPlayerManager {
     // Position (ms) to seek to the first time playback is resumed after a cold start —
     // set by restoreLastPlaybackState(), consumed and cleared by playOrPauseMusic().
     private int pendingResumePositionMs = 0;
+
+    // Offset (ms) to seek to once the track playTrackListWithOffset() just kicked off actually
+    // finishes loading. prepareMusicTrack()'s heavy lifting runs on bgExecutor and posts the
+    // engine startup back to the main thread later, so a seek issued right after playTrackList()
+    // returns races that and silently gets lost (there's no engine to seek yet). Consumed and
+    // reset to 0 by applyPreparedTrack() once the engine actually starts, same as the audiobook
+    // bookmark seek just below it.
+    private int oneShotResumeOffsetMs = 0;
     private long lastPlaybackStateSaveTime = 0;
 
     // "Disable Built-in Speaker" setting. Deliberately done at the player level
@@ -291,10 +299,10 @@ public class AudioPlayerManager {
     }
 
     public void playTrackListWithOffset(List<File> list, int index, int offsetMs) {
+        if (offsetMs > 0) oneShotResumeOffsetMs = offsetMs;
         playTrackList(list, index);
         if (offsetMs > 0) {
             try {
-                seekRelative(offsetMs - getCurrentPosition());
                 final int totalSec = offsetMs / 1000;
                 final int min = totalSec / 60;
                 final int sec = totalSec % 60;
@@ -746,6 +754,10 @@ public class AudioPlayerManager {
                     if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                         mp.seekTo(savedPos);
                     }
+                    if (oneShotResumeOffsetMs > 0) {
+                        mp.seekTo(oneShotResumeOffsetMs);
+                        oneShotResumeOffsetMs = 0;
+                    }
 
                     if (!main.isPausedByHand) mp.start();
 
@@ -778,6 +790,10 @@ public class AudioPlayerManager {
                 // 🚀 [core logic 2] Right before playback, check if this is an audiobook and force-jump to the saved position!
                 if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
                     exoPlayer.seekTo(savedPos);
+                }
+                if (oneShotResumeOffsetMs > 0) {
+                    exoPlayer.seekTo(oneShotResumeOffsetMs);
+                    oneShotResumeOffsetMs = 0;
                 }
 
                 exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
