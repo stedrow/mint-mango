@@ -46,10 +46,8 @@ public class SongListAdapter extends BaseAdapter {
         public void onClick(View v) {
             Holder h = (Holder) v.getTag();
             MainActivity.instance.clickFeedback();
-            MainActivity.instance.currentIndex = h.position;
-            MainActivity.instance.currentPlaylist.clear();
-            MainActivity.instance.currentPlaylist.addAll(MainActivity.instance.virtualSongList);
-            com.themoon.y1.managers.AudioPlayerManager.getInstance().prepareMusicTrack(MainActivity.instance.currentIndex);
+            com.themoon.y1.managers.AudioPlayerManager.getInstance()
+                    .playTrackList(MainActivity.instance.virtualSongList, h.position);
             MainActivity.instance.changeScreen(3); // 3: STATE_PLAYER
         }
     };
