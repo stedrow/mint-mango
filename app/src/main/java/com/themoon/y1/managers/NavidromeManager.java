@@ -69,6 +69,13 @@ public class NavidromeManager {
     // and time out as soon as the screen sleeps
     private android.os.PowerManager.WakeLock navidromeDownloadWakeLock;
     private android.net.wifi.WifiManager.WifiLock navidromeDownloadWifiLock;
+    // Keep CPU + WiFi awake while a track is streaming from the server. ExoPlayer's
+    // WAKE_MODE_NETWORK is supposed to cover this, but on this device WiFi still dozes
+    // once the screen turns off (the stream reaches ExoPlayer through a localhost proxy,
+    // so the real network fetch happens off in NavidromeProxyServer's threads). An
+    // explicit high-perf WiFi lock held for the streaming session fixes the stalls.
+    private android.os.PowerManager.WakeLock navidromeStreamWakeLock;
+    private android.net.wifi.WifiManager.WifiLock navidromeStreamWifiLock;
     private String currentNavidromeCoverArtId; // guards against stale async art landing on a newer track
     // Downloads run strictly one at a time -- parallel transfers just divide the
     // ~190kbps link and make every track take the full album's time.
@@ -634,6 +641,38 @@ public class NavidromeManager {
     public void releaseNavidromeDownloadLocks(MainActivity a) {
         try { if (navidromeDownloadWakeLock != null && navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
         try { if (navidromeDownloadWifiLock != null && navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeDownloadLocks failed", ignored); }
+    }
+
+    /** Hold CPU + WiFi awake for the duration of a streaming Navidrome track so the stream
+     * doesn't stall when the screen turns off. Reference counting is off, so repeat calls
+     * while already streaming are cheap no-ops. Pair with {@link #releaseNavidromeStreamLocks}. */
+    public void acquireNavidromeStreamLocks(Context context) {
+        try {
+            Context app = context.getApplicationContext();
+            if (navidromeStreamWakeLock == null) {
+                android.os.PowerManager pm = (android.os.PowerManager) app.getSystemService(Context.POWER_SERVICE);
+                navidromeStreamWakeLock = pm.newWakeLock(
+                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "Y1NavidromeStream");
+                navidromeStreamWakeLock.setReferenceCounted(false);
+            }
+            if (!navidromeStreamWakeLock.isHeld()) navidromeStreamWakeLock.acquire();
+
+            if (navidromeStreamWifiLock == null) {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                        app.getSystemService(Context.WIFI_SERVICE);
+                navidromeStreamWifiLock = wm.createWifiLock(
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1NavidromeStream");
+                navidromeStreamWifiLock.setReferenceCounted(false);
+            }
+            if (!navidromeStreamWifiLock.isHeld()) navidromeStreamWifiLock.acquire();
+        } catch (Exception ignored) {
+            Log.d(TAG, "acquireNavidromeStreamLocks failed", ignored);
+        }
+    }
+
+    public void releaseNavidromeStreamLocks() {
+        try { if (navidromeStreamWakeLock != null && navidromeStreamWakeLock.isHeld()) navidromeStreamWakeLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeStreamLocks failed", ignored); }
+        try { if (navidromeStreamWifiLock != null && navidromeStreamWifiLock.isHeld()) navidromeStreamWifiLock.release(); } catch (Exception ignored) { Log.d(TAG, "releaseNavidromeStreamLocks failed", ignored); }
     }
 
     public void processNextNavidromeDownload(MainActivity a) {

@@ -57,6 +57,10 @@ public class AudioPlayerManager {
 
     // Navidrome streaming state
     public boolean isNavidromeMode = false;
+    // True only while the current Navidrome track is streaming over the network (not a
+    // downloaded local file). Gates the WiFi/CPU stream locks so we only hold the radio
+    // awake when there's an actual live stream to keep alive.
+    private boolean isNavidromeStreaming = false;
     public java.util.List<com.themoon.y1.subsonic.SubsonicSong> navidromePlaylist = new java.util.ArrayList<>();
     public int navidromeIndex = 0;
     private int navidromeErrorCount = 0; // consecutive stream failures — stops the skip loop when WiFi dies
@@ -129,6 +133,9 @@ public class AudioPlayerManager {
                 @Override
                 public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
                     android.util.Log.d("NaviStream", "onPlayerStateChanged playWhenReady=" + playWhenReady + " state=" + playbackState);
+                    // Keep the streaming WiFi lock in sync with every play/pause/buffer/end
+                    // transition so the radio stays awake exactly while a stream is live.
+                    updateNavidromeStreamLock();
                     if (playbackState == Player.STATE_READY && !isUsingLegacyPlayer) {
                         navidromeErrorCount = 0; // playback actually started
                         if (MainActivity.instance != null) {
@@ -269,6 +276,8 @@ public class AudioPlayerManager {
 
     public void playTrackList(List<File> list, int index) {
         isNavidromeMode = false;
+        isNavidromeStreaming = false;
+        updateNavidromeStreamLock(); // leaving Navidrome — let go of the stream WiFi lock
         pendingResumePositionMs = 0;
         saveAudiobookBookmarkIfNeeded();
 
@@ -1041,6 +1050,23 @@ public class AudioPlayerManager {
         return 0;
     }
 
+    /**
+     * Reconciles the streaming WiFi/CPU lock with the current playback state: the lock is
+     * held only while a Navidrome track is actively streaming from the network. Called on
+     * every play/pause/stop transition so the radio stays awake exactly when a live stream
+     * needs it (screen off included) and is let go the moment playback pauses or ends.
+     */
+    private void updateNavidromeStreamLock() {
+        MainActivity main = MainActivity.instance;
+        if (main == null) return;
+        NavidromeManager nm = NavidromeManager.getInstance();
+        if (isNavidromeMode && isNavidromeStreaming && isPlaying()) {
+            nm.acquireNavidromeStreamLocks(main.getApplicationContext());
+        } else {
+            nm.releaseNavidromeStreamLocks();
+        }
+    }
+
     public void playNavidromeSong(Context context, com.themoon.y1.subsonic.SubsonicSong song, String streamUrl) {
         saveAudiobookBookmarkIfNeeded();
         isNavidromeMode = true;
@@ -1083,6 +1109,9 @@ public class AudioPlayerManager {
         // bandwidth, works offline. playLocalFile handles the FLAC/legacy split.
         final String existingPath = song.getExistingLocalPath();
         if (existingPath != null) {
+            // Playing a downloaded file — no live stream, so drop any stream lock.
+            isNavidromeStreaming = false;
+            updateNavidromeStreamLock();
             playLocalFile(context, new java.io.File(existingPath));
             main.runOnUiThread(new Runnable() {
                 @Override public void run() {
@@ -1097,6 +1126,7 @@ public class AudioPlayerManager {
         // Stream via local HTTP proxy (port 8081) — ExoPlayer uses plain HTTP to localhost;
         // the proxy fetches from Navidrome over HTTPS using our SSL-fixed HttpURLConnection.
         String proxyUrl = "http://127.0.0.1:8081/stream?id=" + song.id;
+        isNavidromeStreaming = true; // live network stream — hold the WiFi lock while it plays
 
         try {
             com.google.android.exoplayer2.MediaItem mediaItem =
@@ -1110,6 +1140,7 @@ public class AudioPlayerManager {
             exoPlayer.prepare();
             exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
             exoPlayer.setPlayWhenReady(true);
+            updateNavidromeStreamLock(); // grab the WiFi lock now that the stream is playing
 
             main.runOnUiThread(new Runnable() {
                 @Override public void run() {
@@ -1188,6 +1219,8 @@ public class AudioPlayerManager {
     }
 
     public void releasePlayer() {
+        isNavidromeStreaming = false;
+        NavidromeManager.getInstance().releaseNavidromeStreamLocks();
         if (exoPlayer != null) { exoPlayer.release(); exoPlayer = null; }
         if (legacyPlayer != null) { legacyPlayer.release(); legacyPlayer = null; }
         if (currentFileInputStream != null) {

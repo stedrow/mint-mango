@@ -74,10 +74,8 @@ public class BatteryIconView extends View {
         float terminalWidth = w * 0.08f; // length of the terminal bump on the right
         float shellWidth = w - terminalWidth;
 
-        // 🚀 1. Auto color switch based on state (charging: green / 20% or below: red / otherwise: theme color)
-        int currentColor = color;
-        if (isCharging) currentColor = 0xFF4CAF50;
-        else if (level <= 20) currentColor = 0xFFF44336;
+        // 🚀 1. Battery icon is always green, regardless of theme color or charge state.
+        int currentColor = 0xFF4CAF50;
 
         paintStroke.setColor(currentColor);
         paintFill.setColor(currentColor);
