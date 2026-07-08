@@ -1060,11 +1060,20 @@ public class AudioPlayerManager {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         NavidromeManager nm = NavidromeManager.getInstance();
-        if (isNavidromeMode && isNavidromeStreaming && isPlaying()) {
+        if (isNavidromeStreamActive()) {
             nm.acquireNavidromeStreamLocks(main.getApplicationContext());
         } else {
             nm.releaseNavidromeStreamLocks();
         }
+    }
+
+    /** True while a Navidrome track is actively streaming over the network (not paused, not a
+     *  local/downloaded file). Also used to exempt the screen-off auto-WiFi-off power-saving
+     *  engine (MainActivity.autoManageWifiPower) -- same condition that gates the stream WiFi
+     *  lock above, since killing WiFi out from under a live stream is exactly what that lock
+     *  exists to prevent. */
+    public boolean isNavidromeStreamActive() {
+        return isNavidromeMode && isNavidromeStreaming && isPlaying();
     }
 
     public void playNavidromeSong(Context context, com.themoon.y1.subsonic.SubsonicSong song, String streamUrl) {
