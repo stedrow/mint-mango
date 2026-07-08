@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
 
 
 
-    private boolean isNavigatingToSubMenu = false; // 🚀 [Add one line here!] Guard that prevents focus tangling during direct access
+    public boolean isNavigatingToSubMenu = false; // 🚀 [Add one line here!] Guard that prevents focus tangling during direct access
     // Bluetooth A2DP proxy, target device, connecting-state, and reconnect-backoff state all live
     // in BluetoothAudioManager now -- see that class for the field-level rationale.
     private Y1UsbFocusHelper usbFocusHelper;
@@ -179,18 +179,18 @@ public class MainActivity extends Activity {
     // 🚀 [New engine control variable] List-box hide and loop-scroll switch
 
     public boolean isLoopScrollOn = true; // 💡 Set to true by default so infinite loop scrolling works!
-    private TextView tvWidgetClock;
+    public TextView tvWidgetClock;
     // 🚀 [Fix] Renamed to the horizontal Bar class!
-    private WidgetBatteryBarView widgetBatteryView;
+    public WidgetBatteryBarView widgetBatteryView;
     // Add the line below near where the other widget variables are declared (e.g. WidgetBatteryBarView widgetBatteryView; etc.).
-    CircularBatteryView customCircularBatteryView;
-    CustomAnalogClockView customAnalogClockView;
-    private ImageView ivWidgetAlbum;
+    public CircularBatteryView customCircularBatteryView;
+    public CustomAnalogClockView customAnalogClockView;
+    public ImageView ivWidgetAlbum;
     public String lastBrowserFocusText = "";
-    private String lastMainMenuFocusAction = "";
+    public String lastMainMenuFocusAction = "";
     // 🚀 [Added] Title/artist variables dedicated to the album widget
-    private TextView tvWidgetAlbumTitle;
-    private TextView tvWidgetAlbumArtist;
+    public TextView tvWidgetAlbumTitle;
+    public TextView tvWidgetAlbumArtist;
     // 💡 [Added] Variables dedicated to fast index jump (alphabet scroll)
     public List<String> currentScrollIndexList = new ArrayList<>();
     public long lastWheelTime = 0;
@@ -285,7 +285,8 @@ public class MainActivity extends Activity {
     public int currentScreenState = STATE_MENU;
     // 💡 Temporary variable for the custom date/time settings
     public int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
-    private View layoutMainMenu, layoutBrowserMode;
+    public View layoutMainMenu;
+    private View layoutBrowserMode;
     public View layoutSettingsMode;
     private View layoutBluetoothMode, layoutWifiMode, layoutWifiKeyboard;
     private View layoutPlayerMode, layoutVolumeOverlay;
@@ -370,7 +371,7 @@ public class MainActivity extends Activity {
     public List<File> currentPlaylist = new ArrayList<File>();
     public int currentIndex = 0;
     public boolean isPausedByHand = true;
-    private float currentClockSize = 48f;
+    public float currentClockSize = 48f;
     public java.io.FileInputStream currentFileInputStream = null;
     private TextView tvMenuPreviewTitle, tvMenuPreviewArtist;
     public SharedPreferences prefs;
@@ -411,10 +412,10 @@ public class MainActivity extends Activity {
     public final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
     public final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
     private TextView tvFocusPreviewClock; // 🚀 [New engine] Digital clock that ticks inside the live-preview box
-    private ImageView ivWidgetFocusImage; // 🚀 [Added] Dynamic focus widget variable
+    public ImageView ivWidgetFocusImage; // 🚀 [Added] Dynamic focus widget variable
 
     // 🚀 [New engine variable] Backup vault to remember the existing widget's body and original coordinates
-    private LinearLayout layoutWidgetAlbumContainer; // Address of the album widget block
+    public LinearLayout layoutWidgetAlbumContainer; // Address of the album widget block
 
     // 🚀 [Added] Unified registry to globally manage every widget's memory
     public java.util.HashMap<View, ThemeManager.MenuElement> widgetViewRegistry = new java.util.HashMap<>();
@@ -3474,7 +3475,7 @@ public class MainActivity extends Activity {
         return com.themoon.y1.managers.MusicBrowserManager.getInstance().getInitialChar(this, text);
     }
 
-    private android.graphics.Bitmap getScaledThemedIcon(String iconFileName, int size) {
+    public android.graphics.Bitmap getScaledThemedIcon(String iconFileName, int size) {
         return com.themoon.y1.managers.MusicBrowserManager.getInstance().getScaledThemedIcon(this, iconFileName, size);
     }
 
@@ -3489,677 +3490,11 @@ public class MainActivity extends Activity {
     public void buildVirtualSongs() {
         com.themoon.y1.managers.MusicBrowserManager.getInstance().buildVirtualSongs(this);
     }
-    // 🚀 [Added tool 1] Function that translates an English gravity string into something Android understands
-    private int parseGravity(String gravityStr) {
-        int g = android.view.Gravity.TOP | android.view.Gravity.LEFT; // default value
-        if (gravityStr == null || gravityStr.isEmpty()) return g;
-        gravityStr = gravityStr.toLowerCase();
-        g = 0;
-        if (gravityStr.contains("top")) g |= android.view.Gravity.TOP;
-        if (gravityStr.contains("bottom")) g |= android.view.Gravity.BOTTOM;
-        if (gravityStr.contains("center_vertical")) g |= android.view.Gravity.CENTER_VERTICAL;
-        if (gravityStr.contains("left")) g |= android.view.Gravity.LEFT;
-        if (gravityStr.contains("right")) g |= android.view.Gravity.RIGHT;
-        if (gravityStr.contains("center_horizontal")) g |= android.view.Gravity.CENTER_HORIZONTAL;
-        if (gravityStr.equals("center")) g = android.view.Gravity.CENTER; // perfectly centered
-
-        if (g == 0) g = android.view.Gravity.TOP | android.view.Gravity.LEFT;
-        return g;
-    }
-    // 🚀 [Added tool 3] Factory that converts JSON X, Y, width, height, and alignment into absolute-coordinate layout params!
-    private android.widget.FrameLayout.LayoutParams createDynamicLayoutParams(ThemeManager.MenuElement el, float density) {
-        int w = el.width > 0 ? (int)(el.width * density) : android.widget.FrameLayout.LayoutParams.WRAP_CONTENT;
-        int h = el.height > 0 ? (int)(el.height * density) : android.widget.FrameLayout.LayoutParams.WRAP_CONTENT;
-
-        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(w, h);
-        lp.gravity = parseGravity(el.gravity);
-
-        // Intelligently apply the X, Y margins according to the alignment (gravity).
-        if ((lp.gravity & android.view.Gravity.RIGHT) == android.view.Gravity.RIGHT) lp.rightMargin = (int)(el.x * density);
-        else lp.leftMargin = (int)(el.x * density);
-
-        if ((lp.gravity & android.view.Gravity.BOTTOM) == android.view.Gravity.BOTTOM) lp.bottomMargin = (int)(el.y * density);
-        else lp.topMargin = (int)(el.y * density);
-
-        return lp;
-    }
-    // 🚀 [Added tool 2] Function that smartly blends the theme's default corner radius with an individual button's corner radius
-    private android.graphics.drawable.GradientDrawable createDynamicButtonBackground(int color, int elementRadius) {
-        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
-        shape.setColor(color);
-        // If the JSON specifies an individual radius (not -1), use it; otherwise fall back to the theme default!
-        float r = (elementRadius == -1 ? ThemeManager.getButtonRadius() : elementRadius) * getResources().getDisplayMetrics().density;
-        shape.setCornerRadius(r);
-        return shape;
-    }
-    // 🚀 [Added tool 4] Widget-specific: builds a nice box with the given background color and corner radius.
-    private android.graphics.drawable.GradientDrawable createWidgetBackground(String bgColorStr, int elementRadius) {
-        if (bgColorStr == null || bgColorStr.trim().isEmpty()) return null;
-        int color;
-        try { color = android.graphics.Color.parseColor(bgColorStr.trim()); }
-        catch (Exception e) { return null; }
-
-        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
-        shape.setColor(color);
-        // If the JSON doesn't specify a radius, follow the theme's default radius.
-        float r = (elementRadius == -1 ? ThemeManager.getButtonRadius() : elementRadius) * getResources().getDisplayMetrics().density;
-        shape.setCornerRadius(r);
-        return shape;
-    }
-    // 🚀 [Focus control fully conquered] Spinning the wheel ignores physical layout and cycles strictly through the JSON index order!
+    // The theme-driven dynamic main menu (JSON element parsing, widget/button construction, the
+    // main-menu button action-routing switch) lives in MainMenuManager -- see that class for
+    // details. Kept as a thin pass-through here for the one call site in this Activity.
     private void buildDynamicMainMenuUI() {
-        android.view.ViewGroup mainMenu = (android.view.ViewGroup) layoutMainMenu;
-        // 🚀 [Status-bar shield activated!!]
-        // Reads the 'top margin (status bar height)' that was in the existing XML skeleton.
-        int safeTopPadding = mainMenu.getPaddingTop();
-
-        // If the existing margin couldn't be read, force a fallback shield using Android's default status bar height of 24dp!
-        if (safeTopPadding == 0) {
-            safeTopPadding = (int)(24 * getResources().getDisplayMetrics().density);
-        }
-
-        // Reapply the padding as left(0), top(shield), right(0), bottom(0).
-        mainMenu.setPadding(0, safeTopPadding, 0, 0);
-
-        for (int i = 0; i < mainMenu.getChildCount(); i++) {
-            mainMenu.getChildAt(i).setVisibility(View.GONE);
-        }
-
-        // 🚀 [Bug fix: ghost-view residue eliminated]
-        android.view.View oldCanvas = mainMenu.findViewWithTag("dynamic_canvas");
-        while (oldCanvas != null) {
-            if (oldCanvas instanceof android.view.ViewGroup) {
-                ((android.view.ViewGroup) oldCanvas).removeAllViews();
-            }
-            mainMenu.removeView(oldCanvas);
-            oldCanvas = mainMenu.findViewWithTag("dynamic_canvas");
-        }
-
-        // 🚀 [Type-declaration restored] Add the canvas variable declaration back!
-        android.widget.FrameLayout canvas = new android.widget.FrameLayout(this);
-        canvas.setTag("dynamic_canvas");
-        canvas.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
-
-        // 🚀 [Core fix 3] Unseal so icons can pop out large even at the canvas level.
-        canvas.setClipChildren(false);
-        canvas.setClipToPadding(false);
-
-        mainMenu.addView(canvas, new android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-
-        tvWidgetClock = null; widgetBatteryView = null; ivWidgetAlbum = null;
-        tvWidgetAlbumTitle = null; tvWidgetAlbumArtist = null; ivWidgetFocusImage = null; // 🚀 Added reset
-
-        final float density = getResources().getDisplayMetrics().density;
-        List<ThemeManager.MenuElement> elements = ThemeManager.getCurrentTheme().menuElements;
-
-        List<ThemeManager.MenuElement> buttonElements = new ArrayList<>();
-        List<ThemeManager.MenuElement> widgetElements = new ArrayList<>();
-
-        for (ThemeManager.MenuElement el : elements) {
-            if (el.type.equals("button")) buttonElements.add(el);
-            else widgetElements.add(el);
-        }
-
-        java.util.Collections.sort(buttonElements, new java.util.Comparator<ThemeManager.MenuElement>() {
-            @Override
-            public int compare(ThemeManager.MenuElement e1, ThemeManager.MenuElement e2) {
-                return e1.focusIndex - e2.focusIndex;
-            }
-        });
-
-        // 🚀 [New unified vault] Central-command memory that stores the address and JSON info of every widget created
-// 🚀 [Bug fix] Reset and reuse the existing global-variable vault! (removed the final local-variable declaration)
-        widgetViewRegistry.clear();
-        final java.util.HashMap<String, LinearLayout> listContainers = new java.util.HashMap<>();
-
-        // 💡 Draw widgets
-        for (ThemeManager.MenuElement el : widgetElements) {
-            android.graphics.drawable.GradientDrawable widgetBg = createWidgetBackground(el.bgColor, el.radius);
-            int p = (int)(el.padding * density);
-            View createdWidgetView = null; // 🚀 Widget reference variable
-
-            if (el.type.equals("list_box")) {
-                final android.widget.ScrollView sv = new android.widget.ScrollView(this);
-                sv.setLayoutParams(createDynamicLayoutParams(el, density));
-                sv.setVerticalScrollBarEnabled(false);
-                sv.setFocusable(false); sv.setFocusableInTouchMode(false);
-                sv.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
-                if (widgetBg != null) sv.setBackground(widgetBg);
-                sv.setVisibility(View.VISIBLE); // 🚀 Always keep the shell (list box) open.
-                sv.getViewTreeObserver().addOnScrollChangedListener(new android.view.ViewTreeObserver.OnScrollChangedListener() {
-                    @Override
-                    public void onScrollChanged() {
-                        android.view.ViewParent p = sv.getParent();
-                        if (p instanceof android.view.View) ((android.view.View) p).invalidate();
-                        sv.invalidate();
-                    }
-                });
-
-                LinearLayout innerLayout = new LinearLayout(this);
-                innerLayout.setOrientation(LinearLayout.VERTICAL);
-                innerLayout.setPadding(p, p, p, p);
-                sv.addView(innerLayout, new android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
-
-                canvas.addView(sv);
-                listContainers.put(el.id, innerLayout);
-                createdWidgetView = sv;
-            }
-            else if (el.type.equals("box")) {
-                ImageView boxView = new ImageView(this);
-                boxView.setLayoutParams(createDynamicLayoutParams(el, density));
-                if (widgetBg == null) widgetBg = createWidgetBackground("#00000000", el.radius);
-                boxView.setBackground(widgetBg);
-
-                String imgName = (el.iconNormal != null && !el.iconNormal.isEmpty()) ? el.iconNormal : el.textNormal;
-                if (imgName != null && !imgName.isEmpty() && !imgName.equals("New Item")) {
-                    android.graphics.Bitmap bmp = ThemeManager.getCustomIcon(imgName, MainActivity.this, 0);
-                    if (bmp != null) {
-                        int maxTexSize = 2048;
-                        if (bmp.getWidth() > maxTexSize || bmp.getHeight() > maxTexSize) {
-                            float ratio = Math.min((float)maxTexSize / bmp.getWidth(), (float)maxTexSize / bmp.getHeight());
-                            boxView.setImageBitmap(android.graphics.Bitmap.createScaledBitmap(bmp, (int)(bmp.getWidth() * ratio), (int)(bmp.getHeight() * ratio), true));
-                        } else boxView.setImageBitmap(bmp);
-                        boxView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                    }
-                }
-                canvas.addView(boxView);
-                createdWidgetView = boxView;
-            }
-            else if (el.type.equals("widget_clock")) {
-                tvWidgetClock = new TextView(this);
-                tvWidgetClock.setGravity(android.view.Gravity.CENTER);
-                tvWidgetClock.setLayoutParams(createDynamicLayoutParams(el, density));
-                tvWidgetClock.setTextColor(ThemeManager.getTextColorPrimary());
-                tvWidgetClock.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-                currentClockSize = el.textSize > 0 ? el.textSize : 48f;
-                tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, currentClockSize * density);
-                if (widgetBg != null) tvWidgetClock.setBackground(widgetBg);
-                tvWidgetClock.setPadding(p, p, p, p);
-
-                canvas.addView(tvWidgetClock); // 🚀 Restored as a direct child of the canvas!
-                createdWidgetView = tvWidgetClock;
-            }
-            else if (el.type.equals("widget_battery")) {
-                widgetBatteryView = new WidgetBatteryBarView(this);
-                widgetBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
-                widgetBatteryView.setPadding(p, p, p, p);
-                canvas.addView(widgetBatteryView);
-                createdWidgetView = widgetBatteryView;
-            }
-            else if (el.type.equals("widget_album")) {
-                LinearLayout albumContainer = new LinearLayout(this);
-                layoutWidgetAlbumContainer = albumContainer;
-                boolean isHorizontal = el.textPosition.equalsIgnoreCase("left") || el.textPosition.equalsIgnoreCase("right");
-                albumContainer.setOrientation(isHorizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-                albumContainer.setGravity(android.view.Gravity.CENTER);
-                albumContainer.setLayoutParams(createDynamicLayoutParams(el, density));
-                if (widgetBg != null) albumContainer.setBackground(widgetBg);
-                albumContainer.setPadding(p, p, p, p);
-
-                ivWidgetAlbum = new ImageView(this);
-                ivWidgetAlbum.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                int pSubtract = el.padding * 2;
-                int imgSize = isHorizontal ? (int)((el.height - pSubtract) * density) : (int)((el.height - pSubtract) * 0.65f * density);
-                if(imgSize <= 0) imgSize = (int)(110 * density);
-                LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(imgSize, imgSize);
-
-                LinearLayout textContainer = new LinearLayout(this);
-                textContainer.setOrientation(LinearLayout.VERTICAL);
-                int textGravity = el.textAlign.equalsIgnoreCase("left") ? (android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL) : (el.textAlign.equalsIgnoreCase("right") ? (android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL) : android.view.Gravity.CENTER);
-                textContainer.setGravity(textGravity);
-                LinearLayout.LayoutParams textContainerLp = isHorizontal ? new LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f) : new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
-
-                int safeWidth = el.width > 0 ? (int)(el.width * density) : (int)(200 * density);
-                int availableWidth = isHorizontal ? (safeWidth - imgSize - (int)(15 * density) - (p * 2)) : (safeWidth - (p * 2));
-                if (availableWidth <= 0) availableWidth = (int)(150 * density);
-                LinearLayout.LayoutParams textViewLp = new LinearLayout.LayoutParams(availableWidth, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-
-                tvWidgetAlbumTitle = new TextView(this);
-                tvWidgetAlbumTitle.setLayoutParams(textViewLp); tvWidgetAlbumTitle.setGravity(textGravity);
-                tvWidgetAlbumTitle.setSingleLine(true); tvWidgetAlbumTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                tvWidgetAlbumTitle.setTextColor(ThemeManager.getTextColorPrimary());
-                tvWidgetAlbumTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-                tvWidgetAlbumTitle.setTextSize(el.textSize > 0 ? el.textSize : 16);
-                textContainer.addView(tvWidgetAlbumTitle);
-
-                tvWidgetAlbumArtist = new TextView(this);
-                tvWidgetAlbumArtist.setLayoutParams(textViewLp); tvWidgetAlbumArtist.setGravity(textGravity);
-                tvWidgetAlbumArtist.setSingleLine(true); tvWidgetAlbumArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                tvWidgetAlbumArtist.setTextColor(ThemeManager.getTextColorSecondary());
-                tvWidgetAlbumArtist.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-                tvWidgetAlbumArtist.setTextSize(el.textSecondarySize > 0 ? el.textSecondarySize : 12);
-                textContainer.addView(tvWidgetAlbumArtist);
-
-                if (el.textPosition.equalsIgnoreCase("left")) {
-                    imgLp.leftMargin = (int)(15 * density); albumContainer.addView(textContainer, textContainerLp); albumContainer.addView(ivWidgetAlbum, imgLp);
-                } else if (el.textPosition.equalsIgnoreCase("right")) {
-                    textContainerLp.leftMargin = (int)(15 * density); albumContainer.addView(ivWidgetAlbum, imgLp); albumContainer.addView(textContainer, textContainerLp);
-                } else if (el.textPosition.equalsIgnoreCase("top")) {
-                    textContainerLp.bottomMargin = (int)(5 * density); albumContainer.addView(textContainer, textContainerLp); albumContainer.addView(ivWidgetAlbum, imgLp);
-                } else {
-                    textContainerLp.topMargin = (int)(5 * density); albumContainer.addView(ivWidgetAlbum, imgLp); albumContainer.addView(textContainer, textContainerLp);
-                }
-
-                canvas.addView(albumContainer); // 🚀 Restored as a direct child of the canvas!
-                createdWidgetView = albumContainer;
-            }
-            else if (el.type.equals("widget_analog_clock")) {
-                customAnalogClockView = new CustomAnalogClockView(this);
-                customAnalogClockView.setLayoutParams(createDynamicLayoutParams(el, density));
-                customAnalogClockView.setPadding(p, p, p, p);
-                if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
-                    try { customAnalogClockView.setClockBackgroundColor(android.graphics.Color.parseColor(el.bgColor.trim())); } catch (Exception e) { Log.d(TAG, "buildDynamicMainMenuUI failed", e); }
-                }
-                canvas.addView(customAnalogClockView);
-                createdWidgetView = customAnalogClockView;
-            }
-            else if (el.type.equals("widget_circular_battery")) {
-                customCircularBatteryView = new CircularBatteryView(this);
-                customCircularBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
-                customCircularBatteryView.setPadding(p, p, p, p);
-                if (el.textSize > 0) customCircularBatteryView.setCustomTextSize(el.textSize * density);
-                canvas.addView(customCircularBatteryView);
-                createdWidgetView = customCircularBatteryView;
-            }
-            else if (el.type.equals("widget_focus_image")) {
-                ivWidgetFocusImage = new ImageView(this); // 🚀 Slimmed down to a standalone ImageView skeleton for hybrid unification!
-                ivWidgetFocusImage.setLayoutParams(createDynamicLayoutParams(el, density));
-                ivWidgetFocusImage.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-                if (widgetBg != null) ivWidgetFocusImage.setBackground(widgetBg);
-                ivWidgetFocusImage.setPadding(p, p, p, p);
-
-                canvas.addView(ivWidgetFocusImage);
-                createdWidgetView = ivWidgetFocusImage;
-            }
-
-            // 🚀 Carefully registers this widget object and its theme JSON design info in the address book.
-            if (createdWidgetView != null) {
-                // ❌ [Fatal error cause removed] Fully prevents the app from crashing due to modifying a list mid-loop!
-                widgetViewRegistry.put(createdWidgetView, el); // Store it in the correct vault.
-
-                // 🚀 [Logic fix] If this isn't a parentId but rather a newly created visibleOnFocus (watch target), hide it by default!
-                if (el.visibleOnFocus != null && !el.visibleOnFocus.trim().isEmpty()) {
-                    createdWidgetView.setVisibility(View.GONE);
-                }
-            }
-        }
-        // 💡 Draw buttons
-        List<LinearLayout> createdButtons = new ArrayList<>(); // 🚀 Upgraded from Button to LinearLayout
-
-        // 🚀 [Hide-filtering engine] Completely excludes from the list any button the user chose to hide in settings!
-        List<ThemeManager.MenuElement> visibleButtonElements = new ArrayList<>();
-        for (ThemeManager.MenuElement el : buttonElements) {
-            if (!prefs.getBoolean("hide_btn_" + el.id, false)) {
-                visibleButtonElements.add(el);
-            }
-        }
-
-        // Build the UI and wire up the focus chain (ID) using only the 'buttons set to show', not the full list.
-        for (int i = 0; i < visibleButtonElements.size(); i++) {
-            final ThemeManager.MenuElement el = visibleButtonElements.get(i);
-
-            // 🚀 1. The overall container wrapping the button (LinearLayout)
-            final LinearLayout btn = new LinearLayout(this);
-            btn.setId(10000 + i);
-            btn.setTag(el.action);
-            btn.setSoundEffectsEnabled(false);
-            btn.setFocusable(true);
-            // 🚀 [Focus-vanish fix 3] Inject the clickable instinct, since Android ignores a button's existence when the clickable attribute is missing!
-            btn.setClickable(true);
-            btn.setOrientation(LinearLayout.HORIZONTAL);
-            btn.setOnLongClickListener(globalScreenOffLongClickListener);
-            // 🚀 2. Left-side main text and icon view
-            final TextView tvMain = new TextView(this);
-            tvMain.setSingleLine(true);
-            tvMain.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            // 🚀 [Android bug fix] Physically eliminate the TextView's characteristic invisible ghost margin (~5px).
-            tvMain.setIncludeFontPadding(false);
-            tvMain.setPadding(0, 0, 0, 0);
-            tvMain.setMinimumWidth(0);
-            tvMain.setMinimumHeight(0);
-
-            // 🚀 3. Right-side arrow and point text view
-            final TextView tvRight = new TextView(this);
-            tvRight.setSingleLine(true);
-            tvRight.setIncludeFontPadding(false); // Match this here too.
-            tvRight.setPadding(0, 0, 0, 0);
-
-            final boolean isIconOnly = (el.textNormal == null || el.textNormal.trim().isEmpty());
-
-            // 🚀 [Ultimate formula] Also fully blocks the crash where enlarged padding drives the icon size negative.
-            final int calculatedIconSize;
-            if (isIconOnly) {
-                int w = el.width > 0 ? el.width : 50;
-                int h = el.height > 0 ? el.height : 50;
-                int p = (int)(el.padding * density);
-                int tempSize = (int)(Math.min(w, h) * density) - (p * 2);
-                // Guards so the icon keeps a minimum size of 10dp even if it would otherwise shrink too much.
-                calculatedIconSize = tempSize > 0 ? tempSize : (int)(10 * density);
-            } else {
-                int h = el.height > 0 ? el.height : 50;
-                calculatedIconSize = (int)(h * density * 0.5f);
-            }
-
-            int textGravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
-            if (el.textAlign != null && !el.textAlign.isEmpty()) {
-                String ta = el.textAlign.toLowerCase();
-                if (ta.equals("center")) textGravity = android.view.Gravity.CENTER;
-                else if (ta.equals("right")) textGravity = android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL;
-                else if (ta.equals("top")) textGravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
-                else if (ta.equals("bottom")) textGravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-            } else {
-                if (el.gravity.toLowerCase().contains("center")) textGravity = android.view.Gravity.CENTER;
-            }
-
-            if (isIconOnly) {
-                btn.setGravity(android.view.Gravity.CENTER);
-                int p = (int)(el.padding * density);
-                btn.setPadding(p, p, p, p);
-                tvMain.setGravity(android.view.Gravity.CENTER);
-            } else {
-                btn.setGravity(android.view.Gravity.CENTER_VERTICAL);
-                tvMain.setGravity(textGravity);
-                tvRight.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
-
-                // 🚀 [Fix 1] Text-only buttons now also properly get the padding value set in the editor!
-                int customPad = (int)(el.padding * density);
-
-                if (el.textAlign != null && (el.textAlign.equalsIgnoreCase("top") || el.textAlign.equalsIgnoreCase("bottom"))) {
-                    // Use the user's value if set; otherwise apply the default of 15
-                    int verticalPad = el.padding > 0 ? customPad : (int)(15 * density);
-                    btn.setPadding(customPad, verticalPad, customPad, verticalPad);
-                } else {
-                    int horizontalPad = el.padding > 0 ? customPad : (int)(15 * density);
-                    btn.setPadding(horizontalPad, customPad, horizontalPad, customPad);
-                }
-            }
-
-            btn.setLayoutParams(createDynamicLayoutParams(el, density));
-            tvMain.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-            tvRight.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
-
-            if (!isIconOnly) {
-                // 🚀 [Font-size bug fix] Uses pixel (PX) units instead of Android's default (SP) unit, forcing the size to exactly match the editor!
-                float mainSize = el.textSize > 0 ? el.textSize : 16; // Default to the same 16px as the editor
-                float rightSize = el.textSecondarySize > 0 ? el.textSecondarySize : mainSize; // Supports an independent size for the right-side text
-
-                tvMain.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mainSize * density);
-                tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rightSize * density);
-            }
-
-            LinearLayout.LayoutParams lpMain;
-            LinearLayout.LayoutParams lpRight;
-
-            if (isIconOnly) {
-                // 🚀 [Core fix 1] For icon-only buttons, completely remove the 10dp right margin (the "thief") so it keeps only its own size and stays centered!
-                lpMain = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                lpRight = new LinearLayout.LayoutParams(0, 0);
-                tvRight.setVisibility(View.GONE); // Dismiss the ghost text view
-
-                // 🚀 [Core fix 2] Unsealed so it isn't clipped by the padding line when the zoom animation fires!
-                btn.setClipChildren(false);
-                btn.setClipToPadding(false);
-            } else {
-                // Regular buttons keep a weight of 1.0f so the text pushes into the remaining space
-                lpMain = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-                lpRight = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                lpRight.leftMargin = (int)(10 * density);
-            }
-
-            btn.addView(tvMain, lpMain);
-            btn.addView(tvRight, lpRight);
-
-            final Runnable setNormalState = new Runnable() {
-                public void run() {
-                    // 🚀 [Bug fix 1] Prioritize the individually specified background color (bgColor) from the editor over the theme's default background color, if present!
-                    int normalBgColor = ThemeManager.getListButtonNormalBg();
-                    if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
-                        try { normalBgColor = android.graphics.Color.parseColor(el.bgColor.trim()); } catch (Exception e) { Log.d(TAG, "buildDynamicMainMenuUI failed", e); }
-                    }
-
-                    // 🚀 [Bug fix 2] Removed the forced transparent-color assignment for both icon-only and regular buttons — always paint the background color!
-                    btn.setBackground(createDynamicButtonBackground(normalBgColor, el.radius));
-
-                    if (isIconOnly) {
-                        tvMain.setText("");
-                    } else {
-                        tvMain.setText(t(el.textNormal));
-                        tvMain.setTextColor(ThemeManager.getTextColorPrimary());
-                        tvRight.setText(el.textRight != null ? t(el.textRight) : "");
-
-                        if (el.textRightColor != null && !el.textRightColor.isEmpty()) {
-                            try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightColor)); }
-                            catch (Exception e) { tvRight.setTextColor(ThemeManager.getTextColorPrimary()); }
-                        } else {
-                            tvRight.setTextColor(ThemeManager.getTextColorPrimary());
-                        }
-                    }
-
-                    if (el.iconNormal != null && !el.iconNormal.isEmpty()) {
-                        // 🚀 [Core technique 1] Physically crop the bitmap itself at the pixel level so Android can't ignore and override the intended size!
-                        android.graphics.Bitmap scaledBmp = getScaledThemedIcon(el.iconNormal, calculatedIconSize);
-                        if (scaledBmp != null) {
-                            android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), scaledBmp);
-
-                            d.setBounds(0, 0, calculatedIconSize, calculatedIconSize);
-                            tvMain.setCompoundDrawables(d, null, null, null);
-
-                            tvMain.setCompoundDrawablePadding(isIconOnly ? 0 : (int)(10 * density));
-                        } else {
-                            tvMain.setCompoundDrawables(null, null, null, null);
-                        }
-                    } else {
-                        tvMain.setCompoundDrawables(null, null, null, null);
-                    }
-                    tvMain.setTranslationX(0);
-                    tvMain.setTranslationY(0);
-                    tvMain.setScaleX(1.0f);
-                    tvMain.setScaleY(1.0f);
-                }
-            };
-            setNormalState.run();
-
-            btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    if (hasFocus) {
-                        btn.setBackground(createDynamicButtonBackground(ThemeManager.getListButtonFocusedBg(), el.radius));
-
-                        if (isIconOnly) {
-                            tvMain.setText("");
-                        } else {
-                            // 🚀 Simultaneously change the main text and right-arrow colors on focus!
-                            tvMain.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-// 🚀 Apply a dedicated focus color for the right-side text
-                            if (el.textRightFocusedColor != null && !el.textRightFocusedColor.isEmpty()) {
-                                try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightFocusedColor)); }
-                                catch (Exception e) { tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor()); }
-                            } else {
-                                tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
-                            }
-                            if (el.textFocused != null && !el.textFocused.isEmpty()) tvMain.setText(t(el.textFocused));
-                            else tvMain.setText(t(el.textNormal));
-                        }
-
-                        String targetIcon = (el.iconFocused != null && !el.iconFocused.isEmpty()) ? el.iconFocused : el.iconNormal;
-                        if (targetIcon != null && !targetIcon.isEmpty()) {
-                            // 🚀 [Core technique 2] On focus, likewise physically crop the bitmap before inserting it!
-                            android.graphics.Bitmap scaledBmpF = getScaledThemedIcon(targetIcon, calculatedIconSize);
-                            if (scaledBmpF != null) {
-                                android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), scaledBmpF);
-
-                                d.setBounds(0, 0, calculatedIconSize, calculatedIconSize);
-                                tvMain.setCompoundDrawables(d, null, null, null);
-                            }
-                        }
-                        updateFocusPreviewLiveContent(el);
-                        tvMain.animate()
-                                .translationX(el.focusOffsetX * density)
-                                .translationY(el.focusOffsetY * density)
-                                .scaleX(el.focusScale).scaleY(el.focusScale)
-                                .setDuration(150).start();
-
-                    } else {
-                        // Restore to the original state when focus leaves
-                        tvMain.animate()
-                                .translationX(0).translationY(0)
-                                .scaleX(1.0f).scaleY(1.0f)
-                                .setDuration(150).start();
-                        setNormalState.run();
-                    }
-                }
-            });
-
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    clickFeedback();
-                    lastMainMenuFocusAction = el.action; // remember which main-menu button we left from, so back returns focus here
-                    switch (el.action) {
-                        case "OPEN_PLAYER": {
-                            com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                            boolean navidromeActive = am.isNavidromeMode && !am.navidromePlaylist.isEmpty();
-                            if (currentPlaylist.isEmpty() && !navidromeActive) {
-                                Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show();
-                            } else {
-                                changeScreen(STATE_PLAYER);
-                                if (navidromeActive) {
-                                    // Restart the progress poller — it stops when the player screen is left
-                                    progressHandler.removeCallbacks(updateProgressTask);
-                                    progressHandler.post(updateProgressTask);
-                                }
-                            }
-                            break;
-                        }
-// 🎵 Enter the music library
-                        case "OPEN_COVER_FLOW":
-                            currentBrowserMode = BROWSER_COVER_FLOW;
-                            changeScreen(STATE_BROWSER);
-                            break;
-                        case "OPEN_BROWSER":
-                            isAudiobookLibraryMode = false;
-                            currentBrowserMode = BROWSER_ROOT;
-                            if (customLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
-                            changeScreen(STATE_BROWSER);
-                            if (isCustomScanning && customLibrary.isEmpty()) showLoadingPopup();
-                            break;
-
-                        // 📚 Jump directly into the audiobook library (set the action to "OPEN_AUDIOBOOKS" in the theme settings to enable this!)
-                        case "OPEN_AUDIOBOOKS":
-                            isAudiobookLibraryMode = true;
-                            currentBrowserMode = BROWSER_ROOT;
-                            if (audiobookLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
-                            changeScreen(STATE_BROWSER);
-                            if (isCustomScanning && audiobookLibrary.isEmpty()) showLoadingPopup();
-                            break;
-                        case "OPEN_BLUETOOTH": changeScreen(STATE_BLUETOOTH); break;
-                        case "OPEN_SETTINGS": changeScreen(STATE_SETTINGS); break;
-                        case "OPEN_WEBSERVER": changeScreen(STATE_WEBSERVER); break;
-// 🚀 [Radio revival] Turns on Android's built-in FM radio when the radio button is pressed in the theme!
-                        case "OPEN_RADIO":
-                            clickFeedback();
-                            // 🚀 Instead of the clunky stock app, go directly into our own sleek built-in radio studio.
-                            isNavigatingToSubMenu = true;
-                            changeScreen(STATE_SETTINGS);
-                            buildRadioUI();
-                            isNavigatingToSubMenu = false;
-                            break;
-                        // 🚀🚀🚀 [New direct-shortcut actions start here!] 🚀🚀🚀
-                        case "OPEN_ROOT_FOLDER":
-                            currentBrowserMode = BROWSER_FOLDER;
-                            currentFolder = new File("/storage/sdcard0"); // Force-move to the topmost root folder!
-                            changeScreen(STATE_BROWSER);
-                            break;
-                        case "OPEN_WIFI": changeScreen(STATE_WIFI); break;
-                        case "OPEN_NAVIDROME":
-                            navidromeBrowseDepth = NAV_ARTISTS;
-                            selectedNavidromeArtist = null;
-                            com.themoon.y1.managers.NavidromeManager.getInstance().clearSelectedAlbum();
-                            isNavidromeLetterView = false;
-                            navidromeBackTarget = STATE_MENU;
-                            changeScreen(STATE_NAVIDROME);
-                            break;
-                        case "OPEN_BRIGHTNESS": changeScreen(STATE_BRIGHTNESS); break;
-                        case "OPEN_STORAGE_INFO": changeScreen(STATE_STORAGE); break;
-                        case "OPEN_WIDGET_SETTINGS":
-                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildWidgetSettingsUI(); isNavigatingToSubMenu = false; break;
-                        case "OPEN_BACKGROUND_SETTINGS":
-                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildBackgroundSettingsUI(); isNavigatingToSubMenu = false; break;
-                        case "OPEN_THEME_SETTINGS":
-                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildThemeSelectorUI(); isNavigatingToSubMenu = false; break;
-                        case "OPEN_TIME_SETTINGS":
-                            java.util.Calendar c = java.util.Calendar.getInstance();
-                            dtYear = c.get(java.util.Calendar.YEAR); dtMonth = c.get(java.util.Calendar.MONTH) + 1; dtDay = c.get(java.util.Calendar.DAY_OF_MONTH);
-                            dtHour = c.get(java.util.Calendar.HOUR_OF_DAY); dtMinute = c.get(java.util.Calendar.MINUTE);
-                            isNavigatingToSubMenu = true; changeScreen(STATE_SETTINGS); buildDateTimeUI(); isNavigatingToSubMenu = false; break;
-                        // 🚀🚀🚀 [End of addition] 🚀🚀🚀
-
-                        default: break;
-                    }
-                }
-            });
-
-            if (el.parentId != null && !el.parentId.isEmpty() && listContainers.containsKey(el.parentId)) {
-                // 💡 1. If it belongs to a list box: adjust the attributes to match vertical (LinearLayout) alignment rules.
-                LinearLayout.LayoutParams listLp = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        el.height > 0 ? (int)(el.height * density) : LinearLayout.LayoutParams.WRAP_CONTENT);
-                // Inside a list, smartly reuse the Y value as a top margin (vertical gap) and the X value as horizontal spacing!
-                listLp.setMargins((int)(el.x * density), (int)(el.y * density), (int)(el.x * density), 0);
-                btn.setLayoutParams(listLp);
-
-                // Instead of the canvas, it goes inside the parent group (list box)!
-                listContainers.get(el.parentId).addView(btn);
-            } else {
-                // 💡 2. If it doesn't belong to anything: plug in the X, Y absolute coordinates directly onto the canvas as before.
-                btn.setLayoutParams(createDynamicLayoutParams(el, density));
-                canvas.addView(btn);
-            }
-
-            createdButtons.add(btn);
-
-        }
-
-        int totalBtns = createdButtons.size();
-        for (int i = 0; i < totalBtns; i++) {
-            LinearLayout currentBtn = createdButtons.get(i);
-            // 🚀 [Loop-condition branch] Depending on the loop-scroll setting, either allow infinite wrapping at both ends or cut it off (View.NO_ID).
-            int prevId = (i == 0) ? (isLoopScrollOn ? 10000 + totalBtns - 1 : View.NO_ID) : 10000 + i - 1;
-            int nextId = (i == totalBtns - 1) ? (isLoopScrollOn ? 10000 : View.NO_ID) : 10000 + i + 1;
-
-            currentBtn.setNextFocusUpId(prevId);
-            currentBtn.setNextFocusLeftId(prevId);
-
-            currentBtn.setNextFocusDownId(nextId);
-            currentBtn.setNextFocusRightId(nextId);
-        }
-
-        refreshWidgets();
-
-        // 🚀 [Bug fix] Once the screen assembly is completely done (50ms safety wait), forcefully focus button 0!
-        if (!createdButtons.isEmpty()) {
-            final LinearLayout firstBtn = createdButtons.get(0);
-            firstBtn.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    // 🚀 [Culprit of the focus-vanish bug caught!] Guard added so focus is only pulled back while looking at the main screen!
-                    // Only steal focus if nothing is already focused — otherwise this clobbers the
-                    // back-navigation focus restore that changeScreen() already applied synchronously.
-                    View cur = getCurrentFocus();
-                    if (currentScreenState == STATE_MENU && (cur == null || cur.getVisibility() != View.VISIBLE)) {
-                        firstBtn.requestFocus();
-
-                        android.view.ViewParent parent = firstBtn.getParent();
-                        if (parent != null && parent.getParent() instanceof android.widget.ScrollView) {
-                            ((android.widget.ScrollView) parent.getParent()).scrollTo(0, 0);
-                        }
-                    }
-                }
-            }, 50);
-        }
+        com.themoon.y1.managers.MainMenuManager.getInstance().buildDynamicMainMenuUI(this);
     }
     public void collectAudioFilesAsFile(File dir, List<File> list) {
         File[] files = dir.listFiles();
@@ -5782,7 +5117,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().showFreqPopup(this, freq);
     }
     // 🚀 [Ultimate architecture complete] Dynamic layout engine that switches in real time purely by looking at the parent_id relationships between objects, with no hardcoded terms
-    private void updateFocusPreviewLiveContent(ThemeManager.MenuElement focusedElement) {
+    public void updateFocusPreviewLiveContent(ThemeManager.MenuElement focusedElement) {
         FrameLayout canvas = (FrameLayout) layoutMainMenu.findViewWithTag("dynamic_canvas");
         if (canvas == null) return;
 
