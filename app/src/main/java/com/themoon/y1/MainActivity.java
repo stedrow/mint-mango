@@ -157,7 +157,7 @@ public class MainActivity extends Activity {
     private android.graphics.Typeface materialIconFont = null;
     public boolean isLongPressConsumed = false; // 🚀 Added long-press guard variable
     public boolean isSeekPerformed = false;
-    private long lastSeekTime = 0;
+    public long lastSeekTime = 0;
     // 🚀 [New] Global audio effect variables and profile state management
     public android.media.audiofx.BassBoost bassBoost;
     public android.media.audiofx.Virtualizer virtualizer;
@@ -198,18 +198,18 @@ public class MainActivity extends Activity {
     public static MainActivity instance;
     public long lastTrackChangeTime = 0; // 🚀 Guard variable to block duplicate key signals from the device
     // 💡 [Added] Audio spectrum related variables
-    private android.media.audiofx.Visualizer audioVisualizer;
-    private AudioVisualizerView visualizerView;
+    public android.media.audiofx.Visualizer audioVisualizer;
+    public AudioVisualizerView visualizerView;
     // 🚀 [New] LRC lyrics parser and UI variables
-    private android.widget.ScrollView lyricScrollView;
-    private TextView tvLyrics;
-    private java.util.TreeMap<Integer, String> currentLyrics = new java.util.TreeMap<>();
-    private List<Integer> lyricTimestamps = new ArrayList<>();
-    private int lastLyricIndex = -1;
+    public android.widget.ScrollView lyricScrollView;
+    public TextView tvLyrics;
+    public java.util.TreeMap<Integer, String> currentLyrics = new java.util.TreeMap<>();
+    public List<Integer> lyricTimestamps = new ArrayList<>();
+    public int lastLyricIndex = -1;
     // 💡 Bucket that holds the "unsynchronized" plain-text lyrics embedded inside the MP3
-    private String plainLyrics = null;
+    public String plainLyrics = null;
 
-    private boolean isVisualizerShowing = false;
+    public boolean isVisualizerShowing = false;
     public static final int STATE_MENU = 1;
     public static final int STATE_BROWSER = 2;
     public static final int STATE_PLAYER = 3;
@@ -253,7 +253,7 @@ public class MainActivity extends Activity {
     public File currentM3uFile = null; // Address of the M3U file the user is currently viewing
     // 🚀 [Added] Variables dedicated to favorites
     public java.util.Set<String> favoritePaths = new java.util.HashSet<>();
-    private TextView tvPlayerFavoriteStatus;
+    public TextView tvPlayerFavoriteStatus;
 
     public int consecutiveErrorCount = 0;
     // 🚀 [Added] Variables for displaying scan progress
@@ -289,7 +289,7 @@ public class MainActivity extends Activity {
     private View layoutBrowserMode;
     public View layoutSettingsMode;
     private View layoutBluetoothMode, layoutWifiMode, layoutWifiKeyboard;
-    private View layoutPlayerMode, layoutVolumeOverlay;
+    public View layoutPlayerMode, layoutVolumeOverlay;
     private View layoutBrightnessMode, layoutStorageMode, layoutWebServerMode;
     private View layoutNavidromeMode;
     public LinearLayout containerNavidromeItems;
@@ -323,9 +323,10 @@ public class MainActivity extends Activity {
     public TextView tvQualityBitrate;
 
     public TextView tvPlayerTrackCount;
-    private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 Changed from TextView to ImageView!
+    public ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 Changed from TextView to ImageView!
     public ProgressBar playerProgress;
-    private ProgressBar volumeProgress, pbBrightness, pbStorage;
+    public ProgressBar volumeProgress;
+    private ProgressBar pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [Fix] Removed the manual APP_VERSION variable and only kept the server folder address.
     public boolean is24HourFormat = false;
@@ -364,7 +365,7 @@ public class MainActivity extends Activity {
     public boolean isTargetWifiOpen = false;
     // 💡 Variable that tracks whether the media scanner is currently working
     private boolean isMediaScanning = false;
-    private AudioManager audioManager;
+    public AudioManager audioManager;
     public File rootFolder = new File("/storage/sdcard0/Music");
     public File currentFolder = rootFolder;
     public List<File> originalPlaylist = new ArrayList<File>();
@@ -411,7 +412,7 @@ public class MainActivity extends Activity {
     public int currentTimeoutIndex = 1;
     public final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
     public final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
-    private TextView tvFocusPreviewClock; // 🚀 [New engine] Digital clock that ticks inside the live-preview box
+    public TextView tvFocusPreviewClock; // 🚀 [New engine] Digital clock that ticks inside the live-preview box
     public ImageView ivWidgetFocusImage; // 🚀 [Added] Dynamic focus widget variable
 
     // 🚀 [New engine variable] Backup vault to remember the existing widget's body and original coordinates
@@ -687,8 +688,8 @@ public class MainActivity extends Activity {
         }
     };
 
-    private Handler volumeHandler = new Handler();
-    private Runnable hideVolumeTask = new Runnable() {
+    public Handler volumeHandler = new Handler();
+    public Runnable hideVolumeTask = new Runnable() {
         @Override
         public void run() {
             layoutVolumeOverlay.setVisibility(View.GONE);
@@ -1006,7 +1007,7 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [New helper] Function that reads the current screen's track info and image and sends it over Bluetooth
-    private void sendBluetoothMetaToCar() {
+    public void sendBluetoothMetaToCar() {
         String title = tvPlayerTitle != null ? tvPlayerTitle.getText().toString() : "Unknown";
         String artist = tvPlayerArtist != null ? tvPlayerArtist.getText().toString() : "Unknown";
         android.graphics.Bitmap bmp = null;
@@ -3079,413 +3080,19 @@ public class MainActivity extends Activity {
     public void installApk(File apkFile) { com.themoon.y1.managers.ApkInstallManager.getInstance().installApk(this, apkFile); }
 
     // 🚀 [New engine] The dedicated worker that determines the spectrum/lyrics state in real time and switches the screen accordingly!
-    private void refreshVisualizerState() {
-        View albumContainer = (View) ivAlbumArt.getParent();
-
-        if (isVisualizerShowing) {
-            albumContainer.setVisibility(View.GONE);
-
-            // If the current track has lyrics? -> turn off the spectrum and turn on the lyrics window!
-            if (!currentLyrics.isEmpty() || plainLyrics != null) {
-                if (audioVisualizer != null) audioVisualizer.setEnabled(false);
-                visualizerView.setVisibility(View.GONE);
-                visualizerView.clearAnimation(); // Remove leftover animation artifacts
-
-                lyricScrollView.setVisibility(View.VISIBLE);
-
-                if (plainLyrics != null && currentLyrics.isEmpty()) {
-                    lyricScrollView.post(new Runnable() {
-                        public void run() { lyricScrollView.scrollTo(0, 0); }
-                    });
-                }
-            }
-            // If the current track has no lyrics? -> turn off the lyrics window and turn on the flashy spectrum!
-            else {
-                lyricScrollView.setVisibility(View.GONE);
-                visualizerView.setVisibility(View.VISIBLE);
-                visualizerView.invalidate();
-                if (audioVisualizer != null) audioVisualizer.setEnabled(true);
-            }
-        } else {
-            // If visualization mode is off entirely, hide everything and revert to album art
-            visualizerView.setVisibility(View.GONE);
-            lyricScrollView.setVisibility(View.GONE);
-            albumContainer.setVisibility(View.VISIBLE);
-            if (audioVisualizer != null) audioVisualizer.setEnabled(false);
-        }
-    }
-
+    private void refreshVisualizerState() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().refreshVisualizerState(this); }
     // 💡 Pressing the center button (click) just toggles the switch and calls the refresh worker.
-    private void toggleVisualizer() {
-        isVisualizerShowing = !isVisualizerShowing;
-        refreshVisualizerState();
-    }
-    // 💡 [Fix] Function that taps into the audio engine to pull out frequency data
-    public void setupVisualizer() {
-        try {
-            // 🚀 [Fully fixed] Build a fresh engine every single time and mount it! (eliminates memory leaks at the source)
-            if (audioVisualizer != null) {
-                audioVisualizer.setEnabled(false);
-                audioVisualizer.release();
-                audioVisualizer = null;
-            }
-
-            // ⭕ [Overwrite with the code below]
-            audioVisualizer = new android.media.audiofx.Visualizer(com.themoon.y1.managers.AudioPlayerManager.getInstance().getAudioSessionId());
-            audioVisualizer.setCaptureSize(android.media.audiofx.Visualizer.getCaptureSizeRange()[1]);
-            audioVisualizer.setDataCaptureListener(new android.media.audiofx.Visualizer.OnDataCaptureListener() {
-                @Override
-                public void onWaveFormDataCapture(android.media.audiofx.Visualizer visualizer, byte[] waveform,
-                        int samplingRate) {
-                }
-
-                @Override
-                public void onFftDataCapture(android.media.audiofx.Visualizer visualizer, byte[] fft,
-                        int samplingRate) {
-                    if (isVisualizerShowing && visualizerView != null
-                            && visualizerView.getVisibility() == View.VISIBLE) {
-                        visualizerView.updateVisualizer(fft, samplingRate);
-                    }
-                }
-            }, android.media.audiofx.Visualizer.getMaxCaptureRate() / 2, false, true);
-
-            if (isVisualizerShowing) {
-                audioVisualizer.setEnabled(true);
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "setupVisualizer failed", e);
-        }
-    }
-    // 🚀 [Lyrics engine] Finds a .lrc file and splits it into time and text stored in memory.
-    // 🚀 [Lyrics engine] Looks for a .lrc file first, and if none exists, extracts the lyrics embedded inside the MP3 directly!
-    private void loadLyrics(File audioFile) {
-        currentLyrics.clear();
-        lyricTimestamps.clear();
-        lastLyricIndex = -1;
-        plainLyrics = null;
-        if (tvLyrics != null) tvLyrics.setText("");
-
-        if (audioFile == null) return;
-        String path = audioFile.getAbsolutePath();
-        int dotIdx = path.lastIndexOf(".");
-        if (dotIdx > 0) {
-            String lrcPath = path.substring(0, dotIdx) + ".lrc";
-            File lrcFile = new File(lrcPath);
-
-            // 1. Check whether an external .lrc file exists (karaoke mode takes top priority)
-            if (lrcFile.exists()) {
-                try {
-                    java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(lrcFile), "UTF-8"));
-                    String line;
-                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})\\](.*)");
-
-                    while ((line = br.readLine()) != null) {
-                        java.util.regex.Matcher matcher = pattern.matcher(line);
-                        if (matcher.find()) {
-                            int min = Integer.parseInt(matcher.group(1));
-                            int sec = Integer.parseInt(matcher.group(2));
-                            int ms = Integer.parseInt(matcher.group(3));
-                            if (matcher.group(3).length() == 2) ms *= 10;
-
-                            int totalMs = (min * 60 * 1000) + (sec * 1000) + ms;
-                            String text = matcher.group(4).trim();
-
-                            if (!text.isEmpty()) {
-                                currentLyrics.put(totalMs, text);
-                            }
-                        }
-                    }
-                    br.close();
-                    lyricTimestamps = new ArrayList<>(currentLyrics.keySet());
-                    return; // If it succeeded, end the engine early here!
-                } catch (Exception e) {
-                    Log.d(TAG, "loadLyrics failed", e);
-                }
-            }
-        }
-
-        // 2. If there's no external .lrc file, mine the lyrics (USLT) embedded inside the MP3 itself!
-        plainLyrics = extractEmbeddedLyrics(audioFile);
-        if (plainLyrics != null && !plainLyrics.isEmpty()) {
-            if (tvLyrics != null) {
-                // Since embedded lyrics can't move in sync with time, just display them all at once in white (default) color.
-                tvLyrics.setText(plainLyrics);
-            }
-        }
-    }
-    // 🚀 [New engine] Precision parser that digs directly into an MP3's ID3 tags to extract the lyrics (USLT)
-    private String extractEmbeddedLyrics(File file) {
-        try {
-            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
-            byte[] header = new byte[10];
-            raf.readFully(header);
-
-            // Check whether an ID3v2 tag exists (at the start of the MP3 file)
-            if (header[0] == 'I' && header[1] == 'D' && header[2] == '3') {
-                int majorVersion = header[3];
-                // Compute the tag's total size (using the syncsafe integer scheme)
-                int tagSize = ((header[6] & 0x7F) << 21) | ((header[7] & 0x7F) << 14) | ((header[8] & 0x7F) << 7) | (header[9] & 0x7F);
-
-                // Lyrics are usually near the front, so read at most 512KB to fully prevent a memory blowup!
-                int readSize = Math.min(tagSize, 512 * 1024);
-                byte[] tagData = new byte[readSize];
-                int actualRead = raf.read(tagData);
-                raf.close();
-
-                int pos = 0;
-                while (pos < actualRead - 10) {
-                    String frameId = new String(tagData, pos, 4);
-                    int frameSize;
-
-                    // Fully handle the frame-size calculation differences between ID3v2.3 and ID3v2.4
-                    if (majorVersion == 4) {
-                        frameSize = ((tagData[pos+4] & 0x7F) << 21) | ((tagData[pos+5] & 0x7F) << 14) | ((tagData[pos+6] & 0x7F) << 7) | (tagData[pos+7] & 0x7F);
-                    } else {
-                        frameSize = ((tagData[pos+4] & 0xFF) << 24) | ((tagData[pos+5] & 0xFF) << 16) | ((tagData[pos+6] & 0xFF) << 8) | (tagData[pos+7] & 0xFF);
-                    }
-
-                    if (frameSize <= 0 || frameSize > actualRead - pos - 10) break;
-
-                    // 💡 Found a USLT (Unsynchronized lyric/text transcription) lyrics frame!
-                    if (frameId.equals("USLT")) {
-                        int encoding = tagData[pos + 10]; // encoding scheme
-                        int textPos = pos + 14; // skip encoding(1) + language code(3)
-
-                        // Skip the descriptor string (e.g. lyrics title) (look for a null character 0x00)
-                        if (encoding == 1 || encoding == 2) { // UTF-16 (2-byte null character)
-                            while (textPos < pos + 10 + frameSize - 1) {
-                                if (tagData[textPos] == 0 && tagData[textPos+1] == 0) { textPos += 2; break; }
-                                textPos++;
-                            }
-                        } else { // ISO-8859-1 or UTF-8 (1-byte null character)
-                            while (textPos < pos + 10 + frameSize) {
-                                if (tagData[textPos] == 0) { textPos += 1; break; }
-                                textPos++;
-                            }
-                        }
-
-                        int lyricsLength = (pos + 10 + frameSize) - textPos;
-                        if (lyricsLength > 0) {
-                            String charset = "UTF-8";
-                            if (encoding == 0) charset = "ISO-8859-1";
-                            else if (encoding == 1) charset = "UTF-16"; // UTF-16 with BOM
-                            else if (encoding == 2) charset = "UTF-16BE"; // UTF-16 Big Endian
-
-                            return new String(tagData, textPos, lyricsLength, charset).trim(); // Lyrics text extraction complete!
-                        }
-                    }
-                    pos += 10 + frameSize; // Quickly skip ahead to the next frame.
-                }
-            }
-            raf.close();
-        } catch (Exception e) {
-            Log.d(TAG, "extractEmbeddedLyrics failed", e);
-        }
-        return null;
-    }
-
-    public String getRepeatModeText(int mode) {
-        switch (mode) {
-            case 1:
-                return "ONE";
-            case 2:
-                return "ALL";
-            default:
-                return "OFF";
-        }
-    }
-
-    public void updatePlayerStatusIndicators() {
-        try {
-            // 1. Shuffle icon setup
-            if (ivPlayerShuffleStatus != null) {
-                if (isShuffleMode) {
-                    ivPlayerShuffleStatus.setImageResource(R.drawable.ic_shuffle);
-                    ivPlayerShuffleStatus.setVisibility(View.VISIBLE);
-                } else {
-                    ivPlayerShuffleStatus.setVisibility(View.GONE);
-                }
-            }
-            if (ivPlayerRepeatStatus != null) {
-                if (repeatMode == 1) { // repeat one
-                    ivPlayerRepeatStatus.setImageResource(R.drawable.ic_repeat_one);
-                    ivPlayerRepeatStatus.setVisibility(View.VISIBLE);
-                } else if (repeatMode == 2) { // repeat all
-                    ivPlayerRepeatStatus.setImageResource(R.drawable.ic_repeat);
-                    ivPlayerRepeatStatus.setVisibility(View.VISIBLE);
-                } else { // repeat off
-                    ivPlayerRepeatStatus.setVisibility(View.GONE);
-                }
-            }
-            if (tvPlayerFavoriteStatus != null) {
-                String favPath = getCurrentTrackPathForFavorites();
-                if (favPath != null && favoritePaths.contains(favPath)) {
-                    tvPlayerFavoriteStatus.setVisibility(View.VISIBLE);
-                } else {
-                    tvPlayerFavoriteStatus.setVisibility(View.GONE);
-                }
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "updatePlayerStatusIndicators failed", e);
-        }
-    }
-    // 🚀 [New] Favorites-toggle function triggered by a long press on the wheel button! (place it among the other functions)
-    /**
-     * The path favorites should key on for whatever is actually playing.
-     * Navidrome streams map to their downloaded file (favorites are local paths);
-     * returns null for a stream that hasn't been downloaded.
-     */
-    public String getCurrentTrackPathForFavorites() {
-        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-        if (am.isNavidromeMode) {
-            if (am.navidromePlaylist.isEmpty()) return null;
-            return am.navidromePlaylist.get(am.navidromeIndex).getExistingLocalPath();
-        }
-        if (currentPlaylist.isEmpty() || currentIndex < 0 || currentIndex >= currentPlaylist.size()) return null;
-        return currentPlaylist.get(currentIndex).getAbsolutePath();
-    }
-
-    public void toggleFavorite() {
-        String path = getCurrentTrackPathForFavorites();
-        if (path == null) {
-            if (com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeMode) {
-                Toast.makeText(this, "⬇ Download this track to add it to Favorites", Toast.LENGTH_SHORT).show();
-            }
-            return;
-        }
-
-        boolean nowFavorite;
-        if (favoritePaths.contains(path)) {
-            favoritePaths.remove(path);
-            nowFavorite = false;
-            Toast.makeText(this, "♡ Removed from Favorites", Toast.LENGTH_SHORT).show();
-        } else {
-            favoritePaths.add(path);
-            nowFavorite = true;
-            Toast.makeText(this, "♥ Added to Favorites", Toast.LENGTH_SHORT).show();
-        }
-
-        try {
-            libraryCacheDb.setFavorite(path, nowFavorite); // Save it permanently right away!
-        } catch (Exception e) {
-            Log.d(TAG, "toggleFavorite failed", e);
-        }
-
-        updatePlayerStatusIndicators(); // 💖 Refresh the icon
-    }
-    public void updatePlayerUI() {
-            try {
-                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                if (am.isNavidromeMode) {
-                    // currentPlaylist still points at the last LOCAL track — its lyrics
-                    // and quality info don't belong to the stream we're playing.
-                    currentLyrics.clear();
-                    plainLyrics = null;
-                    updateNavidromeQualityInfo(am);
-                } else if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
-                    File currentFile = currentPlaylist.get(currentIndex);
-                    updateAudioQualityInfo(currentFile);
-
-                    // 🚀 Every time the track changes, check whether a same-named .lrc file exists!
-                    loadLyrics(currentFile);
-                    refreshVisualizerState();
-                }
-
-                if (am.isPlaying()) {
-                    ivAlbumArt.setAlpha(1.0f);
-                    ivPauseOverlay.setVisibility(View.GONE);
-                    progressHandler.post(updateProgressTask);
-                } else {
-                    ivAlbumArt.setAlpha(0.4f);
-                    ivPauseOverlay.setVisibility(View.VISIBLE);
-                    progressHandler.removeCallbacks(updateProgressTask);
-                }
-
-                updateGlobalStatusPlayIcon();
-                updatePlayerStatusIndicators(); // 💡 The function that used to error! (works correctly now)
-// 🚀 [Car Bluetooth integration] Sends the track info and play/pause state to the car in real time!
-                sendBluetoothMetaToCar();
-                updateBluetoothPlaybackState(am.isPlaying());
-                // 🚀 [Real-time sync] While the main screen is watching Now Playing, if the track changes in the background, refresh the preview image live too!
-                if (currentScreenState == STATE_MENU && ivWidgetFocusImage != null && tvFocusPreviewClock != null && tvFocusPreviewClock.getVisibility() == View.VISIBLE) {
-                    for (ThemeManager.MenuElement el : ThemeManager.getCurrentTheme().menuElements) {
-                        if ("OPEN_PLAYER".equals(el.action)) {
-                            updateFocusPreviewLiveContent(el);
-                            break;
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.d(TAG, "updatePlayerUI failed", e);
-            }
-        }
-        // 🚀 [Bug cause removed] Perfectly removed one unnecessary stray closing brace '}' that was here!
-    public void adjustVolume(boolean up) {
-        int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-        int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-        if (up && currentVol < maxVol)
-            currentVol++;
-        else if (!up && currentVol > 0)
-            currentVol--;
-        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, currentVol, 0);
-
-        // 🚀 [Bug fix complete] If the radio is on, also sync-lower the hardware volume on the MediaTek radio-dedicated channel (STREAM_FM = 10)!
-        try {
-            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-            if (fm.isPowerUp) {
-                int streamFm = 10;
-                try { streamFm = (Integer) AudioManager.class.getDeclaredField("STREAM_FM").get(null); } catch (Exception e) { Log.d(TAG, "adjustVolume failed", e); }
-                int fmMax = audioManager.getStreamMaxVolume(streamFm);
-                int fmVol = (int) (((float)currentVol / maxVol) * fmMax);
-                audioManager.setStreamVolume(streamFm, fmVol, 0);
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "adjustVolume failed", e);
-        }
-
-        showDynamicVolumeOverlay();
-    }
-
-    private void showDynamicVolumeOverlay() {
-        int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-        layoutVolumeOverlay.setVisibility(View.VISIBLE);
-        volumeProgress.setProgress(currentVol);
-        volumeHandler.removeCallbacks(hideVolumeTask);
-        volumeHandler.postDelayed(hideVolumeTask, 2000);
-    }
-
-    // Reused buffer so the 2x/second progress tick doesn't spin up a Formatter + autobox ints
-    // (as String.format does) on every call. Only ever touched from the UI thread.
-    private final StringBuilder timeFmtBuilder = new StringBuilder(8);
-    private String formatTime(int ms) {
-        int s = (ms / 1000) % 60;
-        int m = (ms / (1000 * 60)) % 60;
-        StringBuilder b = timeFmtBuilder;
-        b.setLength(0);
-        if (m < 10) b.append('0');
-        b.append(m).append(':');
-        if (s < 10) b.append('0');
-        b.append(s);
-        return b.toString();
-    }
-
-    // Shared by both the screen-off-control path and the normal player path in onKeyDown:
-    // first press starts long-press tracking, repeats seek by seekMs at most every 300ms.
-    public boolean handleMediaSeekKeyRepeat(KeyEvent event, int seekMs) {
-        if (event.getRepeatCount() == 0) {
-            event.startTracking();
-            isSeekPerformed = false;
-        } else {
-            long now = System.currentTimeMillis();
-            if (now - lastSeekTime > 300) {
-                isSeekPerformed = true;
-                lastSeekTime = now;
-                com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(seekMs);
-                clickFeedback();
-            }
-        }
-        return true;
-    }
+    private void toggleVisualizer() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().toggleVisualizer(this); }
+    public void setupVisualizer() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().setupVisualizer(this); }
+    private void loadLyrics(File audioFile) { com.themoon.y1.managers.NowPlayingUiManager.getInstance().loadLyrics(this, audioFile); }
+    public String getRepeatModeText(int mode) { return com.themoon.y1.managers.NowPlayingUiManager.getInstance().getRepeatModeText(mode); }
+    public void updatePlayerStatusIndicators() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().updatePlayerStatusIndicators(this); }
+    public String getCurrentTrackPathForFavorites() { return com.themoon.y1.managers.NowPlayingUiManager.getInstance().getCurrentTrackPathForFavorites(this); }
+    public void toggleFavorite() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().toggleFavorite(this); }
+    public void updatePlayerUI() { com.themoon.y1.managers.NowPlayingUiManager.getInstance().updatePlayerUI(this); }
+    public void adjustVolume(boolean up) { com.themoon.y1.managers.NowPlayingUiManager.getInstance().adjustVolume(this, up); }
+    private String formatTime(int ms) { return com.themoon.y1.managers.NowPlayingUiManager.getInstance().formatTime(ms); }
+    public boolean handleMediaSeekKeyRepeat(KeyEvent event, int seekMs) { return com.themoon.y1.managers.NowPlayingUiManager.getInstance().handleMediaSeekKeyRepeat(this, event, seekMs); }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
@@ -3844,7 +3451,7 @@ public class MainActivity extends Activity {
     // Navidrome browse-screen UI and the download-queue engine live in NavidromeManager -- see
     // that class for details. Kept as thin pass-throughs here for the handful of call sites
     // outside that cluster (AudioPlayerManager, KeyEventRouter, this Activity's own onDestroy).
-    private void updateNavidromeQualityInfo(com.themoon.y1.managers.AudioPlayerManager am) {
+    public void updateNavidromeQualityInfo(com.themoon.y1.managers.AudioPlayerManager am) {
         com.themoon.y1.managers.NavidromeManager.getInstance().updateNavidromeQualityInfo(this, am);
     }
 
