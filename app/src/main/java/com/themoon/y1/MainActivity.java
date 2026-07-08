@@ -776,12 +776,14 @@ public class MainActivity extends Activity {
                     AapService.deviceDisconnected(context);
                     applySpeakerSetting(); // 🚀 Bluetooth is off now, so re-evaluate speaker mute state
                 }
-                // (rest of the existing code unchanged)
-                // 🚀 [Bug fix 1] Guard added so refresh only happens while the user is on the main settings screen (depth 0)!
-                if (currentScreenState == STATE_SETTINGS && currentSettingsDepth == 0)
-                    buildSettingsUI();
-                else if (currentScreenState == STATE_BLUETOOTH)
-                    startBluetoothScan();
+                // Refresh only on settled ON/OFF (skipping the TURNING_* edges) and only on the
+                // depth-0 settings screen, so rapid toggling can't churn the list and steal focus.
+                if (state == BluetoothAdapter.STATE_ON || state == BluetoothAdapter.STATE_OFF) {
+                    if (currentScreenState == STATE_SETTINGS && currentSettingsDepth == 0)
+                        buildSettingsUI();
+                    else if (currentScreenState == STATE_BLUETOOTH)
+                        startBluetoothScan();
+                }
             } else if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
                 int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
                 if (state == WifiManager.WIFI_STATE_ENABLED) {
