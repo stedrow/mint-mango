@@ -197,8 +197,7 @@ public class CategoryListAdapter extends BaseAdapter {
             btn.setCompoundDrawablePadding(artPaddingPx);
 
         } else {
-            // 👤 In artist (ARTIST) mode, keep using only the text emoji as before!
-            btn.setText("👤 " + name);
+            btn.setText(name);
             btn.setCompoundDrawables(null, null, null, null);
         }
 

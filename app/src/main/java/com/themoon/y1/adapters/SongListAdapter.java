@@ -135,9 +135,6 @@ public class SongListAdapter extends BaseAdapter {
         holder.position = position;
         holder.song = song;
 
-        // 🚀 [Indent alignment] Assigns the appropriate prefix icon for music mode vs. audiobook mode
-        String prefixIcon = MainActivity.instance.isAudiobookLibraryMode ? "🎧 " : "🎵 ";
-
         // Only prefix the track number when browsing an album screen.
         String trackNum = "";
         if (("ALBUM".equals(MainActivity.instance.virtualQueryType) || "COVER_FLOW_ALBUM".equals(MainActivity.instance.virtualQueryType))
@@ -148,7 +145,7 @@ public class SongListAdapter extends BaseAdapter {
             }
         }
 
-        btn.setText(prefixIcon + trackNum + song.title);
+        btn.setText(trackNum + song.title);
 
         // 🚀 [Core fix for bug 1] Prevents the progress bar from being forcibly cleared when focus moves.
         if (MainActivity.instance.isAudiobookLibraryMode) {

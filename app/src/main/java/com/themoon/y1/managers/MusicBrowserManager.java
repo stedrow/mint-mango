@@ -996,7 +996,7 @@ public class MusicBrowserManager {
                 a.containerBrowserItems.addView(b);
             }
             for (final File audio : audioFiles) {
-                Button b = a.createListButton("🎵 " + audio.getName());
+                Button b = a.createListButton(audio.getName());
 
                 // 🚀 [Added] Draw the progress bar if we're in audiobook mode or inside an audiobook folder!
                 if (a.isAudiobookLibraryMode || a.currentBrowserMode == a.BROWSER_AUDIOBOOKS) {
