@@ -1,14 +1,3 @@
-<img width="480" height="360" alt="Screenshot_20260701_103518" src="https://github.com/user-attachments/assets/808ef561-22f8-4d99-b712-eb98af5a1146" />
-<img width="480" height="360" alt="Screenshot_20260704_234025" src="https://github.com/user-attachments/assets/349e0092-b80d-4019-95e4-805505caf8c2" />
-<img width="480" height="360" alt="Screenshot_20260704_151027" src="https://github.com/user-attachments/assets/61e05b31-6ed7-4d72-a8f9-87ad91e34069" />
-<img width="480" height="360" alt="Screenshot_20260704_124902" src="https://github.com/user-attachments/assets/b6b6b74f-5d17-4859-bf0c-e7093c5bdda8" />
-<img width="480" height="360" alt="Screenshot_20260615_172845" src="https://github.com/user-attachments/assets/d804a2a5-a2c8-4a0e-ad16-d1da7551d5fd" />
-<img width="480" height="360" alt="Screenshot_20260615_172516" src="https://github.com/user-attachments/assets/5b76d3c5-2d62-4119-8c01-49b9b79c055d" />
-<img width="480" height="360" alt="Screenshot_20260615_172223" src="https://github.com/user-attachments/assets/14c658dd-1836-4c1a-a8bf-696e51b59cb3" />
-<img width="480" height="360" alt="Screenshot_20260624_181608" src="https://github.com/user-attachments/assets/28a48351-68c6-43c4-87d7-86d692abb661" />
-<img width="480" height="360" alt="Screenshot_20260624_181513" src="https://github.com/user-attachments/assets/4ceb794c-fea9-4bea-a716-f1993ea29c67" />
-
-
 # Mint Mango Launcher
 
 A fork of [JJ Launcher (MO-ON Launcher)](https://github.com/ismileblue/y1_launcher) for the Innioasis Y1, adding Navidrome/Subsonic streaming, full AirPods Pro 2/3 support, per-theme background images, and additional themes.
