@@ -327,6 +327,14 @@ public class KeyEventRouter {
                 || a.currentScreenState == MainActivity.STATE_SETTINGS || a.currentScreenState == MainActivity.STATE_BLUETOOTH
                 || a.currentScreenState == MainActivity.STATE_WIFI || a.currentScreenState == MainActivity.STATE_NAVIDROME) {
 
+            // 🚀 [Reorder mode] Back also just drops the held row (saving its new position)
+            // instead of navigating away and leaving reorder mode stuck on.
+            if (a.isReorderingMusicMenu && (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19)) {
+                a.clickFeedback();
+                MusicBrowserManager.getInstance().finishReorderingMusicMenu(a);
+                return true;
+            }
+
             // 🚀 [Stock cover-flow wheel control fully overhauled]
             if (a.currentScreenState == MainActivity.STATE_BROWSER && a.currentBrowserMode == MainActivity.BROWSER_COVER_FLOW) {
                 if (keyCode == 21) { // turning the wheel up (left)
@@ -599,6 +607,13 @@ public class KeyEventRouter {
                     }
                 }
             }
+            // 🚀 [Reorder mode] While a Music-menu row is held, the wheel moves the row itself
+            // (swapping it with its neighbor) instead of moving focus between rows.
+            if (a.isReorderingMusicMenu && (keyCode == 21 || keyCode == 22)) {
+                MusicBrowserManager.getInstance().moveHeldMusicMenuItem(a, keyCode == 21);
+                a.clickFeedback();
+                return true;
+            }
             View c = a.getCurrentFocus();
             if (c != null) {
                 if (keyCode == 21) { // wheel turned up (UP)
@@ -786,6 +801,14 @@ public class KeyEventRouter {
                 return true;
             }
 
+            // 🚀 [Reorder mode] Center never activates or drops the held Music-menu row -- every
+            // center press while reordering is swallowed. Only Back drops (see the guard near the
+            // top of onKeyDown).
+            if (a.isReorderingMusicMenu) {
+                a.clickFeedback();
+                return true;
+            }
+
             if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
                 // 🚀 [Smart short-click branching] On the player screen, the long-press was given to screen-off,
                 // so a double-click opens the quick menu (playback/queue/Wi-Fi/Bluetooth shortcuts,
@@ -905,7 +928,10 @@ public class KeyEventRouter {
                         || a.currentBrowserMode == MainActivity.BROWSER_VIRTUAL_SONGS
                         || a.currentBrowserMode == MainActivity.BROWSER_FAVORITES
                         || a.currentBrowserMode == MainActivity.BROWSER_M3U_SONGS
-                        || a.currentBrowserMode == MainActivity.BROWSER_AUDIOBOOKS);
+                        || a.currentBrowserMode == MainActivity.BROWSER_AUDIOBOOKS
+                        // The Music root menu also routes through here (instead of screen-off) so
+                        // its rows' long-click listener -- which starts drag-to-reorder -- fires.
+                        || (a.currentBrowserMode == MainActivity.BROWSER_ROOT && !a.isAudiobookLibraryMode));
 
                 if (isFileVisible) {
                     // 💡 [Per request] When files are visible, exclude it from the screen-off targets and keep the existing "playlist popup (long press)" behavior!

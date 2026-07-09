@@ -231,6 +231,9 @@ public class MainActivity extends Activity {
     // 💡 [Added] Blacklist that remembers "poison files" that were corrupted and crashed the app
     public java.util.Set<String> blacklist = new java.util.HashSet<>();
     public int currentBrowserMode = BROWSER_ROOT;
+    // Long-press-to-reorder state for the Music root menu (see MusicBrowserManager).
+    public boolean isReorderingMusicMenu = false;
+    public android.view.View reorderHeldMenuItem = null;
     public String virtualQueryType = "";
     public String virtualQueryValue = "";
     public List<File> virtualSongList = new ArrayList<>();
@@ -2764,6 +2767,10 @@ public class MainActivity extends Activity {
         rowButton.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(android.view.View v, boolean hasFocus) {
+                // While this row is picked up for Music-menu reordering, its "grabbed" color
+                // overrides the normal focus paint -- a focus blip on release of the long-press
+                // key (seen on-device) would otherwise repaint it back to unfocused right away.
+                if (isReorderingMusicMenu && reorderHeldMenuItem == v) return;
                 if (hasFocus) {
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     tvIcon.setTextColor(ThemeManager.getListButtonFocusedTextColor());

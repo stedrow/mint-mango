@@ -43,6 +43,14 @@ public class MusicBrowserManager {
     // caches the decoded source. Cache the scaled result too, keyed by theme+icon+target size.
     private final android.util.LruCache<String, android.graphics.Bitmap> scaledIconCache = new android.util.LruCache<>(80);
 
+    private static final String PREF_MUSIC_MENU_ORDER = "music_menu_order";
+
+    // Identity map from the currently-rendered Music-menu row views back to their stable id
+    // string, rebuilt every time the root Music menu is (re)built. Lets the long-press reorder
+    // feature save the on-screen order without touching the existing tag (already used elsewhere
+    // to re-find a row by its translated label for back-navigation focus restore).
+    private final java.util.Map<android.view.View, String> musicMenuItemIds = new java.util.HashMap<>();
+
     private MusicBrowserManager() {}
 
     public static synchronized MusicBrowserManager getInstance() {
@@ -67,18 +75,19 @@ public class MusicBrowserManager {
 
         if (a.currentBrowserMode == a.BROWSER_ROOT) {
 
-            // 🎵 [Music library mode]
+            // Music library mode
             if (!a.isAudiobookLibraryMode) {
                 a.tvBrowserPath.setText(a.t("Library") + ": " + a.t("Music"));
 
-                android.view.View btnCoverFlow = a.createListButtonWithIcon("\uE3B6", a.t("Cover Flow"));
+                java.util.LinkedHashMap<String, android.view.View> items = new java.util.LinkedHashMap<>();
 
+                android.view.View btnCoverFlow = a.createListButtonWithIcon("", a.t("Cover Flow"));
                 // setOnClickListener works exactly the same even if the returned view is a LinearLayout!
                 btnCoverFlow.setOnClickListener(v -> { a.clickFeedback(); buildCoverFlowUI(a); });
-                a.containerBrowserItems.addView(btnCoverFlow);
+                items.put("cover_flow", btnCoverFlow);
 
-                // \u2601\uFE0F Navidrome \uC2A4\uD2B8\uB9AC\uBC0D \u2014 back returns here, not the main menu
-                android.view.View btnNavidromeLib = a.createListButtonWithIcon("\uE2BD", a.t("Navidrome"));
+                // ☁️ Navidrome streaming — back returns here, not the main menu
+                android.view.View btnNavidromeLib = a.createListButtonWithIcon("", a.t("Navidrome"));
                 btnNavidromeLib.setOnClickListener(v -> {
                     a.clickFeedback();
                     a.navidromeBrowseDepth = a.NAV_ARTISTS;
@@ -88,51 +97,56 @@ public class MusicBrowserManager {
                     a.navidromeBackTarget = a.STATE_BROWSER;
                     a.changeScreen(a.STATE_NAVIDROME);
                 });
-                a.containerBrowserItems.addView(btnNavidromeLib);
+                items.put("navidrome", btnNavidromeLib);
 
-                android.view.View btnM3uPlaylist = a.createListButtonWithIcon("\uE05F", a.t("Playlists"));
+                android.view.View btnM3uPlaylist = a.createListButtonWithIcon("", a.t("Playlists"));
                 btnM3uPlaylist.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_PLAYLISTS; a.buildM3uPlaylistUI(); });
-                a.containerBrowserItems.addView(btnM3uPlaylist);
+                items.put("playlists", btnM3uPlaylist);
 
-                //Button btnFolder = createListButton("📁 " + t("Folders"));
-                android.view.View btnFolder = a.createListButtonWithIcon("\uE2C7", a.t("Folders"));
+                android.view.View btnFolder = a.createListButtonWithIcon("", a.t("Folders"));
                 btnFolder.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_FOLDER; a.currentFolder = a.rootFolder; buildFileBrowserUI(a); });
-                a.containerBrowserItems.addView(btnFolder);
+                items.put("folders", btnFolder);
 
-               /// Button btnArtist = createListButton("👤 " + t("Artists"));
-                android.view.View btnArtist = a.createListButtonWithIcon("\uE7FD", a.t("Artists"));
+                android.view.View btnArtist = a.createListButtonWithIcon("", a.t("Artists"));
                 btnArtist.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_ARTISTS; a.virtualQueryValue = ""; buildVirtualCategories(a, "ARTIST"); });
-                a.containerBrowserItems.addView(btnArtist);
+                items.put("artists", btnArtist);
 
-              //  Button btnAlbum = createListButton("💿 " + t("Albums"));
-                android.view.View btnAlbum = a.createListButtonWithIcon("\uE019", a.t("Albums"));
+                android.view.View btnAlbum = a.createListButtonWithIcon("", a.t("Albums"));
                 btnAlbum.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_ALBUMS; a.virtualQueryValue = ""; buildVirtualCategories(a, "ALBUM"); });
-                a.containerBrowserItems.addView(btnAlbum);
+                items.put("albums", btnAlbum);
 
-                android.view.View btnYear = a.createListButtonWithIcon("\uE916", a.t("Years"));
+                android.view.View btnYear = a.createListButtonWithIcon("", a.t("Years"));
                 btnYear.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_YEARS; a.virtualQueryValue = ""; buildVirtualCategories(a, "YEAR"); });
-                a.containerBrowserItems.addView(btnYear);
+                items.put("years", btnYear);
 
-                android.view.View btnGenre = a.createListButtonWithIcon("\uE030", a.t("Genres"));
+                android.view.View btnGenre = a.createListButtonWithIcon("", a.t("Genres"));
                 btnGenre.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_GENRES; a.virtualQueryValue = ""; buildVirtualCategories(a, "GENRE"); });
-                a.containerBrowserItems.addView(btnGenre);
-               // Button btnAll = createListButton("🎵 " + t("All Songs"));
-                android.view.View btnAll = a.createListButtonWithIcon("\uE03D", a.t("All Songs"));
+                items.put("genres", btnGenre);
+
+                android.view.View btnAll = a.createListButtonWithIcon("", a.t("All Songs"));
                 btnAll.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_VIRTUAL_SONGS; a.virtualQueryType = "ALL"; buildVirtualSongs(a); });
-                a.containerBrowserItems.addView(btnAll);
+                items.put("all_songs", btnAll);
 
-
-                android.view.View btnFav = a.createListButtonWithIcon("\uE87D", a.t("My Favorites"));
-
-//                btnFav.setTextColor(0xFFFF8888);
+                android.view.View btnFav = a.createListButtonWithIcon("", a.t("My Favorites"));
                 btnFav.setOnClickListener(v -> { a.clickFeedback(); a.currentBrowserMode = a.BROWSER_FAVORITES; a.buildVirtualSongsForFavorites(); });
-                a.containerBrowserItems.addView(btnFav);
-                // 🎧 Switch-to-audiobook-mode button
-               // Button btnAudiobook = createListButton("🎧 " + t("Switch to Audiobooks"));
-                android.view.View btnAudiobook = a.createListButtonWithIcon("\uE86D", a.t("Switch to Audiobooks"));
-          //      btnAudiobook.setTextColor(0xFF00FFFF);
+                items.put("favorites", btnFav);
+
+                // Switch-to-audiobook-mode button
+                android.view.View btnAudiobook = a.createListButtonWithIcon("", a.t("Switch to Audiobooks"));
                 btnAudiobook.setOnClickListener(v -> { a.clickFeedback(); a.isAudiobookLibraryMode = true; buildFileBrowserUI(a); });
-                a.containerBrowserItems.addView(btnAudiobook);
+                items.put("switch_audiobooks", btnAudiobook);
+
+                musicMenuItemIds.clear();
+                for (java.util.Map.Entry<String, android.view.View> e : items.entrySet()) {
+                    musicMenuItemIds.put(e.getValue(), e.getKey());
+                }
+                for (final android.view.View item : applyMusicMenuOrder(a, items)) {
+                    item.setOnLongClickListener(v -> {
+                        startReorderingMusicMenu(a, v);
+                        return true;
+                    });
+                    a.containerBrowserItems.addView(item);
+                }
             }
             // 📚 [Audiobook library mode]
             else {
@@ -174,7 +188,12 @@ public class MusicBrowserManager {
             });
             a.containerBrowserItems.addView(btnScan);
 
-            if (a.containerBrowserItems.getChildCount() > 0) a.containerBrowserItems.getChildAt(0).requestFocus();
+            // Skip when a specific row is already queued below (lastBrowserFocusText) -- focusing
+            // the top row here first just to have it overridden 50ms later reads as a visible
+            // glitch (seen after dropping a reordered Music-menu row back onto itself).
+            if (a.lastBrowserFocusText.isEmpty() && a.containerBrowserItems.getChildCount() > 0) {
+                a.containerBrowserItems.getChildAt(0).requestFocus();
+            }
         }
         // 🚀 [Added] Once the screen finishes drawing (50ms later), find the folder/menu that just appeared and auto-focus it!
         a.containerBrowserItems.postDelayed(new Runnable() {
@@ -832,6 +851,81 @@ public class MusicBrowserManager {
                 }
             }
         });
+    }
+
+    // Applies any previously-saved custom order to the Music root menu's items, keyed by the
+    // stable ids assigned when each row is built (not the translated label, so this survives a
+    // language change). Ids with no saved position, and any saved ids no longer present (e.g. an
+    // app update removed one), just fall back to the default build order below.
+    private List<android.view.View> applyMusicMenuOrder(MainActivity a, java.util.LinkedHashMap<String, android.view.View> items) {
+        List<android.view.View> ordered = new ArrayList<>();
+        String saved = a.prefs.getString(PREF_MUSIC_MENU_ORDER, null);
+        if (saved != null && !saved.isEmpty()) {
+            for (String id : saved.split(",")) {
+                android.view.View v = items.remove(id);
+                if (v != null) ordered.add(v);
+            }
+        }
+        ordered.addAll(items.values());
+        return ordered;
+    }
+
+    public void startReorderingMusicMenu(MainActivity a, android.view.View item) {
+        a.isReorderingMusicMenu = true;
+        a.reorderHeldMenuItem = item;
+        // A distinct solid color, not just a focus/alpha tweak, so the "grabbed" look survives
+        // regardless of what Android's focus state does around the long-press key release
+        // (createListButtonWithIcon's focus listener skips repainting this row while held).
+        item.setBackground(a.createButtonBackground(0xFFFFA000));
+        // A focused, clickable View's default key handling fires its OnClickListener directly on
+        // a DPAD_CENTER release -- before that reaches our Activity-level onKeyUp swallow guard
+        // at all. Killing clickable is what actually stops the row from being activated while
+        // held (createListButtonWithIcon defaults every row to clickable=true; the rebuild in
+        // finishReorderingMusicMenu recreates fresh rows, so nothing needs to restore this).
+        item.setClickable(false);
+        item.requestFocus();
+        Toast.makeText(a, a.t("Rotate wheel to move, press Back when done"), Toast.LENGTH_SHORT).show();
+    }
+
+    // Swaps the held item with its visible neighbor above/below within its own parent, keeping
+    // focus (and the wheel's up/down feel) on the item being moved instead of the list.
+    public void moveHeldMusicMenuItem(MainActivity a, boolean up) {
+        android.view.View item = a.reorderHeldMenuItem;
+        if (item == null) return;
+        android.view.ViewGroup parent = (android.view.ViewGroup) item.getParent();
+        if (parent == null) return;
+        int index = parent.indexOfChild(item);
+        int target = up ? index - 1 : index + 1;
+        if (target < 0 || target >= parent.getChildCount()) return;
+        parent.removeViewAt(index);
+        parent.addView(item, target);
+        item.requestFocus();
+    }
+
+    public void finishReorderingMusicMenu(MainActivity a) {
+        // The row's tag is its translated label (set by createListButtonWithIcon) -- the same
+        // thing buildFileBrowserUI's own postDelayed auto-refocus already matches rows by when
+        // returning to this screen, so piggyback on that instead of racing it with our own
+        // requestFocus() call.
+        Object heldTag = a.reorderHeldMenuItem != null ? a.reorderHeldMenuItem.getTag() : null;
+        a.isReorderingMusicMenu = false;
+        a.reorderHeldMenuItem = null;
+
+        StringBuilder order = new StringBuilder();
+        for (int i = 0; i < a.containerBrowserItems.getChildCount(); i++) {
+            String id = musicMenuItemIds.get(a.containerBrowserItems.getChildAt(i));
+            if (id == null) continue;
+            if (order.length() > 0) order.append(",");
+            order.append(id);
+        }
+        a.prefs.edit().putString(PREF_MUSIC_MENU_ORDER, order.toString()).apply();
+
+        // Rebuild from scratch so every row's paint (background/text color) is guaranteed correct
+        // again, rather than hand-restoring whatever startReorderingMusicMenu overrode, then let
+        // the rebuild's own auto-refocus (below, keyed off lastBrowserFocusText) land back on the
+        // row we just moved instead of wherever it re-sorted to.
+        if (heldTag instanceof String) a.lastBrowserFocusText = (String) heldTag;
+        buildFileBrowserUI(a);
     }
 
     public void buildFolderBrowserUI(MainActivity a) {
