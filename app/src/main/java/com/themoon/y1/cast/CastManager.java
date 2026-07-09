@@ -34,7 +34,9 @@ public final class CastManager {
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private CastDiscovery discovery;
-    private CastConnection connection;
+    // Written on netExecutor (castCurrentTrack/stopCasting), read on the main thread
+    // (isCasting / transport passthroughs / quick menu) — must be volatile.
+    private volatile CastConnection connection;
     private volatile CastDevice activeDevice;
 
     private CastManager() {}

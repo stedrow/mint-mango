@@ -25,39 +25,47 @@ import java.util.concurrent.Executors;
  * app-chosen file behind an opaque token keeps the browse-anything surface closed while
  * still reaching every playable location.
  *
- * Supports HTTP Range (206 partial content) and HEAD, both of which the Cast Default Media
- * Receiver relies on to seek and to probe length before buffering.
+ * Supports HTTP Range (206 partial content), 416 for unsatisfiable ranges, and HEAD — all
+ * of which the Cast Default Media Receiver relies on to seek and to probe length before
+ * buffering. The receiver typically opens several connections at once (a HEAD probe plus
+ * parallel range GETs), so the worker pool is unbounded-cached and every accepted socket
+ * gets a read timeout so a half-open connection can't wedge playback.
  */
-public final class CastMediaServer extends Thread {
+public final class CastMediaServer {
     private static final String TAG = "CastMediaServer";
     public static final int PORT = 8083;
+    private static final int SOCKET_TIMEOUT_MS = 15000;
 
     private static volatile CastMediaServer sInstance;
 
-    private ServerSocket serverSocket;
+    private volatile ServerSocket serverSocket;
+    private volatile Thread worker;
     private volatile boolean running = false;
-    private final ExecutorService pool = Executors.newFixedThreadPool(2);
+    private final ExecutorService pool = Executors.newCachedThreadPool();
 
     // The single file we currently serve, guarded by an opaque token so a stale URL from a
     // previous track can't fetch the new one.
     private volatile File currentFile;
     private volatile String token;
 
-    private CastMediaServer() {
-        setDaemon(true);
-        setName("CastMediaServer");
-    }
+    private CastMediaServer() {}
 
     public static synchronized CastMediaServer getInstance() {
         if (sInstance == null) sInstance = new CastMediaServer();
         return sInstance;
     }
 
-    /** Idempotent — safe to call every time we start a cast. */
+    /** Idempotent — safe to call every time we start a cast, including after a stop. */
     public synchronized void ensureStarted() {
         if (running) return;
         running = true;
-        start();
+        // Hold the worker in a field (rather than being a Thread) so the server can be
+        // stopped and started again — a Thread instance can only be start()ed once.
+        worker = new Thread(new Runnable() {
+            @Override public void run() { acceptLoop(); }
+        }, "CastMediaServer");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     /**
@@ -74,14 +82,22 @@ public final class CastMediaServer extends Thread {
         return "http://" + host + ":" + PORT + "/media/" + token;
     }
 
-    @Override
-    public void run() {
+    public synchronized void stopServer() {
+        running = false;
+        try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
+        serverSocket = null;
+        worker = null;
+    }
+
+    private void acceptLoop() {
         try {
-            serverSocket = new ServerSocket();
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress((java.net.InetAddress) null, PORT)); // 0.0.0.0
+            ServerSocket ss = new ServerSocket();
+            ss.setReuseAddress(true);
+            ss.bind(new InetSocketAddress((java.net.InetAddress) null, PORT)); // 0.0.0.0
+            serverSocket = ss;
             while (running) {
-                final Socket socket = serverSocket.accept();
+                final Socket socket = ss.accept();
+                try { socket.setSoTimeout(SOCKET_TIMEOUT_MS); } catch (Exception ignored) {}
                 pool.execute(new Runnable() {
                     @Override public void run() { handle(socket); }
                 });
@@ -89,11 +105,6 @@ public final class CastMediaServer extends Thread {
         } catch (Exception e) {
             if (running) Log.e(TAG, "server loop stopped", e);
         }
-    }
-
-    public void stopServer() {
-        running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
     }
 
     private void handle(Socket socket) {
@@ -134,11 +145,21 @@ public final class CastMediaServer extends Thread {
                     int dash = spec.indexOf('-');
                     String s = spec.substring(0, dash).trim();
                     String e = spec.substring(dash + 1).trim();
-                    if (!s.isEmpty()) start = Long.parseLong(s);
-                    if (!e.isEmpty()) end = Long.parseLong(e);
-                    if (start < 0) start = 0;
-                    if (end > len - 1) end = len - 1;
-                    if (start <= end) partial = true;
+                    long rs = s.isEmpty() ? 0 : Long.parseLong(s);
+                    long re = e.isEmpty() ? len - 1 : Long.parseLong(e);
+                    if (rs >= len) {
+                        // Genuinely unsatisfiable (start past EOF) — spec says 416.
+                        os.write(("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + len
+                                + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
+                        os.flush();
+                        return;
+                    }
+                    if (re > len - 1) re = len - 1;
+                    if (rs >= 0 && rs <= re) {
+                        start = rs; end = re; partial = true;
+                    }
+                    // Inverted/degenerate range → fall through as a full-file 200 (start/end
+                    // stay at their full-file defaults).
                 } catch (Exception ex) {
                     start = 0; end = len - 1; partial = false;
                 }
