@@ -51,6 +51,12 @@ class CastConnection {
         void onSessionReady();
         /** A LOAD completed and the device reports a media session (id supplied). */
         void onMediaLoaded();
+        /**
+         * A MEDIA_STATUS update from the device. playerState is one of
+         * PLAYING/PAUSED/BUFFERING/IDLE; idleReason (may be null) is FINISHED/CANCELLED/
+         * INTERRUPTED/ERROR when playerState is IDLE. positionMs/durationMs are -1 when unknown.
+         */
+        void onMediaStatus(String playerState, long positionMs, long durationMs, String idleReason);
         /** Fatal or terminal problem; the connection is (being) torn down. */
         void onError(String message);
         /** Socket closed for any reason. */
@@ -121,12 +127,17 @@ class CastConnection {
      * ready — it's queued and sent on launch. contentType is the MIME the receiver uses to
      * pick a decoder (e.g. audio/mpeg, audio/flac).
      */
-    void loadMedia(String url, String contentType, String title, String artist) {
+    void loadMedia(String url, String contentType, String title, String artist, String coverUrl) {
         try {
             JSONObject metadata = new JSONObject();
             metadata.put("metadataType", 3); // MusicTrackMediaMetadata
             if (title != null) metadata.put("title", title);
             if (artist != null) metadata.put("artist", artist);
+            if (coverUrl != null) {
+                JSONArray images = new JSONArray();
+                images.put(new JSONObject().put("url", coverUrl));
+                metadata.put("images", images);
+            }
 
             JSONObject media = new JSONObject();
             media.put("contentId", url);
@@ -158,6 +169,35 @@ class CastConnection {
 
     /** Stops the media session but leaves the receiver app running. */
     void stopMedia() { mediaCommand("STOP"); }
+
+    /** Seek within the current media session. positionMs is clamped by the receiver. */
+    void seek(long positionMs) {
+        if (appTransportId == null || mediaSessionId < 0) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "SEEK");
+            msg.put("mediaSessionId", mediaSessionId);
+            msg.put("currentTime", positionMs / 1000.0);
+            msg.put("requestId", requestId.getAndIncrement());
+            send(NS_MEDIA, appTransportId, msg);
+        } catch (Exception e) {
+            Log.w(TAG, "seek failed", e);
+        }
+    }
+
+    /** Ask the receiver to push a fresh MEDIA_STATUS (used for position polling). */
+    void requestMediaStatus() {
+        if (appTransportId == null) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "GET_STATUS");
+            if (mediaSessionId >= 0) msg.put("mediaSessionId", mediaSessionId);
+            msg.put("requestId", requestId.getAndIncrement());
+            send(NS_MEDIA, appTransportId, msg);
+        } catch (Exception e) {
+            Log.w(TAG, "requestMediaStatus failed", e);
+        }
+    }
 
     /** level is 0.0–1.0. */
     void setVolume(float level) {
@@ -277,13 +317,29 @@ class CastConnection {
     private void handleMediaStatus(JSONObject payload) {
         try {
             JSONArray arr = payload.optJSONArray("status");
-            if (arr == null || arr.length() == 0) return;
+            if (arr == null || arr.length() == 0) {
+                // Empty status = the session was torn down; report an idle tick so the
+                // manager can react, but without a reason we can't call it a clean finish.
+                listener.onMediaStatus("IDLE", -1, -1, null);
+                return;
+            }
             JSONObject st = arr.getJSONObject(0);
             int wasSession = mediaSessionId;
             mediaSessionId = st.optInt("mediaSessionId", mediaSessionId);
             if (wasSession < 0 && mediaSessionId >= 0) {
                 listener.onMediaLoaded();
             }
+
+            String playerState = st.optString("playerState", "UNKNOWN");
+            String idleReason = st.has("idleReason") && !st.isNull("idleReason")
+                    ? st.optString("idleReason", null) : null;
+            long positionMs = st.has("currentTime") ? (long) (st.optDouble("currentTime", 0) * 1000) : -1;
+            long durationMs = -1;
+            JSONObject media = st.optJSONObject("media");
+            if (media != null && media.has("duration")) {
+                durationMs = (long) (media.optDouble("duration", 0) * 1000);
+            }
+            listener.onMediaStatus(playerState, positionMs, durationMs, idleReason);
         } catch (Exception e) {
             Log.w(TAG, "handleMediaStatus failed", e);
         }

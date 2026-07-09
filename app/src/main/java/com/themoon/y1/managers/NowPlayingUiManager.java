@@ -393,6 +393,13 @@ public class NowPlayingUiManager {
             currentVol--;
         a.audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, currentVol, 0);
 
+        // While casting, the wheel controls the speaker's volume (the local stream is muted/idle).
+        // Keep updating the local bar above so the on-screen overlay still reflects the level.
+        if (com.themoon.y1.cast.CastManager.getInstance().isCasting()) {
+            float level = maxVol > 0 ? (float) currentVol / maxVol : 0f;
+            com.themoon.y1.cast.CastManager.getInstance().setVolume(level);
+        }
+
         // 🚀 [Bug fix complete] If the radio is on, also sync-lower the hardware volume on the MediaTek radio-dedicated channel (STREAM_FM = 10)!
         try {
             com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(a);
