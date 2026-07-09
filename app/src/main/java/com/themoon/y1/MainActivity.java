@@ -1146,8 +1146,9 @@ public class MainActivity extends Activity {
             }
         }, "AvrcpVersionForce").start();
         try {
-            // Load the saved index number. (Handled safely in case the file was deleted)
-            int savedThemeIndex = prefs.getInt("app_theme_index", 0);
+            // Load the saved theme. (Handled safely in case the file was deleted)
+            int savedThemeIndex = ThemeManager.resolveSavedThemeIndex(
+                    prefs.getString("app_theme_folder", null), prefs.getInt("app_theme_index", 0));
             ThemeManager.setThemeIndex(savedThemeIndex);
         } catch (Exception e) {
             Log.d(TAG, "onCreate failed", e);
@@ -3069,6 +3070,29 @@ public class MainActivity extends Activity {
     // manual reconnect.
     private void resyncAapWithConnectedDevice() {
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().resyncAapWithConnectedDevice(this);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // As the HOME launcher (singleTask), we're started at boot before /storage/sdcard0
+        // is necessarily mounted, so the initial loadThemesFromStorage() in onCreate can find
+        // no theme folders and silently fall back to the single built-in default theme.
+        // BootReceiver re-launches us once ACTION_BOOT_COMPLETED fires (storage is up by then),
+        // which lands here rather than onCreate. Only re-scan if that's what actually happened
+        // (still just the built-in theme) -- onNewIntent can also fire for unrelated reasons
+        // since we're the registered HOME activity, and a full theme rescan + menu rebuild isn't
+        // free.
+        if (ThemeManager.availableThemes.size() > 1) return;
+        try {
+            ThemeManager.loadThemesFromStorage(new File("/storage/sdcard0/Y1_Themes"));
+            ThemeManager.setThemeIndex(ThemeManager.resolveSavedThemeIndex(
+                    prefs.getString("app_theme_folder", null), prefs.getInt("app_theme_index", 0)));
+            applyThemeToMainMenu();
+        } catch (Exception e) {
+            Log.d(TAG, "onNewIntent theme reload failed", e);
+        }
     }
 
     @Override

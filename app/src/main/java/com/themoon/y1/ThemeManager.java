@@ -343,6 +343,19 @@ public class ThemeManager {
     }
 
     public static void setThemeIndex(int index) { if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index; else currentThemeIndex = 0; }
+
+    // File.listFiles() order for on-disk themes isn't guaranteed stable across boots, so a saved
+    // raw index can drift onto a different theme after a rescan. Resolve by folder path (stable
+    // identity) instead, falling back to the index for prefs saved before this existed.
+    public static int resolveSavedThemeIndex(String savedFolderPath, int savedIndexFallback) {
+        if (savedFolderPath != null) {
+            for (int i = 0; i < availableThemes.size(); i++) {
+                if (availableThemes.get(i).folderPath.equals(savedFolderPath)) return i;
+            }
+        }
+        return savedIndexFallback;
+    }
+
     public static int getCurrentThemeIndex() { return currentThemeIndex; }
     public static ThemeData getCurrentTheme() { return availableThemes.get(currentThemeIndex); }
     public static android.graphics.Typeface getCustomFont() { if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT; return availableThemes.get(currentThemeIndex).customFont; }

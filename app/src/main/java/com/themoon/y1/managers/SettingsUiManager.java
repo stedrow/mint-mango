@@ -78,6 +78,9 @@ public class SettingsUiManager {
                     try {
                         SharedPreferences.Editor editor = a.prefs.edit();
                         editor.putInt("app_theme_index", index);
+                        // Folder path survives a rescan even if listFiles() order shifts between
+                        // boots (index alone doesn't -- see ThemeManager.resolveSavedThemeIndex).
+                        editor.putString("app_theme_folder", theme.folderPath);
                         editor.putBoolean("reboot_to_theme", true);
 
                         // 🚀 [Smart automation] Scans the selected theme's parts (JSON) and automatically toggles the widget switches!
