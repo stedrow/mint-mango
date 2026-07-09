@@ -3131,6 +3131,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.FmRadioUiManager.getInstance().cancelPendingReset();
         cancelAudioReconnect();
         releaseNavidromeDownloadLocks();
+        com.themoon.y1.cast.CastManager.getInstance().stopDiscovery(); // release multicast lock / NSD listener
 
         com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
