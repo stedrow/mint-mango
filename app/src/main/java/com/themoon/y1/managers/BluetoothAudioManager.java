@@ -89,7 +89,18 @@ public class BluetoothAudioManager {
         public void onAapStateChanged(AapService.AapState state) {
             boolean nowBothInEar = state.earLeft == AapService.EAR_IN_EAR && state.earRight == AapService.EAR_IN_EAR;
             if (!aapLastBothInEar && nowBothInEar) {
-                onEarsReinserted();
+                // AapService.publishState() calls listeners straight from its own read-loop
+                // worker thread, not main -- same signal AapService's own handleEarDetectionForAutoPause
+                // hops to mainHandler for. onEarsReinserted() reaches ExoPlayer via
+                // restartAudioPipelineQuietly(), which must only be touched from the thread it
+                // was created on (main); without this hop that throws "Player is accessed on
+                // the wrong thread" and kills the in-flight AAP session.
+                reconnectHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        onEarsReinserted();
+                    }
+                });
             }
             aapLastBothInEar = nowBothInEar;
         }
@@ -112,16 +123,70 @@ public class BluetoothAudioManager {
 
     // --- proxy lifecycle -----------------------------------------------------------------
 
-    public void setA2dp(BluetoothProfile proxy) {
-        globalA2dp = proxy;
-    }
+    // getProfileProxy() used to be called from three separate places (MainActivity.onCreate,
+    // the ACTION_STATE_CHANGED-ON handler, and this class's old connect fallback), each
+    // registering its own ServiceListener and never calling closeProfileProxy(). Every one of
+    // those listeners stayed alive for the rest of the process and kept reacting to every future
+    // system-wide A2DP service bind/unbind -- so a *stale* listener's onServiceDisconnected could
+    // null out globalA2dp out from under a newer, live proxy another listener had just installed.
+    // That's a real, compounding source of "sometimes it just won't connect" instability (gets
+    // worse the more times Bluetooth is toggled or a connect is attempted in a session).
+    //
+    // Now there's exactly one ServiceListener for the process lifetime, and exactly one
+    // getProfileProxy() call ever in flight at a time (ensureA2dp queues callbacks instead of
+    // re-requesting).
+    private final java.util.List<Runnable> pendingProxyCallbacks = new java.util.ArrayList<>();
+    private boolean proxyRequestPending = false;
 
-    public void clearA2dp() {
-        globalA2dp = null;
+    private final BluetoothProfile.ServiceListener a2dpServiceListener = new BluetoothProfile.ServiceListener() {
+        @Override
+        public void onServiceConnected(int profile, BluetoothProfile proxy) {
+            if (profile != BluetoothProfile.A2DP) return;
+            globalA2dp = proxy;
+            proxyRequestPending = false;
+            List<Runnable> callbacks = new java.util.ArrayList<>(pendingProxyCallbacks);
+            pendingProxyCallbacks.clear();
+            for (Runnable callback : callbacks) callback.run();
+        }
+
+        @Override
+        public void onServiceDisconnected(int profile) {
+            if (profile == BluetoothProfile.A2DP) globalA2dp = null;
+        }
+    };
+
+    /** Runs {@code onReady} once the A2DP proxy is available -- immediately if it already is,
+     * otherwise as soon as the single outstanding getProfileProxy() request completes. Safe to
+     * call from multiple places concurrently; it never issues more than one request in flight. */
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
+    public void ensureA2dp(Context context, Runnable onReady) {
+        if (globalA2dp != null) {
+            if (onReady != null) onReady.run();
+            return;
+        }
+        if (onReady != null) pendingProxyCallbacks.add(onReady);
+        if (proxyRequestPending) return; // request already in flight -- onServiceConnected will drain the queue
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return;
+        proxyRequestPending = true;
+        adapter.getProfileProxy(context.getApplicationContext(), a2dpServiceListener, BluetoothProfile.A2DP);
     }
 
     public boolean hasA2dp() {
         return globalA2dp != null;
+    }
+
+    /** Bluetooth radio is going off -- release the proxy properly instead of just dropping the
+     * reference, so the binder connection to the system A2DP service doesn't leak. */
+    public void releaseA2dp() {
+        if (globalA2dp == null) return;
+        try {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter != null) adapter.closeProfileProxy(BluetoothProfile.A2DP, globalA2dp);
+        } catch (Exception e) {
+            Log.d(TAG, "releaseA2dp failed", e);
+        }
+        globalA2dp = null;
     }
 
     public boolean isAnyDeviceConnected() {
@@ -138,15 +203,14 @@ public class BluetoothAudioManager {
         return globalA2dp.getConnectedDevices();
     }
 
+    // getConnectionState(BluetoothDevice) is a plain public method on the BluetoothProfile
+    // interface (unlike connect()/disconnect(), which really are hidden API and need the
+    // reflection elsewhere in this file) -- no reflection needed, and calling it directly means
+    // this can't silently return a wrong STATE_DISCONNECTED from a reflection failure, which
+    // would otherwise defeat the connect() reentrancy guard below right when it matters most.
     public int getConnectionState(BluetoothDevice device) {
         if (globalA2dp == null || device == null) return BluetoothProfile.STATE_DISCONNECTED;
-        try {
-            return (int) globalA2dp.getClass().getMethod("getConnectionState", BluetoothDevice.class)
-                    .invoke(globalA2dp, device);
-        } catch (Exception e) {
-            Log.d(TAG, "getConnectionState failed", e);
-            return BluetoothProfile.STATE_DISCONNECTED;
-        }
+        return globalA2dp.getConnectionState(device);
     }
 
     public boolean isA2dpConnectedTo(BluetoothDevice device) {
@@ -189,6 +253,33 @@ public class BluetoothAudioManager {
 
     public void setBtConnectingState(boolean connecting) {
         isBtConnectingState = connecting;
+        if (!connecting) cancelConnectingStateTimeout();
+    }
+
+    // Belt-and-suspenders for isBtConnectingState: it's meant to be cleared by the A2DP
+    // CONNECTION_STATE_CHANGED broadcast, but a pairing attempt that fails before the stack ever
+    // emits that broadcast (createBond() rejected, device goes out of range mid-pair, etc.) would
+    // otherwise leave it stuck true forever, permanently blocking the bond/scan debounce.
+    private static final long CONNECTING_STATE_TIMEOUT_MS = 15000;
+    private Runnable connectingStateTimeoutRunnable = null;
+
+    private void armConnectingStateTimeout() {
+        cancelConnectingStateTimeout();
+        connectingStateTimeoutRunnable = new Runnable() {
+            @Override
+            public void run() {
+                connectingStateTimeoutRunnable = null;
+                isBtConnectingState = false;
+            }
+        };
+        reconnectHandler.postDelayed(connectingStateTimeoutRunnable, CONNECTING_STATE_TIMEOUT_MS);
+    }
+
+    private void cancelConnectingStateTimeout() {
+        if (connectingStateTimeoutRunnable != null) {
+            reconnectHandler.removeCallbacks(connectingStateTimeoutRunnable);
+            connectingStateTimeoutRunnable = null;
+        }
     }
 
     public void resetBackoffToMin() {
@@ -239,7 +330,21 @@ public class BluetoothAudioManager {
         if (targetDevice == null)
             return;
         targetDeviceForAudio = targetDevice; // 1. Permanently lock in the target!
+
+        // Reentrancy guard: this method has four independent callers (user tap, the reconnect
+        // watchdog, ACTION_BOND_STATE_CHANGED's post-pair kick, and the AirPods nudge) that can
+        // all fire close together. Calling connect() a second time while the stack already has
+        // this device CONNECTING or CONNECTED makes it abort and restart the link -- that's the
+        // connect/disconnect storm seen pairing to AirPods Pro, whose multi-profile handshake
+        // (A2DP/AVRCP/HFP) already keeps it in STATE_CONNECTING for a while. Bail out instead of
+        // re-issuing connect() onto a link that's already forming or up.
+        int existingState = getConnectionState(targetDevice);
+        if (existingState == BluetoothProfile.STATE_CONNECTED || existingState == BluetoothProfile.STATE_CONNECTING) {
+            return;
+        }
+
         isBtConnectingState = true; // block the bond/scan debounce until STATE_CONNECTED/DISCONNECTED clears it
+        armConnectingStateTimeout(); // safety net in case pairing fails silently with no A2DP broadcast to clear it
 
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter != null && adapter.isDiscovering()) {
@@ -259,28 +364,14 @@ public class BluetoothAudioManager {
 
         Toast.makeText(context, MainActivity.instance.t("Connecting Audio..."), Toast.LENGTH_SHORT).show();
 
-        // 4. If the engine is alive, connect immediately; if not, revive it in the background then connect!
-        if (globalA2dp != null) {
-            executeA2dpConnect(targetDevice);
-        } else {
-            if (adapter != null) {
-                adapter.getProfileProxy(context, new BluetoothProfile.ServiceListener() {
-                    @Override
-                    public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                        if (profile == BluetoothProfile.A2DP) {
-                            globalA2dp = proxy;
-                            executeA2dpConnect(targetDevice);
-                        }
-                    }
-
-                    @Override
-                    public void onServiceDisconnected(int profile) {
-                        if (profile == BluetoothProfile.A2DP)
-                            globalA2dp = null;
-                    }
-                }, BluetoothProfile.A2DP);
+        // 4. If the engine is alive, connect immediately; if not, revive it (through the single
+        // shared proxy request -- see ensureA2dp) then connect.
+        ensureA2dp(context, new Runnable() {
+            @Override
+            public void run() {
+                executeA2dpConnect(targetDevice);
             }
-        }
+        });
     }
 
     // 🚀 [Core detail] The one actually handling the audio connection

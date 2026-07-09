@@ -764,26 +764,16 @@ public class MainActivity extends Activity {
                     updateBluetoothStatusIcon();
 
                     // 🚀 [Added] The moment Bluetooth turns on, don't forget to pre-set up the A2DP engine!
-                    BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
-                            new android.bluetooth.BluetoothProfile.ServiceListener() {
-                                @Override
-                                public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                                    if (profile == BluetoothProfile.A2DP) {
-                                        com.themoon.y1.managers.BluetoothAudioManager.getInstance().setA2dp(proxy);
-                                        updateBluetoothStatusIcon();
-                                    }
-                                }
-
-                                @Override
-                                public void onServiceDisconnected(int profile) {
-                                    if (profile == BluetoothProfile.A2DP)
-                                        com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp();
-                                }
-                            }, BluetoothProfile.A2DP);
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().ensureA2dp(context, new Runnable() {
+                        @Override
+                        public void run() {
+                            updateBluetoothStatusIcon();
+                        }
+                    });
 
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
-                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp(); // 🚀 Reset the engine too when Bluetooth turns off
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().releaseA2dp(); // 🚀 Reset the engine too when Bluetooth turns off
                     cancelAudioReconnect(); // nothing to reconnect to while the radio is off
                     AapService.deviceDisconnected(context);
                     applySpeakerSetting(); // 🚀 Bluetooth is off now, so re-evaluate speaker mute state
@@ -1023,23 +1013,13 @@ public class MainActivity extends Activity {
             }
         });
         // 🚀 [Added] Secures A2DP audio control ahead of time.
-        BluetoothAdapter.getDefaultAdapter().getProfileProxy(this,
-                new android.bluetooth.BluetoothProfile.ServiceListener() {
-                    @Override
-                    public void onServiceConnected(int profile, android.bluetooth.BluetoothProfile proxy) {
-                        if (profile == android.bluetooth.BluetoothProfile.A2DP) {
-                            com.themoon.y1.managers.BluetoothAudioManager.getInstance().setA2dp(proxy); // Loaded and ready!
-                            updateBluetoothStatusIcon();
-                            resyncAapWithConnectedDevice();
-                        }
-                    }
-
-                    @Override
-                    public void onServiceDisconnected(int profile) {
-                        if (profile == android.bluetooth.BluetoothProfile.A2DP)
-                            com.themoon.y1.managers.BluetoothAudioManager.getInstance().clearA2dp();
-                    }
-                }, android.bluetooth.BluetoothProfile.A2DP);
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().ensureA2dp(this, new Runnable() {
+            @Override
+            public void run() {
+                updateBluetoothStatusIcon();
+                resyncAapWithConnectedDevice();
+            }
+        });
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_main);
