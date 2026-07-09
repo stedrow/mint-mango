@@ -56,9 +56,9 @@ public class SubsonicClient {
     private Context appContext;
     private com.themoon.y1.db.LibraryCacheDb libraryCacheDb;
     private final Handler mainHandler = new Handler();
-    // Shared pool instead of spawning a raw Thread per request, so a burst of calls
-    // (e.g. loading an artist list with many albums) can't pile up unbounded threads.
-    private final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool();
+    // Bounded shared pool instead of spawning a raw Thread per request, so a burst of calls
+    // (e.g. loading an artist list with many albums) can't pile up unbounded threads on this SoC.
+    private final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(4);
 
     private SubsonicClient() {}
 
