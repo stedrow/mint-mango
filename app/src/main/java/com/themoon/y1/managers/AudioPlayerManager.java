@@ -1201,6 +1201,7 @@ public class AudioPlayerManager {
                 }
                 legacyPlayer.setDataSource(file.getAbsolutePath());
                 legacyPlayer.prepare();
+                applyPlayerVolumeState(); // 💡 A new/reset MediaPlayer starts at volume 1.0, so reapply the mute state
                 legacyPlayer.start();
             } catch (Exception e) {
                 handleTrackError("Cannot play: " + e.getMessage());
