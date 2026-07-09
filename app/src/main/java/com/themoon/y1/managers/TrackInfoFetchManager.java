@@ -92,7 +92,8 @@ public class TrackInfoFetchManager {
                         final String finalTitle = fetchedTitle;
                         final String finalArtist = fetchedArtist;
 
-                        String coverUrl = trackInfo.getJSONObject("album").getString("cover_xl").replace("https://", "http://");
+                        // cover_big (500px) is plenty for this device's small screen; cover_xl (1000px) just wastes decode time/memory.
+                        String coverUrl = trackInfo.getJSONObject("album").getString("cover_big").replace("https://", "http://");
                         java.net.URL imgUrl = new java.net.URL(coverUrl);
                         java.net.HttpURLConnection imgConn = (java.net.HttpURLConnection) imgUrl.openConnection();
                         java.io.InputStream in = imgConn.getInputStream();

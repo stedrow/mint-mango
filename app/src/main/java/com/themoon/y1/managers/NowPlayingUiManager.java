@@ -89,6 +89,9 @@ public class NowPlayingUiManager {
 
             // ⭕ [Overwrite with the code below]
             a.audioVisualizer = new android.media.audiofx.Visualizer(com.themoon.y1.managers.AudioPlayerManager.getInstance().getAudioSessionId());
+            // Full capture size matters here: low-frequency log-scale bands need fine bin
+            // resolution or many adjacent bars collapse onto the same 1-2 bins (bass/kick then
+            // pins the whole left side high). Do not shrink this.
             a.audioVisualizer.setCaptureSize(android.media.audiofx.Visualizer.getCaptureSizeRange()[1]);
             a.audioVisualizer.setDataCaptureListener(new android.media.audiofx.Visualizer.OnDataCaptureListener() {
                 @Override

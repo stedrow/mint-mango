@@ -3304,12 +3304,22 @@ public class MainActivity extends Activity {
             android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeFile(imagePath, optsCenter);
             ivAlbumArt.setImageBitmap(bmpCenter);
 
-            // Background blur processing
+            // Background blur processing. Same source bytes + same inSampleSize as
+            // updateMainMenuBackground()'s default path, so reuse this one RenderScript pass for
+            // the main-menu background too instead of decoding+blurring the same art twice per
+            // track change -- that pass is real CPU work on this SoC.
             android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
             optsBg.inSampleSize = 4;
             android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeFile(imagePath, optsBg);
+            String savedBgPath = prefs.getString("bg_path", null);
+            boolean hasBgOverride = savedBgPath != null && !savedBgPath.isEmpty();
             applyGaussianBlurAsync(sourceBg, (blurredBg, src) -> {
                 ivPlayerBgBlur.setImageBitmap(blurredBg);
+                if (hasBgOverride) {
+                    updateMainMenuBackground();
+                } else if (blurredBg != null) {
+                    ivMainBg.setImageBitmap(blurredBg);
+                }
                 if (src != blurredBg) src.recycle();
             });
 
@@ -3322,7 +3332,6 @@ public class MainActivity extends Activity {
             buf.close();
 
             lastAlbumArtBytes = bytes;
-            updateMainMenuBackground();
             refreshNowPlayingPreview();
             // 🚀 Album art has been freshly loaded, so send it to the car display too!
             sendBluetoothMetaToCar();
