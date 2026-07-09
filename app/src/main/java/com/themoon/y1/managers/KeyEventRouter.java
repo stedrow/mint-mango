@@ -1,5 +1,6 @@
 package com.themoon.y1.managers;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.PowerManager;
 import android.util.Log;
@@ -112,6 +113,7 @@ public class KeyEventRouter {
         return a.superDispatchKeyEvent(event);
     }
 
+    @SuppressLint("ResourceType") // 10000 is a dynamically-assigned view id, not an XML resource
     public boolean onKeyDown(MainActivity a, int keyCode, KeyEvent event) {
         PowerManager pm = (PowerManager) a.getSystemService(Context.POWER_SERVICE);
         boolean isScreenOn = true;

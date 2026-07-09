@@ -1,5 +1,6 @@
 package com.themoon.y1;
 
+import android.annotation.SuppressLint;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -230,6 +231,7 @@ public class AapService extends Service {
         stopSelf();
     }
 
+    @SuppressLint("MissingPermission") // connect() failure (incl. SecurityException) is caught below
     private BluetoothSocket tryConnect(BluetoothDevice device) {
         boolean[][] variants = {{false, false}, {true, true}};
         for (boolean[] v : variants) {

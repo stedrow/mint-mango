@@ -29,6 +29,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    lint {
+        // Launcher icons ship as WebP but only need to render above minSdk 17 on real hardware;
+        // no store distribution requires strict minSdk compatibility for the icon format itself.
+        disable 'WebpUnsupported'
+    }
 }
 
 dependencies {

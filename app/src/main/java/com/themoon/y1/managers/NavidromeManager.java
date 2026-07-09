@@ -658,7 +658,7 @@ public class NavidromeManager {
             if (navidromeDownloadWakeLock == null) {
                 android.os.PowerManager pm = (android.os.PowerManager) a.getSystemService(Context.POWER_SERVICE);
                 navidromeDownloadWakeLock = pm.newWakeLock(
-                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "Y1NavidromeDownload");
+                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "y1:NavidromeDownload");
                 navidromeDownloadWakeLock.setReferenceCounted(false);
             }
             if (!navidromeDownloadWakeLock.isHeld()) navidromeDownloadWakeLock.acquire();
@@ -667,7 +667,7 @@ public class NavidromeManager {
                 android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
                         a.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                 navidromeDownloadWifiLock = wm.createWifiLock(
-                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1NavidromeDownload");
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "y1:NavidromeDownload");
                 navidromeDownloadWifiLock.setReferenceCounted(false);
             }
             if (!navidromeDownloadWifiLock.isHeld()) navidromeDownloadWifiLock.acquire();
@@ -690,7 +690,7 @@ public class NavidromeManager {
             if (navidromeStreamWakeLock == null) {
                 android.os.PowerManager pm = (android.os.PowerManager) app.getSystemService(Context.POWER_SERVICE);
                 navidromeStreamWakeLock = pm.newWakeLock(
-                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "Y1NavidromeStream");
+                        android.os.PowerManager.PARTIAL_WAKE_LOCK, "y1:NavidromeStream");
                 navidromeStreamWakeLock.setReferenceCounted(false);
             }
             if (!navidromeStreamWakeLock.isHeld()) navidromeStreamWakeLock.acquire();
@@ -699,7 +699,7 @@ public class NavidromeManager {
                 android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
                         app.getSystemService(Context.WIFI_SERVICE);
                 navidromeStreamWifiLock = wm.createWifiLock(
-                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Y1NavidromeStream");
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "y1:NavidromeStream");
                 navidromeStreamWifiLock.setReferenceCounted(false);
             }
             if (!navidromeStreamWifiLock.isHeld()) navidromeStreamWifiLock.acquire();

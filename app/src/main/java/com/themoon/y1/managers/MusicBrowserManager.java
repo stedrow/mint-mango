@@ -1,5 +1,6 @@
 package com.themoon.y1.managers;
 
+import android.annotation.SuppressLint;
 import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.util.Log;
@@ -428,6 +429,7 @@ public class MusicBrowserManager {
         return 1f;
     }
 
+    @SuppressLint("ResourceType") // 1001-1004 are dynamically-assigned view ids, not XML resources
     public void bindCoverData(MainActivity a, View card, int dataIndex) {
         if(a.uniqueAlbumList.isEmpty() || dataIndex < 0 || dataIndex >= a.uniqueAlbumList.size()) return;
         SongItem item = a.uniqueAlbumList.get(dataIndex);
@@ -534,6 +536,7 @@ public class MusicBrowserManager {
         }).start();
     }
 
+    @SuppressLint("ResourceType") // 1001-1004 are dynamically-assigned view ids, not XML resources
     public View createSingleCoverView(MainActivity a) {
         float d = a.getResources().getDisplayMetrics().density;
         android.widget.LinearLayout card = new android.widget.LinearLayout(a);
@@ -652,6 +655,7 @@ public class MusicBrowserManager {
         }
     }
 
+    @SuppressLint("ResourceType") // 1002/1003 are dynamically-assigned view ids, not XML resources
     public void setCardTitleAlpha(MainActivity a, View card, boolean isCenter, int duration) {
         View tvTitle = card.findViewById(1002);
         View tvArtist = card.findViewById(1003);

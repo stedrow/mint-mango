@@ -1,5 +1,6 @@
 package com.themoon.y1;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
@@ -700,6 +701,7 @@ public class MainActivity extends Activity {
     };
 
     private BroadcastReceiver systemStatusReceiver = new BroadcastReceiver() {
+        @SuppressLint("MissingPermission") // system-signed app; Bluetooth/Wi-Fi permissions are granted at install
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
@@ -957,6 +959,17 @@ public class MainActivity extends Activity {
     public void updateBluetoothMetadata(String title, String artist, String album, android.graphics.Bitmap albumArtBmp) { com.themoon.y1.managers.BluetoothAudioManager.getInstance().updateBluetoothMetadata(title, artist, album, albumArtBmp); }
     public void updateBluetoothPlaybackState(boolean isPlaying) { com.themoon.y1.managers.BluetoothAudioManager.getInstance().updateBluetoothPlaybackState(isPlaying); }
     public void sendBluetoothMetaToCar() { com.themoon.y1.managers.BluetoothAudioManager.getInstance().sendBluetoothMetaToCar(); }
+
+    // Pre-33 has no exported/not-exported flag overload for registerReceiver, and minSdk 17
+    // must still support that path.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerSystemStatusReceiver(IntentFilter filter) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(systemStatusReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(systemStatusReceiver, filter);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1802,7 +1815,7 @@ public class MainActivity extends Activity {
         filter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
-        registerReceiver(systemStatusReceiver, filter);
+        registerSystemStatusReceiver(filter);
 
         try {
             if (audioManager.isWiredHeadsetOn()) {
@@ -2022,6 +2035,7 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.SettingsUiManager.getInstance().buildThemeSelectorUI(this);
     }
 
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth/Wi-Fi permissions are granted at install
     private void triggerAutoReconnect() {
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -2268,6 +2282,7 @@ public class MainActivity extends Activity {
     // buttons built at runtime by MainMenuManager; btnNowPlaying is GONE for those themes, so
     // requestFocus() on it is a silent no-op. Find the real dynamically created button 0 (ID:
     // 10000) first, and only fall back to btnNowPlaying if the dynamic menu hasn't been built yet.
+    @SuppressLint("ResourceType") // 10000 is a dynamically-assigned view id, not an XML resource
     private void focusFirstMainMenuButton() {
         View dynamicFirstBtn = findViewById(10000);
         if (dynamicFirstBtn != null) {

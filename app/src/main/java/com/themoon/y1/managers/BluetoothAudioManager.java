@@ -1,5 +1,6 @@
 package com.themoon.y1.managers;
 
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
@@ -233,6 +234,7 @@ public class BluetoothAudioManager {
     }
 
     // 🚀 [Fully ported from stock launcher] Centralized Bluetooth connection engine
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
     public void connectBluetoothAudio(final Context context, final BluetoothDevice targetDevice) {
         if (targetDevice == null)
             return;

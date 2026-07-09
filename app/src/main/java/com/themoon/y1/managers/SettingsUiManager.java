@@ -1,5 +1,6 @@
 package com.themoon.y1.managers;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -1548,6 +1549,7 @@ public class SettingsUiManager {
         }, 50);
     }
 
+    @SuppressLint("ResourceType") // 8000+n/8500 are dynamically-assigned view ids, not XML resources
     public void buildGraphicEqualizerUI(MainActivity a) {
         a.currentSettingsDepth = 3;
         a.settingsSubMode = 3;

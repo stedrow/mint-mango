@@ -32,7 +32,7 @@ import java.util.List;
  * name.
  */
 public class PlaylistFavoritesManager {
-    private static final String TAG = "PlaylistFavoritesManager";
+    private static final String TAG = "PlaylistFavoritesMgr";
     private static PlaylistFavoritesManager instance;
 
     private PlaylistFavoritesManager() {}

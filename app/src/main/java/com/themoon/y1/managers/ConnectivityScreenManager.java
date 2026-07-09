@@ -1,5 +1,6 @@
 package com.themoon.y1.managers;
 
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
@@ -34,7 +35,7 @@ import java.util.List;
  * MainActivity instance as a parameter.
  */
 public class ConnectivityScreenManager {
-    private static final String TAG = "ConnectivityScreenManager";
+    private static final String TAG = "ConnectivityScreenMgr";
     private static ConnectivityScreenManager instance;
 
     private ConnectivityScreenManager() {}
@@ -73,6 +74,7 @@ public class ConnectivityScreenManager {
         a.changeScreen(a.STATE_WIFI);
     }
 
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
     public void startBluetoothScan(MainActivity a) {
         int currentFocusIndex = 0;
         if (a.containerBtItems != null) {
@@ -183,6 +185,7 @@ public class ConnectivityScreenManager {
         restoreBluetoothFocus(a, targetFocusIndex);
     }
 
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
     public void addPairedBluetoothItemToUI(MainActivity a, final BluetoothDevice device) {
         String name = (device.getName() != null && !device.getName().isEmpty()) ? device.getName()
                 : "Unknown (" + device.getAddress() + ")";
@@ -270,6 +273,7 @@ public class ConnectivityScreenManager {
         a.containerBtItems.addView(btnUnpair);
     }
 
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
     public void addBluetoothItemToUI(MainActivity a, String name, final BluetoothDevice device, boolean isPaired) {
         if (device.getBondState() == BluetoothDevice.BOND_BONDED)
             return; // Ignore since paired devices are drawn above
@@ -325,6 +329,7 @@ public class ConnectivityScreenManager {
         }
     }
 
+    @SuppressLint("ResourceType") // 999992 is a dynamically-assigned view id, not an XML resource
     public void updateWifiUI(MainActivity a, List<ScanResult> results) {
         final WifiManager wm = (WifiManager) a.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         boolean isOn = false;
@@ -450,6 +455,7 @@ public class ConnectivityScreenManager {
         }
 
         btnWifi.setOnClickListener(new View.OnClickListener() {
+            @SuppressLint("MissingPermission") // system-signed app; Wi-Fi/location permissions are granted at install
             @Override
             public void onClick(View v) {
                 a.clickFeedback();
