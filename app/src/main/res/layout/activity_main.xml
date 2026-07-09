@@ -294,6 +294,7 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <ImageView android:id="@+id/iv_status_cast" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_cast" android:visibility="gone" android:layout_marginRight="8dp"/>
             <ImageView android:id="@+id/iv_status_headphone" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_headphone" android:visibility="gone" android:layout_marginRight="8dp"/>
             <ImageView android:id="@+id/iv_status_wifi" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_wifi" android:visibility="gone" android:layout_marginRight="8dp"/>
             <ImageView android:id="@+id/iv_status_bluetooth" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_bluetooth" android:visibility="gone" android:layout_marginRight="12dp"/>

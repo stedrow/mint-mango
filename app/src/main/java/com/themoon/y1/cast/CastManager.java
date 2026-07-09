@@ -48,6 +48,12 @@ public final class CastManager {
     private volatile CastDevice activeDevice;
     private volatile boolean navidromeCast = false;
 
+    // Screen-off doze otherwise suspends Wi-Fi and the app's own networking, which is exactly
+    // what the speaker connection and transport commands need while casting — same locks
+    // NavidromeManager holds for its own streaming, just scoped to the cast session instead.
+    private android.os.PowerManager.WakeLock wakeLock;
+    private android.net.wifi.WifiManager.WifiLock wifiLock;
+
     // Playback state mirrored from the speaker's MEDIA_STATUS, plus a wall-clock anchor so the
     // progress bar can interpolate between the (throttled) status updates.
     private volatile String playerState = "IDLE";
@@ -131,6 +137,7 @@ public final class CastManager {
         if (!navi) CastMediaServer.getInstance().ensureStarted();
         navidromeCast = navi;
         resetPlaybackState();
+        acquireLocks(a);
 
         Toast.makeText(a, a.t("Casting to") + " " + device.friendlyName + "…", Toast.LENGTH_SHORT).show();
 
@@ -156,6 +163,7 @@ public final class CastManager {
         activeDevice = null;
         main.removeCallbacks(pollRunnable);
         resetPlaybackState();
+        releaseLocks();
         netExecutor.execute(new Runnable() {
             @Override public void run() {
                 if (c != null) {
@@ -164,6 +172,31 @@ public final class CastManager {
             }
         });
         refreshNowPlaying();
+    }
+
+    private void acquireLocks(Context context) {
+        try {
+            Context app = context.getApplicationContext();
+            if (wakeLock == null) {
+                android.os.PowerManager pm = (android.os.PowerManager) app.getSystemService(Context.POWER_SERVICE);
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "y1:Cast");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (!wakeLock.isHeld()) wakeLock.acquire();
+            if (wifiLock == null) {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) app.getSystemService(Context.WIFI_SERVICE);
+                wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "y1:Cast");
+                wifiLock.setReferenceCounted(false);
+            }
+            if (!wifiLock.isHeld()) wifiLock.acquire();
+        } catch (Exception e) {
+            Log.w(TAG, "acquireLocks failed", e);
+        }
+    }
+
+    private void releaseLocks() {
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
+        try { if (wifiLock != null && wifiLock.isHeld()) wifiLock.release(); } catch (Exception ignored) {}
     }
 
     // ── transport (called by AudioPlayerManager delegation while casting) ────────
@@ -290,7 +323,17 @@ public final class CastManager {
                 String token = server.serve(file);
                 url = server.urlFor(host, token);
                 contentType = CastMediaServer.mimeFor(file.getName());
-                title = stripExtension(file.getName());
+                // next()/prev() only move an index — re-extract per track rather than trusting
+                // whatever the Now Playing screen still shows, which is stale once we're casting
+                // (the local playback path that normally refreshes it never runs while casting).
+                TrackMeta meta = extractLocalMeta(file);
+                title = meta.title;
+                artist = meta.artist;
+                if (meta.art != null && meta.art.length > 0) {
+                    String artTok = server.serveArt(meta.art);
+                    if (artTok != null) cover = server.artUrlFor(host, artTok);
+                }
+                updateLocalNowPlayingUi(meta);
             }
             anchorPosition(0, "BUFFERING");
             lastDurationMs = durationMs;
@@ -351,6 +394,93 @@ public final class CastManager {
         next(); // repeat-all, or repeat-off mid-queue
     }
 
+    private static final class TrackMeta {
+        String title;
+        String artist;
+        byte[] art;
+    }
+
+    /** Extracts title/artist/art for a local track — mirrors AudioPlayerManager's own tag
+     *  extraction (embedded MMR tags, DB override, cached-cover fallback) since casting bypasses
+     *  the normal local-playback path that would otherwise keep those fields fresh. Runs on the
+     *  network executor, so blocking file I/O here is fine. */
+    private TrackMeta extractLocalMeta(File track) {
+        TrackMeta m = new TrackMeta();
+        String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "");
+        String t = null, a = null;
+        byte[] art = null;
+        android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+        java.io.FileInputStream fis = null;
+        try {
+            fis = new java.io.FileInputStream(track);
+            mmr.setDataSource(fis.getFD());
+            t = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
+            a = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            art = mmr.getEmbeddedPicture();
+        } catch (Exception e) {
+            Log.d(TAG, "extractLocalMeta: extraction failed for " + track, e);
+        } finally {
+            if (fis != null) try { fis.close(); } catch (Exception ignored) {}
+            try { mmr.release(); } catch (Exception ignored) {}
+        }
+        MainActivity main = MainActivity.instance;
+        try {
+            if (main != null && main.libraryCacheDb != null) {
+                com.themoon.y1.db.LibraryCacheDb.MetaOverride ov = main.libraryCacheDb.getMetaOverride(track.getAbsolutePath());
+                if (ov != null) {
+                    if (ov.title != null) t = ov.title;
+                    if (ov.artist != null) a = ov.artist;
+                }
+            }
+        } catch (Exception ignored) {}
+        if (art == null || art.length == 0) {
+            File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
+            if (coverFile.exists()) {
+                try {
+                    java.io.FileInputStream cfis = new java.io.FileInputStream(coverFile);
+                    java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                    byte[] tmp = new byte[8192];
+                    int n;
+                    while ((n = cfis.read(tmp)) != -1) buf.write(tmp, 0, n);
+                    cfis.close();
+                    art = buf.toByteArray();
+                } catch (Exception e) {
+                    Log.d(TAG, "extractLocalMeta: cover file read failed", e);
+                }
+            }
+        }
+        m.title = (t != null && !t.trim().isEmpty()) ? t : safeFileName;
+        m.artist = (a != null && !a.trim().isEmpty()) ? a : null;
+        m.art = art;
+        return m;
+    }
+
+    /** Keeps the Y1's own Now Playing screen in sync with what's being cast, since the normal
+     *  local-playback UI refresh path never runs while the speaker is the sink. */
+    private void updateLocalNowPlayingUi(final TrackMeta meta) {
+        final MainActivity a = MainActivity.instance;
+        if (a == null) return;
+        main.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    a.tvPlayerTitle.setText(meta.title);
+                    a.tvPlayerArtist.setText(meta.artist != null ? meta.artist : a.t("Unknown Artist"));
+                    a.lastAlbumArtBytes = meta.art;
+                    if (meta.art != null && meta.art.length > 0) {
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeByteArray(meta.art, 0, meta.art.length);
+                        if (bmp != null) a.ivAlbumArt.setImageBitmap(bmp);
+                        a.updateMainMenuBackground();
+                        a.refreshNowPlayingPreview();
+                    } else {
+                        a.ivAlbumArt.setImageResource(com.themoon.y1.R.drawable.default_album);
+                    }
+                } catch (Exception e) {
+                    Log.d(TAG, "updateLocalNowPlayingUi failed", e);
+                }
+            }
+        });
+    }
+
     private void anchorPosition(long positionMs, String state) {
         lastPositionMs = positionMs;
         lastPosWallClock = System.currentTimeMillis();
@@ -372,6 +502,7 @@ public final class CastManager {
             @Override public void run() {
                 try {
                     a.updatePlayerUI();
+                    a.updateCastStatusIndicator();
                     a.progressHandler.removeCallbacks(a.updateProgressTask);
                     a.progressHandler.post(a.updateProgressTask);
                 } catch (Exception e) {
@@ -457,6 +588,7 @@ public final class CastManager {
             toast(message);
             activeDevice = null;
             main.removeCallbacks(pollRunnable);
+            releaseLocks();
             refreshNowPlaying();
         }
 
@@ -465,6 +597,7 @@ public final class CastManager {
             activeDevice = null;
             main.removeCallbacks(pollRunnable);
             resetPlaybackState();
+            releaseLocks();
             refreshNowPlaying();
         }
     }

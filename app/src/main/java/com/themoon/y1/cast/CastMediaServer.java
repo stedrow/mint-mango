@@ -48,6 +48,11 @@ public final class CastMediaServer {
     private volatile File currentFile;
     private volatile String token;
 
+    // Same idea for the current track's embedded/cached album art, served straight from
+    // memory — local casts otherwise have no artwork the Cast device could fetch on its own.
+    private volatile byte[] currentArt;
+    private volatile String artToken;
+
     private CastMediaServer() {}
 
     public static synchronized CastMediaServer getInstance() {
@@ -80,6 +85,23 @@ public final class CastMediaServer {
 
     public String urlFor(String host, String token) {
         return "http://" + host + ":" + PORT + "/media/" + token;
+    }
+
+    /** Points the server at {@code art} (raw image bytes) and returns its token, mirroring
+     *  {@link #serve(File)}. Pass null/empty to stop serving art for the current track. */
+    public synchronized String serveArt(byte[] art) {
+        if (art == null || art.length == 0) {
+            this.currentArt = null;
+            this.artToken = null;
+            return null;
+        }
+        this.currentArt = art;
+        this.artToken = Long.toHexString(System.nanoTime());
+        return artToken;
+    }
+
+    public String artUrlFor(String host, String token) {
+        return "http://" + host + ":" + PORT + "/art/" + token;
     }
 
     public synchronized void stopServer() {
@@ -126,6 +148,11 @@ public final class CastMediaServer {
                 if (line.toLowerCase(Locale.US).startsWith("range:")) {
                     rangeHeader = line.substring(6).trim();
                 }
+            }
+
+            if (path.startsWith("/art/")) {
+                handleArt(os, method, path);
+                return;
             }
 
             File file = currentFile;
@@ -200,6 +227,22 @@ public final class CastMediaServer {
             if (raf != null) try { raf.close(); } catch (Exception ignored) {}
             try { socket.close(); } catch (Exception ignored) {}
         }
+    }
+
+    /** Serves the current track's in-memory album art. No Range support — Cast receivers
+     *  fetch cover images with a single plain GET, unlike the audio file above. */
+    private void handleArt(OutputStream os, String method, String path) throws java.io.IOException {
+        byte[] art = currentArt;
+        String tok = artToken;
+        if (art == null || tok == null || !path.equals("/art/" + tok)) {
+            writeStatus(os, 404, "Not Found");
+            return;
+        }
+        String contentType = (art.length > 8 && (art[0] & 0xFF) == 0x89 && art[1] == 'P') ? "image/png" : "image/jpeg";
+        os.write(("HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\nContent-Length: " + art.length
+                + "\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
+        if (!method.equals("HEAD")) os.write(art);
+        os.flush();
     }
 
     private void writeStatus(OutputStream os, int code, String reason) {

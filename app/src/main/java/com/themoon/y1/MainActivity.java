@@ -315,7 +315,7 @@ public class MainActivity extends Activity {
     public LinearLayout containerBtItems, containerWifiItems;
 
     private TextView tvStatusClock, tvStatusBattery;
-    private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
+    private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivStatusCast, ivMainBg;
 
     public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
     // 🚀 [Variables dedicated to the capsule UI]
@@ -495,6 +495,15 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [Smart Wi-Fi power-saving engine]
+    /** Shows/hides the status-bar cast icon (indicator only — use Quick Menu's "Stop Casting"
+     *  to end a session, since status icons aren't reachable via wheel navigation). Called on
+     *  every cast state change (see CastManager.refreshNowPlaying) and on activity resume,
+     *  since a cast can outlive an activity recreation. */
+    public void updateCastStatusIndicator() {
+        if (ivStatusCast == null) return;
+        ivStatusCast.setVisibility(com.themoon.y1.cast.CastManager.getInstance().isCasting() ? View.VISIBLE : View.GONE);
+    }
+
     public void autoManageWifiPower(boolean isGoingToSleep) {
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wm == null) return;
@@ -505,7 +514,8 @@ public class MainActivity extends Activity {
             // exactly the stall this exemption avoids -- see AudioPlayerManager.isNavidromeStreamActive).
             if (wm.isWifiEnabled()) {
                 wasWifiOnBeforeSleep = true; // Remember that it was originally on
-                if (!isServerRunning && !com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeStreamActive()) {
+                if (!isServerRunning && !com.themoon.y1.managers.AudioPlayerManager.getInstance().isNavidromeStreamActive()
+                        && !com.themoon.y1.cast.CastManager.getInstance().isCasting()) {
                     wm.setWifiEnabled(false);
                 }
             } else {
@@ -1506,6 +1516,9 @@ public class MainActivity extends Activity {
         ivStatusBluetooth = findViewById(R.id.iv_status_bluetooth);
         ivStatusWifi = findViewById(R.id.iv_status_wifi);
         ivStatusHeadphone = findViewById(R.id.iv_status_headphone);
+        ivStatusCast = findViewById(R.id.iv_status_cast);
+        ivStatusCast.setColorFilter(0xFFFFFFFF);
+        updateCastStatusIndicator();
 // 🚀🚀🚀 [Fix complete] Join the play icon to the right-side system icon group instead of the clock side! 🚀🚀🚀
         ivStatusPlay = new ImageView(this);
         ivStatusPlay.setImageResource(android.R.drawable.ic_media_play);
@@ -3083,6 +3096,7 @@ public class MainActivity extends Activity {
         super.onResume();
         resyncAapWithConnectedDevice();
         if (usbFocusHelper != null) usbFocusHelper.onResume();
+        updateCastStatusIndicator();
     }
 
     @Override

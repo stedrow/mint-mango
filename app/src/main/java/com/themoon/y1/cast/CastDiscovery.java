@@ -49,6 +49,7 @@ public final class CastDiscovery {
     private final ArrayDeque<NsdServiceInfo> resolveQueue = new ArrayDeque<>();
     private boolean resolving = false;
     private Callback callback;
+    private final java.util.concurrent.ExecutorService nameExecutor = java.util.concurrent.Executors.newCachedThreadPool();
 
     public CastDiscovery(Context context) {
         this.appContext = context.getApplicationContext();
@@ -167,16 +168,59 @@ public final class CastDiscovery {
 
     private void addResolved(NsdServiceInfo info) {
         if (info.getHost() == null) return;
-        String host = info.getHost().getHostAddress();
-        int port = info.getPort();
+        final String host = info.getHost().getHostAddress();
+        final int port = info.getPort();
         if (host == null || port <= 0) return;
-        String id = info.getServiceName();
+        final String id = info.getServiceName();
         String friendly = friendlyName(info, id);
         CastDevice dev = new CastDevice(id, friendly, host, port);
         CastDevice prev = devices.put(id, dev);
         if (prev == null || !prev.equals(dev) || !prev.friendlyName.equals(dev.friendlyName)) {
             emit();
         }
+        // This firmware's NsdManager never delivers TXT record bytes (mdnsd here predates
+        // TXT-in-resolve support), so the fn= friendly name above is unreachable. Every Cast
+        // receiver also serves its own name over plain HTTP on port 8008, so ask it directly.
+        fetchEurekaName(id, host, port);
+    }
+
+    /** Queries the Cast receiver's own /setup/eureka_info for its real friendly name ("name"
+     *  field) and updates the device list if it differs from the mDNS-derived fallback. */
+    private void fetchEurekaName(final String id, final String host, final int port) {
+        nameExecutor.execute(new Runnable() {
+            @Override public void run() {
+                String name = null;
+                java.net.HttpURLConnection conn = null;
+                try {
+                    java.net.URL url = new java.net.URL("http://" + host + ":8008/setup/eureka_info?params=name");
+                    conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(1500);
+                    conn.setReadTimeout(1500);
+                    java.io.InputStream in = conn.getInputStream();
+                    java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                    byte[] tmp = new byte[512];
+                    int n;
+                    while ((n = in.read(tmp)) != -1) buf.write(tmp, 0, n);
+                    org.json.JSONObject json = new org.json.JSONObject(buf.toString("UTF-8"));
+                    String n2 = json.optString("name", null);
+                    if (n2 != null && !n2.isEmpty()) name = n2;
+                } catch (Exception e) {
+                    Log.d(TAG, "eureka_info fetch failed for " + host + ": " + e.getMessage());
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+                if (name == null) return;
+                final String finalName = name;
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        CastDevice existing = devices.get(id);
+                        if (existing == null || finalName.equals(existing.friendlyName)) return;
+                        devices.put(id, new CastDevice(id, finalName, existing.host, existing.port));
+                        emit();
+                    }
+                });
+            }
+        });
     }
 
     /** Prefer the TXT record's fn= (Cast friendly name); fall back to a cleaned service name. */
@@ -189,9 +233,13 @@ public final class CastDiscovery {
                 }
             } catch (Exception ignored) {}
         }
-        // Service name for cast is the device UUID; strip separators so it's at least legible.
+        // Service names share a model prefix (e.g. "Google-Home-Mini-<uniquehex>"), so same-model
+        // speakers collide if we slice off the front — the unique part is the trailing hex, not
+        // the model name. Keep a readable prefix plus that unique tail instead.
         String cleaned = id == null ? "Cast device" : id.replace("-", "").trim();
-        if (cleaned.length() > 16) cleaned = "Cast device " + cleaned.substring(0, 6);
+        if (cleaned.length() > 16) {
+            cleaned = cleaned.substring(0, 6) + "…" + cleaned.substring(cleaned.length() - 4);
+        }
         return cleaned.isEmpty() ? "Cast device" : cleaned;
     }
 

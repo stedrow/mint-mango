@@ -95,6 +95,7 @@ class CastConnection {
             SSLSocketFactory factory = trustAllFactory();
             SSLSocket s = (SSLSocket) factory.createSocket();
             s.connect(new java.net.InetSocketAddress(device.host, device.port), 8000);
+            enableModernTls(s); // pre-Lollipop Android supports TLS 1.1/1.2 but disables them by default
             s.setSoTimeout(0);
             s.startHandshake();
             socket = s;
@@ -363,6 +364,21 @@ class CastConnection {
         out = null;
         if (s != null) {
             try { s.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** Modern Cast receivers reject TLS 1.0; Android < 5.0 supports 1.1/1.2 in the provider but
+     *  leaves them disabled on client sockets, so they must be turned on explicitly here. */
+    private static void enableModernTls(SSLSocket s) {
+        try {
+            java.util.List<String> supported = java.util.Arrays.asList(s.getSupportedProtocols());
+            java.util.List<String> enabled = new java.util.ArrayList<>();
+            for (String p : new String[]{"TLSv1.2", "TLSv1.1", "TLSv1"}) {
+                if (supported.contains(p)) enabled.add(p);
+            }
+            if (!enabled.isEmpty()) s.setEnabledProtocols(enabled.toArray(new String[0]));
+        } catch (Exception e) {
+            Log.w(TAG, "enableModernTls failed", e);
         }
     }
 
