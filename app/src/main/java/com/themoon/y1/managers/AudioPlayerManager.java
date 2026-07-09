@@ -23,6 +23,7 @@ import com.google.android.exoplayer2.util.Util;
 import com.themoon.y1.MainActivity;
 import com.themoon.y1.R;
 import com.themoon.y1.ThemeManager;
+import com.themoon.y1.cast.CastManager;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -362,6 +363,7 @@ public class AudioPlayerManager {
     }
 
     public void playOrPauseMusic() {
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().togglePlayPause(); return; }
         pausedByAirpods = false; // any manual toggle cancels a pending AirPods auto-resume
 
         // Nothing loaded yet this session (e.g. right after a cold start) but a track was
@@ -437,6 +439,7 @@ public class AudioPlayerManager {
     public void restartAudioPipelineQuietly() {
         final MainActivity main = MainActivity.instance;
         if (main == null) return;
+        if (CastManager.getInstance().isCasting()) return; // speaker is the sink; don't touch local audio
         if (isNavidromeMode || main.currentPlaylist.isEmpty()) {
             main.nudgeAudioReconnectForAirpods();
             return;
@@ -480,6 +483,7 @@ public class AudioPlayerManager {
     }
 
     public void nextTrack() {
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().next(); return; }
         if (isNavidromeMode) { nextNavidromeSong(); return; }
         saveAudiobookBookmarkIfNeeded();
         MainActivity main = MainActivity.instance;
@@ -491,6 +495,7 @@ public class AudioPlayerManager {
     }
 
     public void prevTrack() {
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().prev(); return; }
         if (isNavidromeMode) { prevNavidromeSong(); return; }
         saveAudiobookBookmarkIfNeeded();
         MainActivity main = MainActivity.instance;
@@ -503,6 +508,7 @@ public class AudioPlayerManager {
     }
 
     public void seekRelative(int offsetMs) {
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().seekRelative(offsetMs); return; }
         long currentPos = getCurrentPosition();
         long duration = getDuration();
         long targetPos = currentPos + offsetMs;
@@ -1021,6 +1027,7 @@ public class AudioPlayerManager {
     }
 
     public int getCurrentPosition() {
+        if (CastManager.getInstance().isCasting()) return (int) CastManager.getInstance().getPositionMs();
         if (isUsingLegacyPlayer && legacyPlayer != null) return legacyPlayer.getCurrentPosition();
         if (!isUsingLegacyPlayer && exoPlayer != null) {
             long pos = exoPlayer.getCurrentPosition();
@@ -1030,6 +1037,7 @@ public class AudioPlayerManager {
     }
 
     public int getDuration() {
+        if (CastManager.getInstance().isCasting()) return (int) CastManager.getInstance().getDurationMs();
         if (isUsingLegacyPlayer && legacyPlayer != null) return legacyPlayer.getDuration();
         if (!isUsingLegacyPlayer && exoPlayer != null) {
             long duration = exoPlayer.getDuration();
@@ -1039,6 +1047,7 @@ public class AudioPlayerManager {
     }
 
     public boolean isPlaying() {
+        if (CastManager.getInstance().isCasting()) return CastManager.getInstance().isPlaying();
         if (isUsingLegacyPlayer && legacyPlayer != null) return legacyPlayer.isPlaying();
         if (!isUsingLegacyPlayer && exoPlayer != null) return exoPlayer.getPlayWhenReady();
         return false;

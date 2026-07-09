@@ -45,26 +45,87 @@ public class SongContextMenuManager {
     public void showQuickMenu(final MainActivity a) {
         String favPath = a.getCurrentTrackPathForFavorites();
         final boolean isFav = favPath != null && a.favoritePaths.contains(favPath);
+        final boolean isCasting = com.themoon.y1.cast.CastManager.getInstance().isCasting();
 
         showThemedOptionsDialog(a, a.t("Quick Menu"), null,
                 new String[]{
                         null,
                         "", // format_list_bulleted
+                        null, // cast (text label, no glyph)
                         "", // wifi
                         ""  // bluetooth
                 },
                 new String[]{
                         isFav ? "♥  " + a.t("Remove Favorite") : "♡  " + a.t("Add Favorite"),
                         a.t("Playlist"),
+                        isCasting ? "■  " + a.t("Stop Casting") : "▷  " + a.t("Cast to Speaker"),
                         a.t("Wi-Fi"),
                         a.t("Bluetooth")
                 },
                 new Runnable[]{
                         new Runnable() { @Override public void run() { a.toggleFavorite(); } },
                         new Runnable() { @Override public void run() { showQueueDialog(a); } },
+                        new Runnable() { @Override public void run() {
+                            if (isCasting) {
+                                com.themoon.y1.cast.CastManager.getInstance().stopCasting();
+                                Toast.makeText(a, a.t("Stopped casting"), Toast.LENGTH_SHORT).show();
+                            } else {
+                                showCastMenu(a);
+                            }
+                        } },
                         new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_WIFI); } },
                         new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_BLUETOOTH); } }
                 });
+    }
+
+    /**
+     * Cast device picker. Kicks off mDNS discovery, gives the network a moment to answer, then
+     * shows the found Google speakers as a themed options list. Discovery is stopped as soon as
+     * the user picks a device or the (short) search window elapses with the picker shown.
+     */
+    private void showCastMenu(final MainActivity a) {
+        final com.themoon.y1.cast.CastManager cast = com.themoon.y1.cast.CastManager.getInstance();
+        final java.util.List<com.themoon.y1.cast.CastDevice> found = new ArrayList<>();
+
+        Toast.makeText(a, a.t("Searching for Google speakers…"), Toast.LENGTH_SHORT).show();
+        cast.startDiscovery(a, new com.themoon.y1.cast.CastDiscovery.Callback() {
+            @Override public void onDevicesChanged(java.util.List<com.themoon.y1.cast.CastDevice> devices) {
+                found.clear();
+                found.addAll(devices);
+            }
+        });
+
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        h.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (a.isFinishing()) { cast.stopDiscovery(); return; }
+                if (found.isEmpty()) {
+                    showThemedOptionsDialog(a, a.t("Cast to Speaker"), a.t("No speakers found on this Wi-Fi"),
+                            new String[]{ a.t("Search again"), a.t("Cancel") },
+                            new Runnable[]{
+                                    new Runnable() { @Override public void run() { showCastMenu(a); } },
+                                    new Runnable() { @Override public void run() { cast.stopDiscovery(); } }
+                            });
+                    return;
+                }
+                final java.util.List<com.themoon.y1.cast.CastDevice> devices = new ArrayList<>(found);
+                String[] labels = new String[devices.size() + 1];
+                Runnable[] actions = new Runnable[devices.size() + 1];
+                for (int i = 0; i < devices.size(); i++) {
+                    final com.themoon.y1.cast.CastDevice dev = devices.get(i);
+                    labels[i] = "🔊  " + dev.friendlyName;
+                    actions[i] = new Runnable() {
+                        @Override public void run() {
+                            cast.stopDiscovery();
+                            cast.castCurrentTrack(a, dev);
+                        }
+                    };
+                }
+                labels[devices.size()] = a.t("Search again");
+                actions[devices.size()] = new Runnable() { @Override public void run() { showCastMenu(a); } };
+                showThemedOptionsDialog(a, a.t("Cast to Speaker"), a.t("Select a speaker"), labels, actions);
+            }
+        }, 2500);
     }
 
     /** Queue viewer opened from the quick menu: click a row to jump to that track,
