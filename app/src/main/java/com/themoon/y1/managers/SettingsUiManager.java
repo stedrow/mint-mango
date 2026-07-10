@@ -686,6 +686,49 @@ public class SettingsUiManager {
         if (a.containerSettingsItems.getChildCount() > 0) a.containerSettingsItems.getChildAt(0).requestFocus();
     }
 
+    private void powerAction(final MainActivity a, final String suCommand, final String fallbackAction,
+            final String failureMessage) {
+        powerAction(a, suCommand, fallbackAction, failureMessage, false);
+    }
+
+    private void powerAction(final MainActivity a, final String suCommand, final String fallbackAction,
+            final String failureMessage, final boolean tryGracefulReboot) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                if (tryGracefulReboot) {
+                    try {
+                        // PowerManager.reboot() plays Android's normal graceful shutdown animation;
+                        // "su -c reboot" resets the kernel directly and flickers the screen on its way down.
+                        android.os.PowerManager pm = (android.os.PowerManager) a.getSystemService(android.content.Context.POWER_SERVICE);
+                        pm.reboot(null);
+                        return;
+                    } catch (Exception e) {
+                        Log.d(TAG, "graceful reboot failed, falling back to su", e);
+                    }
+                }
+                try {
+                    Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", suCommand });
+                    proc.waitFor();
+                } catch (Exception e) {
+                    try {
+                        Intent intent = new Intent(fallbackAction);
+                        intent.putExtra("android.intent.extra.KEY_CONFIRM", false);
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        a.startActivity(intent);
+                    } catch (Exception ex) {
+                        a.runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Toast.makeText(a, failureMessage, Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }
+                }
+            }
+        }).start();
+    }
+
     public void buildSystemGroupUI(MainActivity a) {
         a.currentSettingsDepth = 1;
         a.currentSettingsGroup = a.GROUP_SYSTEM;
@@ -736,6 +779,26 @@ public class SettingsUiManager {
         });
         a.containerSettingsItems.addView(btnUpdateCheck);
 
+        LinearLayout btnReboot = a.createSettingRow(a.t("Reboot"), "〉 ");
+        btnReboot.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                new AlertDialog.Builder(a, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle(a.t("Reboot"))
+                        .setMessage(a.t("Do you want to reboot the device?"))
+                        .setPositiveButton(a.t("Reboot"), new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                powerAction(a, "reboot", "android.intent.action.ACTION_REQUEST_REBOOT",
+                                        a.t("System security prevents rebooting directly from the app."), true);
+                            }
+                        })
+                        .setNegativeButton(a.t("Cancel"), null)
+                        .show();
+            }
+        });
+        a.containerSettingsItems.addView(btnReboot);
+
         LinearLayout btnPowerOff = a.createSettingRow("Power Off", "〉 ");
         btnPowerOff.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -746,21 +809,8 @@ public class SettingsUiManager {
                         .setMessage(a.t("Do you want to shut down the device?"))
                         .setPositiveButton(a.t("Shut Down"), new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dialog, int which) {
-                                try {
-                                    Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", "reboot -p" });
-                                    proc.waitFor();
-                                } catch (Exception e) {
-                                    try {
-                                        Intent intent = new Intent("android.intent.action.ACTION_REQUEST_SHUTDOWN");
-                                        intent.putExtra("android.intent.extra.KEY_CONFIRM", false);
-                                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                        a.startActivity(intent);
-                                    } catch (Exception ex) {
-                                        Toast.makeText(a,
-                                                a.t("System security prevents powering off directly from the app."),
-                                                Toast.LENGTH_LONG).show();
-                                    }
-                                }
+                                powerAction(a, "reboot -p", "android.intent.action.ACTION_REQUEST_SHUTDOWN",
+                                        a.t("System security prevents powering off directly from the app."));
                             }
                         })
                         .setNegativeButton(a.t("Cancel"), null)
