@@ -50,15 +50,15 @@ public class SongContextMenuManager {
         showThemedOptionsDialog(a, a.t("Quick Menu"), null,
                 new String[]{
                         null,
-                        "", // format_list_bulleted
-                        null, // cast (text label, no glyph)
-                        "", // wifi
-                        ""  // bluetooth
+                        "", // format_list_bulleted
+                        "", // cast
+                        "", // wifi
+                        ""  // bluetooth
                 },
                 new String[]{
                         isFav ? "♥  " + a.t("Remove Favorite") : "♡  " + a.t("Add Favorite"),
                         a.t("Playlist"),
-                        isCasting ? "■  " + a.t("Stop Casting") : "▷  " + a.t("Cast to Speaker"),
+                        isCasting ? a.t("Stop Casting") : a.t("Cast"),
                         a.t("Wi-Fi"),
                         a.t("Bluetooth")
                 },
@@ -81,7 +81,8 @@ public class SongContextMenuManager {
     /**
      * Cast device picker. Kicks off mDNS discovery, gives the network a moment to answer, then
      * shows the found Google speakers as a themed options list. Discovery is stopped as soon as
-     * the user picks a device or the (short) search window elapses with the picker shown.
+     * the user picks a device or dismisses the picker, so it's never running in the background
+     * outside this screen.
      */
     private void showCastMenu(final MainActivity a) {
         final com.themoon.y1.cast.CastManager cast = com.themoon.y1.cast.CastManager.getInstance();
@@ -109,11 +110,16 @@ public class SongContextMenuManager {
                     return;
                 }
                 final java.util.List<com.themoon.y1.cast.CastDevice> devices = new ArrayList<>(found);
+                java.util.Collections.sort(devices, new java.util.Comparator<com.themoon.y1.cast.CastDevice>() {
+                    @Override public int compare(com.themoon.y1.cast.CastDevice d1, com.themoon.y1.cast.CastDevice d2) {
+                        return d1.friendlyName.compareToIgnoreCase(d2.friendlyName);
+                    }
+                });
                 String[] labels = new String[devices.size() + 1];
                 Runnable[] actions = new Runnable[devices.size() + 1];
                 for (int i = 0; i < devices.size(); i++) {
                     final com.themoon.y1.cast.CastDevice dev = devices.get(i);
-                    labels[i] = "🔊  " + dev.friendlyName;
+                    labels[i] = dev.friendlyName;
                     actions[i] = new Runnable() {
                         @Override public void run() {
                             cast.stopDiscovery();
