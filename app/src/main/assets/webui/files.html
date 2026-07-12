@@ -127,8 +127,7 @@
   var AUD = ['mp3','flac','wav','ogg','m4a','aac','opus'];
   var TXT = ['json','txt','xml','ini','md','m3u','m3u8','eq','log','cfg','csv'];
 
-  function esc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function jesc(s){ return (''+s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+  function esc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function ext(n){ return (n.split('.').pop()||'').toLowerCase(); }
 
   var toastEl = document.getElementById('toast'), toastT;
@@ -141,15 +140,22 @@
   function crumbs(){
     var el = document.getElementById('crumbs');
     var parts = cur ? cur.split('/') : [];
-    var html = '<span class="crumb' + (parts.length?'':' cur') + '" onclick="go(\'\')">⌂ sdcard</span>';
+    // Names go into HTML-escaped data-path attributes (never inline JS); a delegated
+    // click handler reads them back via dataset, so quotes/angle-brackets in a name
+    // can't break markup or inject anything.
+    var html = '<span class="crumb' + (parts.length?'':' cur') + '" data-path="">⌂ sdcard</span>';
     var acc = '';
     parts.forEach(function(p, i){
       acc = acc ? acc + '/' + p : p;
       var last = i === parts.length - 1;
-      html += '<span class="crumb-sep">/</span><span class="crumb' + (last?' cur':'') + '" onclick="go(\'' + jesc(acc) + '\')">' + esc(p) + '</span>';
+      html += '<span class="crumb-sep">/</span><span class="crumb' + (last?' cur':'') + '" data-path="' + esc(acc) + '">' + esc(p) + '</span>';
     });
     el.innerHTML = html;
   }
+  document.getElementById('crumbs').addEventListener('click', function(e){
+    var c = e.target.closest('.crumb'); if(!c || c.classList.contains('cur')) return;
+    go(c.getAttribute('data-path') || '');
+  });
 
   window.go = function(path){ cur = path; load(); };
 
@@ -163,23 +169,42 @@
         listEl.className='';
         var html = '';
         data.forEach(function(f){
-          var e = ext(f.name), full = cur ? cur + '/' + f.name : f.name, sp = encodeURIComponent(full), nm = jesc(f.name);
-          var ico, click='';
-          if (f.isDir) { ico='<div class="row-ico">📁</div>'; click="onclick=\"go('"+jesc(full)+"')\""; }
-          else if (IMG.indexOf(e)>=0) { ico='<img class="row-thumb" loading="lazy" src="/api/file?path='+sp+'">'; click="onclick=\"window.open('/api/file?path="+sp+"','_blank')\""; }
-          else if (AUD.indexOf(e)>=0) { ico='<div class="row-ico">♪</div>'; click="onclick=\"playAudio('"+sp+"','"+nm+"')\""; }
-          else if (TXT.indexOf(e)>=0) { ico='<div class="row-ico">📄</div>'; click="onclick=\"openEdit('"+sp+"','"+nm+"')\""; }
-          else { ico='<div class="row-ico">▪</div>'; }
+          var e = ext(f.name), full = cur ? cur + '/' + f.name : f.name;
+          var type = f.isDir ? 'dir' : IMG.indexOf(e)>=0 ? 'img' : AUD.indexOf(e)>=0 ? 'aud' : TXT.indexOf(e)>=0 ? 'txt' : 'file';
+          var ico = type==='dir' ? '📁' : type==='aud' ? '♪' : type==='txt' ? '📄' : type==='file' ? '▪' : '';
+          var icoHtml = type==='img'
+            ? '<img class="row-thumb" loading="lazy" src="/api/file?path=' + encodeURIComponent(full) + '">'
+            : '<div class="row-ico">' + ico + '</div>';
           var actions = '<div class="row-actions">';
-          if (!f.isDir && TXT.indexOf(e)>=0) actions += '<button class="iconbtn" onclick="event.stopPropagation();openEdit(\''+sp+'\',\''+nm+'\')">Edit</button>';
-          actions += '<button class="iconbtn" onclick="event.stopPropagation();renameItem(\''+nm+'\')">Rename</button>';
-          actions += '<button class="iconbtn" style="color:var(--danger);" onclick="event.stopPropagation();del(\''+nm+'\')">Del</button></div>';
-          html += '<div class="row" '+click+'>'+ico+'<div class="row-main"><div class="row-title">'+esc(f.name)+'</div></div>'+actions+'</div>';
+          if (type==='txt') actions += '<button class="iconbtn" data-act="edit">Edit</button>';
+          actions += '<button class="iconbtn" data-act="rename">Rename</button>';
+          actions += '<button class="iconbtn" style="color:var(--danger);" data-act="del">Del</button></div>';
+          html += '<div class="row" data-type="' + type + '" data-name="' + esc(f.name) + '" data-path="' + esc(full) + '">' +
+                  icoHtml + '<div class="row-main"><div class="row-title">' + esc(f.name) + '</div></div>' + actions + '</div>';
         });
         listEl.innerHTML = html;
       })
       .catch(function(){ online(false); listEl.className='hint'; listEl.innerHTML='⚠ Could not load files.'; });
   }
+
+  // One delegated handler for the whole list — no per-row inline JS built from names.
+  listEl.addEventListener('click', function(e){
+    var row = e.target.closest('.row'); if(!row) return;
+    var name = row.getAttribute('data-name'), full = row.getAttribute('data-path'), type = row.getAttribute('data-type');
+    var sp = encodeURIComponent(full);
+    var actBtn = e.target.closest('.iconbtn');
+    if (actBtn) {
+      var act = actBtn.getAttribute('data-act');
+      if (act==='edit') openEdit(sp, name);
+      else if (act==='rename') renameItem(name);
+      else if (act==='del') del(name);
+      return;
+    }
+    if (type==='dir') go(full);
+    else if (type==='img') window.open('/api/file?path=' + sp, '_blank');
+    else if (type==='aud') playAudio(sp, name);
+    else if (type==='txt') openEdit(sp, name);
+  });
 
   function disk(){
     fetch('/api/diskinfo').then(function(r){return r.json();}).then(function(d){

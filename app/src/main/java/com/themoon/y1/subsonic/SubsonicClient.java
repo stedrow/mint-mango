@@ -505,6 +505,8 @@ public class SubsonicClient {
         return songs;
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong coverTmpSeq = new java.util.concurrent.atomic.AtomicLong();
+
     /** Blocking cover-art fetch to a disk cache file; returns the cached File. Reuses
      *  the cache on repeat calls so the browser's covers cost the Y1 nothing after the
      *  first view. */
@@ -512,24 +514,32 @@ public class SubsonicClient {
         if (cacheFile.exists() && cacheFile.length() > 0) return cacheFile;
         HttpURLConnection conn = null;
         InputStream is = null;
-        File partFile = new File(cacheFile.getAbsolutePath() + ".part");
+        FileOutputStream fos = null;
+        // A per-call temp name so two concurrent fetches of the same cover don't write the
+        // same .part and leave an interleaved (corrupt) image in the cache.
+        File partFile = new File(cacheFile.getAbsolutePath() + "." + coverTmpSeq.incrementAndGet() + ".part");
         try {
             conn = openConnection(getCoverArtUrl(coverArtId, size));
             conn.connect();
             if (conn.getResponseCode() != 200) throw new Exception("HTTP " + conn.getResponseCode());
             is = conn.getInputStream();
             if (partFile.getParentFile() != null) partFile.getParentFile().mkdirs();
-            FileOutputStream fos = new FileOutputStream(partFile);
+            fos = new FileOutputStream(partFile);
             byte[] buf = new byte[16384];
             int read;
             while ((read = is.read(buf)) != -1) fos.write(buf, 0, read);
             fos.close();
-            if (!partFile.renameTo(cacheFile)) throw new Exception("rename failed");
+            fos = null;
+            // If a concurrent fetch already populated the cache, ours is redundant — reuse it.
+            if (cacheFile.exists() && cacheFile.length() > 0) return cacheFile;
+            if (!partFile.renameTo(cacheFile)) {
+                if (cacheFile.exists() && cacheFile.length() > 0) return cacheFile; // lost the race, that's fine
+                throw new Exception("rename failed");
+            }
             return cacheFile;
-        } catch (Exception e) {
-            try { partFile.delete(); } catch (Exception delEx) { android.util.Log.d(TAG, "cover partFile cleanup failed", delEx); }
-            throw e;
         } finally {
+            if (fos != null) { try { fos.close(); } catch (Exception ce) { android.util.Log.d(TAG, "cover fos close failed", ce); } }
+            if (partFile.exists()) { try { partFile.delete(); } catch (Exception de) { android.util.Log.d(TAG, "cover partFile cleanup failed", de); } }
             drainAndClose(is);
         }
     }
