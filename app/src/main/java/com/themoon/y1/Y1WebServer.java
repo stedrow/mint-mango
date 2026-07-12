@@ -314,9 +314,11 @@ public class Y1WebServer extends Thread {
     private void handleNavidromeDownload(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
         final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs;
         final boolean transcoded;
+        final boolean force;
         try {
             JSONObject obj = new JSONObject(body);
             transcoded = obj.optBoolean("transcoded", false);
+            force = obj.optBoolean("force", false); // set after the user confirms the low-battery warning
             songs = resolveSongsFromBody(obj);
         } catch (Exception e) {
             sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request", keepAlive);
@@ -327,16 +329,22 @@ public class Y1WebServer extends Thread {
         if (a == null) { sendJsonError(os, "Player app not running", keepAlive); return; }
 
         final boolean tr = transcoded;
+        final boolean fr = force;
         final com.themoon.y1.managers.NavidromeManager.EnqueueResult[] holder = new com.themoon.y1.managers.NavidromeManager.EnqueueResult[1];
         final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         a.runOnUiThread(new Runnable() { @Override public void run() {
-            try { holder[0] = com.themoon.y1.managers.NavidromeManager.getInstance().enqueueNavidromeDownloadsCore(a, songs, tr); }
+            try { holder[0] = com.themoon.y1.managers.NavidromeManager.getInstance().enqueueNavidromeDownloadsCore(a, songs, tr, fr); }
             finally { latch.countDown(); }
         }});
         try { latch.await(15, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
         com.themoon.y1.managers.NavidromeManager.EnqueueResult r = holder[0];
         if (r == null) { sendJsonError(os, "Timed out queueing download", keepAlive); return; }
+        if (r.lowBattery) {
+            sendJson(os, "{\"ok\":false,\"lowBattery\":true,\"batteryPercent\":" + r.batteryPercent
+                    + ",\"pendingCount\":" + r.pendingCount + "}", keepAlive);
+            return;
+        }
         if (r.error != null) { sendJsonError(os, r.error, keepAlive); return; }
         sendJson(os, "{\"ok\":true,\"queued\":" + r.queued + ",\"alreadyHave\":" + r.alreadyHave + "}", keepAlive);
     }

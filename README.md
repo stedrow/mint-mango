@@ -104,7 +104,10 @@ keyboard and a big screen instead of the wheel:
 Downloads run through the **same one-at-a-time queue as on-device downloads**
 (the ~190 kbps link can't share), so queueing from the browser behaves exactly
 like queueing on the Y1 — wake/Wi-Fi locks, retries, library registration and
-cover-art caching all included. Album art is fetched once, cached on the device
+cover-art caching all included. The wake locks keep a transfer alive with the
+screen off, so the device won't doze mid-download; queuing an album (4+ tracks)
+below **20% battery while unplugged** first asks for confirmation, since the
+download could outlast the battery. Album art is fetched once, cached on the device
 and in the browser, and served small; responses use keep-alive to keep the Y1's
 per-request overhead low.
 

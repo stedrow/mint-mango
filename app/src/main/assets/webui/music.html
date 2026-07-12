@@ -214,10 +214,19 @@
     fetch('/api/navidrome/download', { method:'POST', body: JSON.stringify(body) })
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if(d.ok){ if(d.queued > 0) toast('⬇ Queued ' + d.queued + (d.queued===1?' track':' tracks')); else if(d.alreadyHave > 0) toast('✓ Already downloaded'); if(onOk) onOk(d); pollQueue(); }
-        else { toast('⚠️ ' + (d.error || 'Download failed')); }
+        if(d.ok){
+          if(d.queued > 0) toast('⬇ Queued ' + d.queued + (d.queued===1?' track':' tracks'));
+          else if(d.alreadyHave > 0) toast('✓ Already downloaded');
+          pollQueue(); if(onOk) onOk(d);
+        } else if(d.lowBattery){
+          if(confirm('⚠ Battery at ' + d.batteryPercent + '% and not charging.\nDownloading ' + d.pendingCount + ' track' + (d.pendingCount===1?'':'s') + ' may not finish before the device dies.\n\nDownload anyway?')){
+            body.force = true; postDownload(body, onOk);   // re-send bypassing the guard
+          } else { if(onOk) onOk(d); }
+        } else {
+          toast('⚠️ ' + (d.error || 'Download failed')); if(onOk) onOk(d);
+        }
       })
-      .catch(function(){ online(false); toast('⚠️ Request failed'); });
+      .catch(function(){ online(false); toast('⚠️ Request failed'); if(onOk) onOk({}); });
   }
   window.downloadCurrentAlbum = function(){
     if(!currentAlbum) return;

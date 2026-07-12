@@ -582,13 +582,36 @@ public class NavidromeManager {
      *  download manager) can report what happened without the queueing logic having to
      *  know which UI it's serving. */
     public static class EnqueueResult {
-        public int queued;      // tracks actually added to the queue
-        public int alreadyHave; // tracks skipped because already downloaded/queued
-        public String error;    // non-null => nothing was queued (e.g. not enough space)
+        public int queued;         // tracks actually added to the queue
+        public int alreadyHave;    // tracks skipped because already downloaded/queued
+        public String error;       // non-null => nothing was queued (e.g. not enough space)
+        public boolean lowBattery; // true => nothing queued; battery is low and not charging (needs confirm)
+        public int batteryPercent; // battery level when lowBattery is set
+        public int pendingCount;   // how many new tracks would be queued (for the warning text)
     }
 
+    // A queue this big or bigger on a low battery is worth a heads-up — the CPU/WiFi wake
+    // locks that keep a download alive with the screen off also drain the battery faster.
+    private static final int LOW_BATTERY_PERCENT = 20;
+    private static final int LOW_BATTERY_TRACK_THRESHOLD = 4; // roughly "an album", not a track or two
+
     public void enqueueNavidromeDownloads(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
-        EnqueueResult r = enqueueNavidromeDownloadsCore(a, songs, transcoded);
+        enqueueNavidromeDownloadsWithConfirm(a, songs, transcoded, false);
+    }
+
+    private void enqueueNavidromeDownloadsWithConfirm(final MainActivity a,
+            final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, final boolean transcoded, boolean force) {
+        EnqueueResult r = enqueueNavidromeDownloadsCore(a, songs, transcoded, force);
+        if (r.lowBattery) {
+            a.showThemedOptionsDialog(a.t("Battery low") + " (" + r.batteryPercent + "%)",
+                    a.t("Downloading") + " " + r.pendingCount + " " + a.t("tracks may not finish before the battery dies. Download anyway?"),
+                    new String[]{ "⬇ " + a.t("Download anyway"), a.t("Cancel") },
+                    new Runnable[]{
+                            new Runnable() { @Override public void run() { enqueueNavidromeDownloadsWithConfirm(a, songs, transcoded, true); } },
+                            null
+                    });
+            return;
+        }
         if (r.error != null) {
             Toast.makeText(a, "❌ " + r.error, Toast.LENGTH_LONG).show();
             return;
@@ -600,12 +623,18 @@ public class NavidromeManager {
         Toast.makeText(a, "⬇ Queued " + r.queued + (r.queued == 1 ? " track" : " tracks"), Toast.LENGTH_SHORT).show();
     }
 
+    public EnqueueResult enqueueNavidromeDownloadsCore(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
+        return enqueueNavidromeDownloadsCore(a, songs, transcoded, false);
+    }
+
     /**
      * Core enqueue logic shared by the on-device UI and the Web Server download manager.
      * Returns what happened instead of showing UI. MUST run on the main thread (it mutates
      * the queue and can kick off {@link #processNextNavidromeDownload}, which touches views).
+     * When {@code force} is false a large queue on a low, non-charging battery is refused
+     * with {@code lowBattery} set so the caller can confirm; passing {@code force} skips that.
      */
-    public EnqueueResult enqueueNavidromeDownloadsCore(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
+    public EnqueueResult enqueueNavidromeDownloadsCore(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded, boolean force) {
         EnqueueResult res = new EnqueueResult();
         if (songs == null || songs.isEmpty()) { res.error = a.t("No tracks"); return res; }
         java.util.List<NavidromeDownloadItem> toAdd = new java.util.ArrayList<NavidromeDownloadItem>();
@@ -637,12 +666,48 @@ public class NavidromeManager {
             Log.d(TAG, "enqueueNavidromeDownloadsCore free-space check failed", ignored);
         }
 
+        // Battery guard: a big queue on a low, non-charging battery may die mid-download
+        // (the wake locks that keep it running with the screen off also drain faster).
+        if (!force && toAdd.size() >= LOW_BATTERY_TRACK_THRESHOLD) {
+            int[] bat = batteryState(a);
+            int pct = bat[0];
+            boolean charging = bat[1] == 1;
+            if (!charging && pct >= 0 && pct < LOW_BATTERY_PERCENT) {
+                res.lowBattery = true;
+                res.batteryPercent = pct;
+                res.pendingCount = toAdd.size();
+                return res;
+            }
+        }
+
         navidromeDownloadQueue.addAll(toAdd);
         navidromeQueueTotal += toAdd.size();
         res.queued = toAdd.size();
         rebuildWebSnapshot();
         if (!isNavidromeDownloading) processNextNavidromeDownload(a);
         return res;
+    }
+
+    /** Reads the sticky battery broadcast. Returns {percent (-1 if unknown), charging (0/1)};
+     *  "charging" is true whenever the device is plugged in at all, since then it won't die. */
+    private static int[] batteryState(android.content.Context ctx) {
+        try {
+            android.content.Intent b = ctx.registerReceiver(null,
+                    new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (b == null) return new int[]{-1, 0};
+            int level = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+            int pct = (level >= 0 && scale > 0) ? (int) (level * 100L / scale) : -1;
+            int status = b.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+            int plugged = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0);
+            boolean charging = plugged > 0
+                    || status == android.os.BatteryManager.BATTERY_STATUS_CHARGING
+                    || status == android.os.BatteryManager.BATTERY_STATUS_FULL;
+            return new int[]{pct, charging ? 1 : 0};
+        } catch (Exception e) {
+            android.util.Log.d(TAG, "batteryState failed", e);
+            return new int[]{-1, 0};
+        }
     }
 
     // ── Web Server download-manager bridge ──────────────────────────────────────
