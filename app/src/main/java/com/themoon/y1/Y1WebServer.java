@@ -79,8 +79,25 @@ public class Y1WebServer extends Thread {
     // idle gap (browsers open several); the threads are almost always blocked on a socket read,
     // so they're cheap. Paired with a short idle SO_TIMEOUT so they free quickly.
     private final ExecutorService connectionPool = Executors.newFixedThreadPool(16);
+    private com.themoon.y1.db.LibraryCacheDb libDb; // lazy; SQLite is process-shared so a fresh helper is fine
     public Y1WebServer(Context context) {
         this.context = context;
+    }
+
+    private synchronized com.themoon.y1.db.LibraryCacheDb libraryDb() {
+        if (libDb == null) {
+            libDb = (com.themoon.y1.MainActivity.instance != null && com.themoon.y1.MainActivity.instance.libraryCacheDb != null)
+                    ? com.themoon.y1.MainActivity.instance.libraryCacheDb
+                    : new com.themoon.y1.db.LibraryCacheDb(context);
+        }
+        return libDb;
+    }
+
+    /** Path under rootFolder (/storage/sdcard0) so the browser can fetch it via /api/file. */
+    private static String deviceRelative(String absPath) {
+        String root = "/storage/sdcard0/";
+        if (absPath != null && absPath.startsWith(root)) return absPath.substring(root.length());
+        return absPath == null ? "" : absPath;
     }
 
     public void run() {
@@ -374,6 +391,55 @@ public class Y1WebServer extends Thread {
         sendJson(os, "{\"ok\":true,\"deleted\":" + deleted[0] + "}", keepAlive);
     }
 
+    /** Delete on-device files listed by the "On Device" view: removes each file, its cache-DB
+     *  row, and its per-track state, prunes now-empty album/artist folders, and reconciles the
+     *  in-memory library on the main thread so the launcher's own lists stay in sync. */
+    private void handleLocalDelete(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
+        final java.util.List<String> absPaths = new java.util.ArrayList<>();
+        try {
+            org.json.JSONArray arr = new JSONObject(body).optJSONArray("paths");
+            if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                File f = resolveSafePath(arr.optString(i)); // guards against traversal outside /storage/sdcard0
+                absPaths.add(f.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request", keepAlive);
+            return;
+        }
+        if (absPaths.isEmpty()) { sendJsonError(os, "Nothing to delete", keepAlive); return; }
+
+        final com.themoon.y1.db.LibraryCacheDb db = libraryDb();
+        int deleted = 0;
+        for (String abs : absPaths) {
+            File f = new File(abs);
+            if (f.exists() && f.delete()) {
+                deleted++;
+                try { db.deleteSong(abs); db.deleteSongState(abs); } catch (Exception e) { Log.d(TAG, "db cleanup failed", e); }
+                File albumDir = f.getParentFile();
+                if (albumDir != null && albumDir.delete()) { // delete() only removes empty dirs
+                    File artistDir = albumDir.getParentFile();
+                    if (artistDir != null) artistDir.delete();
+                }
+            }
+        }
+
+        // Reconcile the launcher's in-memory library so its own screens don't show ghosts.
+        final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
+        if (a != null) {
+            final java.util.HashSet<String> removed = new java.util.HashSet<>(absPaths);
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            a.runOnUiThread(new Runnable() { @Override public void run() {
+                try {
+                    java.util.Iterator<com.themoon.y1.models.SongItem> it = a.customLibrary.iterator();
+                    while (it.hasNext()) if (removed.contains(it.next().file.getAbsolutePath())) it.remove();
+                    for (String p : removed) { a.trackNumberMap.remove(p); a.favoritePaths.remove(p); }
+                } finally { latch.countDown(); }
+            }});
+            try { latch.await(10, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        }
+        sendJson(os, "{\"ok\":true,\"deleted\":" + deleted + "}", keepAlive);
+    }
+
     private static final int MAX_HEADER_LINE = 8192;       // one header line
     private static final int MAX_HEADERS = 100;            // header lines per request
     private static final int MAX_REQUESTS_PER_CONN = 200;  // keep-alive request cap per socket
@@ -480,6 +546,45 @@ public class Y1WebServer extends Thread {
                 sendJson(os, "{\"freeBytes\":" + free + ",\"totalBytes\":" + total + "}", keepAlive);
                 return keepAlive;
             }
+
+            // ── On-device albums (grouped from the scanned song cache) ──
+            if (method.equals("GET") && path.startsWith("/api/local/albums")) {
+                java.util.List<com.themoon.y1.db.LibraryCacheDb.LocalAlbum> albums = libraryDb().loadLocalAlbums();
+                StringBuilder json = new StringBuilder("{\"albums\":[");
+                for (int i = 0; i < albums.size(); i++) {
+                    com.themoon.y1.db.LibraryCacheDb.LocalAlbum al = albums.get(i);
+                    if (i > 0) json.append(",");
+                    json.append("{\"artist\":\"").append(jsonEsc(al.artist)).append("\"")
+                            .append(",\"album\":\"").append(jsonEsc(al.album)).append("\"")
+                            .append(",\"year\":\"").append(jsonEsc(al.year)).append("\"")
+                            .append(",\"trackCount\":").append(al.trackCount)
+                            .append(",\"cover\":\"").append(jsonEsc(al.artPath != null ? deviceRelative(al.artPath) : "")).append("\"}");
+                }
+                json.append("]}");
+                sendJson(os, json.toString(), keepAlive);
+                return keepAlive;
+            }
+            // ── On-device album detail (tracks) ──
+            if (method.equals("GET") && path.startsWith("/api/local/album")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String artist = qp.containsKey("artist") ? qp.get("artist") : "";
+                String album = qp.containsKey("album") ? qp.get("album") : "";
+                java.util.List<com.themoon.y1.db.LibraryCacheDb.CachedSong> tracks = libraryDb().loadLocalAlbumTracks(artist, album);
+                StringBuilder json = new StringBuilder("{\"tracks\":[");
+                for (int i = 0; i < tracks.size(); i++) {
+                    com.themoon.y1.db.LibraryCacheDb.CachedSong s = tracks.get(i);
+                    if (i > 0) json.append(",");
+                    json.append("{\"title\":\"").append(jsonEsc(s.title)).append("\"")
+                            .append(",\"artist\":\"").append(jsonEsc(s.artist)).append("\"")
+                            .append(",\"track\":").append(s.trackNumber)
+                            .append(",\"path\":\"").append(jsonEsc(deviceRelative(s.path))).append("\"}");
+                }
+                json.append("]}");
+                sendJson(os, json.toString(), keepAlive);
+                return keepAlive;
+            }
+            // ── Delete on-device file(s) ──
+            if (method.equals("POST") && path.startsWith("/api/local/delete")) { handleLocalDelete(os, body, keepAlive); return keepAlive; }
 
             // ── File manager: list ──
             if (method.equals("GET") && path.startsWith("/api/list")) {

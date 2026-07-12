@@ -17,6 +17,10 @@
   .dtitle { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
   .dsub { font-size: 13px; color: var(--text-2); }
   .dactions { padding: 16px; }
+  #dlall.del { background: var(--danger); color: #220505; }
+  #dlall.del:hover { background: #ff8a8a; }
+  .plbtn { flex-shrink: 0; background: var(--btn); color: var(--accent); border: 1px solid var(--line); font-size: 13px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+  .plbtn:hover { background: var(--accent); color: var(--on-accent); }
   .tnum { width: 26px; text-align: center; color: var(--text-2); font-size: 13px; flex-shrink: 0; }
   .tdur { color: var(--text-2); font-size: 12px; flex-shrink: 0; }
 
@@ -56,6 +60,7 @@
       <div class="chip" data-type="frequent">Most Played</div>
       <div class="chip" data-type="random">Random</div>
       <div class="chip" data-type="alphabeticalByName">A–Z</div>
+      <div class="chip" data-type="__local__">⬇ On Device</div>
     </div>
   </div>
 </header>
@@ -72,7 +77,7 @@
       <div class="dsub" id="dsub"></div>
     </div>
   </div>
-  <div class="dactions wrap"><button class="btn-cta" id="dlall" onclick="downloadCurrentAlbum()">⬇ Download Album</button></div>
+  <div class="dactions wrap"><button class="btn-cta" id="dlall">⬇ Download Album</button></div>
   <div class="wrap" id="dsongs"></div>
 </div>
 
@@ -104,11 +109,14 @@
   var clearq = document.getElementById('clearq');
   var quality = 'orig';
   var browseType = 'newest';
-  var currentAlbum = null;
+  var localMode = false;         // "On Device" tab active
+  var currentAlbum = null;       // Navidrome album open in the detail view
+  var currentLocal = null;       // {artist, album, cover} local album open in the detail view
   var searchTimer = null, pollTimer = null;
   var albumCache = {};
 
   function coverUrl(id, size){ return id ? '/api/navidrome/cover?id=' + encodeURIComponent(id) + '&size=' + size : ''; }
+  function fileUrl(relPath){ return relPath ? '/api/file?path=' + encodeURIComponent(relPath) : ''; }
   function esc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fmtDur(sec){ if(!sec) return ''; var m=Math.floor(sec/60), s=sec%60; return m+':'+(s<10?'0':'')+s; }
   function fmtSize(b){ if(b==null) return ''; var u=['B','KB','MB','GB','TB'],i=0; while(b>=1024&&i<u.length-1){b/=1024;i++;} return (i?b.toFixed(1):b)+' '+u[i]; }
@@ -177,12 +185,13 @@
   // ── Album detail ──────────────────────────────────────────────────
   window.openAlbum = function(id){
     var al = albumCache[id]; if(!al) return;
-    currentAlbum = al;
+    currentAlbum = al; currentLocal = null;
     document.getElementById('dcover').src = coverUrl(al.coverArt, 400);
     document.getElementById('dtitle').textContent = al.name;
     document.getElementById('dsub').textContent = (al.artist||'') + (al.year? ' · '+al.year : '') + (al.songCount? ' · '+al.songCount+' songs':'');
     document.getElementById('dsongs').innerHTML = '<div class="hint">Loading tracks…</div>';
-    var dlall = document.getElementById('dlall'); dlall.disabled = false; dlall.textContent = '⬇ Download Album';
+    var dlall = document.getElementById('dlall');
+    dlall.disabled = false; dlall.textContent = '⬇ Download Album'; dlall.classList.remove('del'); dlall.onclick = downloadCurrentAlbum;
     document.getElementById('detail').style.display = 'block'; window.scrollTo(0,0);
     loadTracks(id);
   };
@@ -206,7 +215,92 @@
     });
     document.getElementById('dsongs').innerHTML = h;
   }
-  window.closeDetail = function(){ document.getElementById('detail').style.display = 'none'; currentAlbum = null; };
+  window.closeDetail = function(){ document.getElementById('detail').style.display = 'none'; currentAlbum = null; currentLocal = null; };
+
+  // ── On Device (local library from the scanned song cache) ─────────
+  function localCoverImg(rel, cls){
+    if(!rel) return '<div class="'+cls+' ph">♪</div>';
+    return '<img class="'+cls+'" loading="lazy" src="'+fileUrl(rel)+'" onerror="this.outerHTML=\'<div class=&quot;'+cls+' ph&quot;>♪</div>\'">';
+  }
+  function loadLocal(){
+    main.innerHTML = '<div class="hint">Loading…</div>';
+    fetch('/api/local/albums')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        online(true);
+        var albums = d.albums || [];
+        if(!albums.length){ main.innerHTML = '<div class="hint">Nothing downloaded to this device yet.</div>'; return; }
+        var h = '<div class="grid">';
+        albums.forEach(function(al){
+          var sub = esc(al.artist||'') + (al.year && al.year!=='0' ? ' · ' + esc(al.year) : '') + ' · ' + al.trackCount + (al.trackCount===1?' track':' tracks');
+          h += '<div class="card localcard" data-artist="' + esc(al.artist||'') + '" data-album="' + esc(al.album||'') + '" data-cover="' + esc(al.cover||'') + '">' +
+               localCoverImg(al.cover, 'cover') +
+               '<div class="cname">' + esc(al.album||'Unknown') + '</div><div class="csub">' + sub + '</div></div>';
+        });
+        main.innerHTML = h + '</div>';
+      })
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Could not read the device library.</div>'; });
+  }
+  // Delegated: local album cards carry names in data-* (never inline JS), so quotes are safe.
+  main.addEventListener('click', function(e){
+    var c = e.target.closest('.localcard'); if(!c) return;
+    openLocalAlbum(c.getAttribute('data-artist'), c.getAttribute('data-album'), c.getAttribute('data-cover'));
+  });
+  window.openLocalAlbum = function(artist, album, cover){
+    currentLocal = { artist: artist, album: album, cover: cover }; currentAlbum = null;
+    document.getElementById('dcover').src = cover ? fileUrl(cover) : '';
+    document.getElementById('dtitle').textContent = album || 'Unknown';
+    document.getElementById('dsub').textContent = artist || '';
+    document.getElementById('dsongs').innerHTML = '<div class="hint">Loading tracks…</div>';
+    var dlall = document.getElementById('dlall');
+    dlall.disabled = false; dlall.textContent = '🗑 Delete Album'; dlall.classList.add('del'); dlall.onclick = deleteLocalAlbum;
+    document.getElementById('detail').style.display = 'block'; window.scrollTo(0,0);
+    loadLocalTracks();
+  };
+  function loadLocalTracks(){
+    fetch('/api/local/album?artist=' + encodeURIComponent(currentLocal.artist) + '&album=' + encodeURIComponent(currentLocal.album))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ renderLocalTracks(d.tracks || []); })
+      .catch(function(){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ Could not load tracks.</div>'; });
+  }
+  function renderLocalTracks(tracks){
+    if(!tracks.length){ document.getElementById('dsongs').innerHTML = '<div class="hint">No tracks.</div>'; return; }
+    var h = '';
+    tracks.forEach(function(t){
+      var pj = encodeURIComponent(t.path);
+      h += '<div class="row"><div class="tnum">' + (t.track||'') + '</div>' +
+           '<div class="row-main"><div class="row-title">' + esc(t.title) + '</div><div class="row-sub">' + esc(t.artist) + '</div></div>' +
+           '<div class="row-actions">' +
+           '<button class="plbtn" onclick="playLocal(\'' + pj + '\')">▶</button>' +
+           '<button class="iconbtn" style="color:var(--danger);" onclick="deleteLocal([\'' + pj + '\'])">🗑</button></div></div>';
+    });
+    document.getElementById('dsongs').innerHTML = h;
+  }
+  window.playLocal = function(pj){ window.open(fileUrl(decodeURIComponent(pj)), '_blank'); };
+  window.deleteLocal = function(encPaths){
+    var paths = encPaths.map(function(p){ return decodeURIComponent(p); });
+    fetch('/api/local/delete', { method:'POST', body: JSON.stringify({ paths: paths }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.ok){ toast('🗑 Deleted ' + (d.deleted||0)); disk(); if(currentLocal) loadLocalTracks(); }
+        else toast('⚠️ ' + (d.error||'Delete failed'));
+      })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
+  window.deleteLocalAlbum = function(){
+    if(!currentLocal) return;
+    if(!confirm('Delete the whole album “' + currentLocal.album + '” from the device?')) return;
+    fetch('/api/local/album?artist=' + encodeURIComponent(currentLocal.artist) + '&album=' + encodeURIComponent(currentLocal.album))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var paths = (d.tracks||[]).map(function(t){ return t.path; });
+        if(!paths.length){ closeDetail(); return; }
+        return fetch('/api/local/delete', { method:'POST', body: JSON.stringify({ paths: paths }) })
+          .then(function(r){ return r.json(); })
+          .then(function(res){ toast('🗑 Deleted album (' + (res.deleted||0) + ')'); closeDetail(); loadLocal(); disk(); });
+      })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
 
   // ── Downloads ─────────────────────────────────────────────────────
   function postDownload(body, onOk){
@@ -302,20 +396,24 @@
   }
 
   // ── Wiring ────────────────────────────────────────────────────────
+  function refreshActive(){ if(localMode) loadLocal(); else loadBrowse(); }
   q.addEventListener('input', function(){
     clearq.style.display = q.value ? 'block' : 'none';
     clearTimeout(searchTimer);
     var val = q.value.trim();
     document.getElementById('chips').style.display = val ? 'none' : 'flex';
-    if(!val){ loadBrowse(); return; }
-    searchTimer = setTimeout(function(){ doSearch(val); }, 350);
+    if(!val){ refreshActive(); return; }
+    searchTimer = setTimeout(function(){ doSearch(val); }, 350);   // search always hits Navidrome
   });
-  clearq.addEventListener('click', function(){ q.value=''; clearq.style.display='none'; document.getElementById('chips').style.display='flex'; loadBrowse(); q.focus(); });
+  clearq.addEventListener('click', function(){ q.value=''; clearq.style.display='none'; document.getElementById('chips').style.display='flex'; refreshActive(); q.focus(); });
   document.getElementById('chips').addEventListener('click', function(e){
     var chip = e.target.closest('.chip'); if(!chip) return;
-    browseType = chip.getAttribute('data-type');
+    var type = chip.getAttribute('data-type');
     Array.prototype.forEach.call(this.querySelectorAll('.chip'), function(c){ c.classList.remove('active'); });
-    chip.classList.add('active'); loadBrowse();
+    chip.classList.add('active');
+    localMode = (type === '__local__');
+    if(!localMode) browseType = type;
+    refreshActive();
   });
   document.getElementById('qtoggle').addEventListener('click', function(e){
     var span = e.target.closest('span'); if(!span) return;

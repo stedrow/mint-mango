@@ -94,6 +94,9 @@ keyboard and a big screen instead of the wheel:
 - **Browse & Download Music** button on the Files page opens `/music`
 - Browse **Newest / Most Played / Random / A–Z**, or **search** albums, songs
   and artists — all shown as an album-art grid
+- An **On Device** tab lists what's already downloaded (grouped straight from the
+  boot-scan library cache, so it works even with Navidrome offline), with per-track
+  play/delete and a whole-album delete
 - Open an album to see its tracks, then **Download Album** or grab individual
   tracks; tracks already on the device show a ✓ (and a 🗑 to delete the download)
 - An **Original / MP3** quality toggle (Original keeps FLAC/ALAC/etc. as-is; MP3
