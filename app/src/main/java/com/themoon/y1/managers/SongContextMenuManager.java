@@ -69,12 +69,42 @@ public class SongContextMenuManager {
                             if (isCasting) {
                                 com.themoon.y1.cast.CastManager.getInstance().stopCasting();
                                 Toast.makeText(a, a.t("Stopped casting"), Toast.LENGTH_SHORT).show();
+                            } else if (!isWifiEnabled(a)) {
+                                showWifiOffDialog(a);
                             } else {
                                 showCastMenu(a);
                             }
                         } },
                         new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_WIFI); } },
                         new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_BLUETOOTH); } }
+                });
+    }
+
+    public boolean isWifiEnabled(MainActivity a) {
+        android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                a.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE);
+        return wm != null && wm.isWifiEnabled();
+    }
+
+    private void showWifiOffDialog(final MainActivity a) {
+        showWifiOffDialog(a, a.t("Casting requires a Wi-Fi connection"));
+    }
+
+    /** Shared "turn it on for me" prompt for any screen that needs Wi-Fi -- also used by
+     *  NavidromeManager when Wi-Fi is off. */
+    public void showWifiOffDialog(final MainActivity a, String message) {
+        showThemedOptionsDialog(a, a.t("Wi-Fi Off"), message,
+                new String[]{ a.t("Turn On Wi-Fi"), a.t("Go to Wi-Fi Settings") },
+                new Runnable[]{
+                        new Runnable() { @Override public void run() {
+                            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                                    a.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE);
+                            if (wm != null) {
+                                Toast.makeText(a, a.t("Turning Wi-Fi ON..."), Toast.LENGTH_SHORT).show();
+                                wm.setWifiEnabled(true);
+                            }
+                        } },
+                        new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_WIFI); } }
                 });
     }
 
@@ -104,7 +134,7 @@ public class SongContextMenuManager {
                     showThemedOptionsDialog(a, a.t("Cast to Speaker"), a.t("No speakers found on this Wi-Fi"),
                             new String[]{ a.t("Search again"), a.t("Cancel") },
                             new Runnable[]{
-                                    new Runnable() { @Override public void run() { showCastMenu(a); } },
+                                    new Runnable() { @Override public void run() { cast.stopDiscovery(); showCastMenu(a); } },
                                     new Runnable() { @Override public void run() { cast.stopDiscovery(); } }
                             });
                     return;
@@ -128,7 +158,7 @@ public class SongContextMenuManager {
                     };
                 }
                 labels[devices.size()] = a.t("Search again");
-                actions[devices.size()] = new Runnable() { @Override public void run() { showCastMenu(a); } };
+                actions[devices.size()] = new Runnable() { @Override public void run() { cast.stopDiscovery(); showCastMenu(a); } };
                 showThemedOptionsDialog(a, a.t("Cast to Speaker"), a.t("Select a speaker"), labels, actions);
             }
         }, 2500);
