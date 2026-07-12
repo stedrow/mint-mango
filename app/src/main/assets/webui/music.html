@@ -3,184 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Y1 Music</title>
+<title>Y1 · Music</title>
+<link rel="stylesheet" href="/app.css">
 <style>
-  /* Mint Mango theme — cyan (#00FFFF) accent on black, square corners (button_radius:0),
-     white primary / #888 secondary text, black text on cyan for focus/active. */
-  :root {
-    --bg: #05100F;
-    --bg-blur: rgba(5,16,15,0.9);
-    --panel: rgba(255,255,255,0.045);
-    --panel-solid: #0D1817;
-    --line: #17302E;
-    --btn: rgba(255,255,255,0.08);          /* btnNormal = #15FFFFFF */
-    --btn-hi: rgba(0,255,255,0.14);
-    --accent: #00FFFF;                        /* btnFocused = #FF00FFFF */
-    --accent-dim: #00CFCF;
-    --on-accent: #001A19;                     /* btnFocusedText ≈ black */
-    --text: #FFFFFF;                          /* textPrimary */
-    --text2: #888888;                         /* textSecondary */
-    --good: #00E6B8;                          /* mint — downloaded ✓ */
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: 'Roboto', 'Segoe UI', sans-serif;
-    background: var(--bg); color: var(--text); margin: 0;
-    padding: 0 0 140px 0; -webkit-tap-highlight-color: transparent;
-  }
-  a { color: inherit; }
-
-  /* Sticky header + search */
-  header {
-    position: sticky; top: 0; z-index: 50;
-    background: var(--bg-blur); backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--line); padding: 14px 16px 10px;
-  }
-  .hrow { display: flex; align-items: center; gap: 12px; max-width: 1000px; margin: 0 auto; }
-  .back { font-size: 24px; color: var(--accent); text-decoration: none; padding: 2px 6px; line-height: 1; }
-  h1 { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: 1px; flex-grow: 1; text-transform: uppercase; }
-  h1 .dot { color: var(--accent); }
-  .searchwrap { max-width: 1000px; margin: 10px auto 0; position: relative; }
-  #q {
-    width: 100%; font-size: 15px; padding: 12px 40px 12px 14px; border: 1px solid var(--line); outline: none;
-    border-radius: 0; background: var(--btn); color: var(--text);
-  }
-  #q:focus { border-color: var(--accent); }
-  #q::placeholder { color: #667573; }
-  .clearq {
-    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    color: #667573; cursor: pointer; font-size: 18px; display: none;
-  }
-
-  /* Filter chips */
-  .chips { display: flex; gap: 8px; max-width: 1000px; margin: 12px auto 0; padding: 0 16px; flex-wrap: wrap; }
-  .chip {
-    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 14px; border-radius: 0;
-    background: var(--btn); color: var(--text2); cursor: pointer; border: 1px solid transparent; transition: 0.12s; user-select: none;
-  }
-  .chip:hover { color: var(--text); }
-  .chip.active { background: var(--accent); color: var(--on-accent); font-weight: 700; }
-
-  main { max-width: 1000px; margin: 0 auto; padding: 18px 16px 0; }
-  .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin: 18px 4px 12px; font-weight: 600; }
-  .hint { color: var(--text2); text-align: center; padding: 40px 20px; font-size: 15px; }
-
-  /* Album grid */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
-  .card { cursor: pointer; transition: transform 0.12s; }
-  .card:active { transform: scale(0.97); }
-  .cover {
-    width: 100%; aspect-ratio: 1/1; border-radius: 0; object-fit: cover;
-    background: linear-gradient(135deg, #14201F, #0B1413); display: block;
-    border: 1px solid var(--line);
-  }
-  .card:hover .cover { border-color: var(--accent); }
-  .cover.ph { display: flex; align-items: center; justify-content: center; font-size: 34px; color: #275451; }
-  .cname { font-size: 14px; font-weight: 500; margin: 9px 2px 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cartist { font-size: 12px; color: var(--text2); margin: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  /* Song rows (search results) */
-  .songrow {
-    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 0;
-    background: var(--panel); margin-bottom: 6px; border: 1px solid transparent; transition: 0.12s;
-  }
-  .songrow:hover { border-color: var(--line); }
-  .songrow .sart { width: 40px; height: 40px; border-radius: 0; object-fit: cover; background: #14201F; flex-shrink: 0; }
-  .songmeta { flex-grow: 1; overflow: hidden; }
-  .stitle { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ssub { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dlbtn {
-    flex-shrink: 0; background: var(--btn); color: var(--accent); border: 1px solid var(--line); border-radius: 0;
-    font-size: 13px; font-weight: 700; padding: 8px 14px; cursor: pointer; transition: 0.12s;
-  }
-  .dlbtn:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  .dlbtn.done { background: transparent; color: var(--good); border-color: transparent; cursor: default; }
-  .dlbtn.done:hover { background: transparent; color: var(--good); }
-  .dlbtn:disabled { opacity: 0.5; cursor: default; }
+  body { padding-bottom: 150px; }
 
   /* Album detail overlay */
-  #detail {
-    position: fixed; inset: 0; z-index: 200; background: var(--bg); overflow-y: auto;
-    display: none; padding-bottom: 140px;
-  }
-  .dhead { position: relative; padding: 20px 16px; display: flex; gap: 18px; align-items: flex-end;
-    background: linear-gradient(180deg, #0A2624, var(--bg)); }
-  .dclose { position: absolute; top: 12px; left: 12px; font-size: 26px; color: var(--accent); cursor: pointer; line-height: 1; }
-  .dcover { width: 150px; height: 150px; border-radius: 0; object-fit: cover; flex-shrink: 0;
-    border: 1px solid var(--line); background: #14201F; }
+  #detail { position: fixed; inset: 0; z-index: 200; background: var(--bg); overflow-y: auto; display: none; padding-bottom: 150px; }
+  .dhead { position: relative; padding: 22px 16px; display: flex; gap: 18px; align-items: flex-end; background: linear-gradient(180deg, #0A2624, var(--bg)); }
+  .dclose { position: absolute; top: 12px; left: 12px; font-size: 24px; color: var(--accent); cursor: pointer; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); }
+  .dclose:hover { border-color: var(--accent); background: var(--btn-hi); }
+  .dcover { width: 150px; height: 150px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--line); background: #12211F; box-shadow: var(--shadow); }
   .dtitle { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
-  .dsub { font-size: 14px; color: var(--text2); }
-  .dactions { max-width: 1000px; margin: 0 auto; padding: 16px; }
-  .dlall {
-    width: 100%; background: var(--accent); color: var(--on-accent); border: none; border-radius: 0;
-    font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 14px; cursor: pointer; margin-bottom: 8px;
-  }
-  .dlall:hover { background: var(--accent-dim); }
-  .dlall:active { transform: scale(0.99); }
-  .dsongs { max-width: 1000px; margin: 0 auto; padding: 0 16px; }
-  .trow { display: flex; align-items: center; gap: 12px; padding: 12px 8px; border-bottom: 1px solid var(--line); transition: 0.1s; }
-  .trow:hover { background: var(--btn-hi); }
-  .tnum { width: 26px; text-align: center; color: var(--text2); font-size: 13px; flex-shrink: 0; }
-  .tmeta { flex-grow: 1; overflow: hidden; }
-  .tdur { color: var(--text2); font-size: 12px; flex-shrink: 0; }
+  .dsub { font-size: 13px; color: var(--text-2); }
+  .dactions { padding: 16px; }
+  .tnum { width: 26px; text-align: center; color: var(--text-2); font-size: 13px; flex-shrink: 0; }
+  .tdur { color: var(--text-2); font-size: 12px; flex-shrink: 0; }
 
-  /* Bottom download-manager dock */
-  #dock {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 300;
-    background: var(--bg-blur); backdrop-filter: blur(10px); border-top: 1px solid var(--accent);
-  }
-  .dockbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; max-width: 1000px; margin: 0 auto; }
-  .qtoggle { display: flex; background: var(--btn); border: 1px solid var(--line); border-radius: 0; padding: 2px; flex-shrink: 0; }
-  .qtoggle span {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px; border-radius: 0; cursor: pointer; color: var(--text2); user-select: none;
-  }
+  /* Download dock */
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: rgba(5,11,11,0.9); backdrop-filter: blur(14px); border-top: 1px solid var(--accent); }
+  .dockbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .qtoggle { display: flex; background: var(--btn); border: 1px solid var(--line); padding: 2px; flex-shrink: 0; }
+  .qtoggle span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px; cursor: pointer; color: var(--text-2); user-select: none; }
   .qtoggle span.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
   .dockinfo { flex-grow: 1; overflow: hidden; }
   .dockmain { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .docksub { font-size: 12px; color: var(--text2); }
-  .bar { height: 3px; background: var(--line); margin-top: 6px; overflow: hidden; }
-  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; box-shadow: 0 0 6px var(--accent); }
-  .bar.indet > div { width: 35%; animation: slide 1.2s infinite ease-in-out; }
-  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
-  .chev { color: var(--text2); cursor: pointer; font-size: 18px; flex-shrink: 0; padding: 4px; }
-  #pending { max-height: 0; overflow: hidden; transition: max-height 0.25s; max-width: 1000px; margin: 0 auto; }
+  .docksub { font-size: 12px; color: var(--text-2); }
+  .docksub .fail { color: var(--danger); }
+  .chev { color: var(--text-2); cursor: pointer; font-size: 18px; flex-shrink: 0; padding: 4px; }
+  #pending { max-height: 0; overflow: hidden; transition: max-height 0.25s; }
   #pending.open { max-height: 240px; overflow-y: auto; }
   #pendingList { padding: 4px 16px 12px; }
-  .prow { font-size: 13px; color: var(--text2); padding: 6px 0; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .clearbtn { background: transparent; color: var(--accent); border: 1px solid var(--line); border-radius: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 12px; cursor: pointer; }
-  .clearbtn:hover { border-color: var(--accent); }
-
-  /* toast */
-  #toast {
-    position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
-    background: var(--panel-solid); color: var(--text); padding: 12px 20px; border: 1px solid var(--accent); border-radius: 0; font-size: 14px;
-    z-index: 400; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 90%;
-  }
-  #toast.show { opacity: 1; }
+  .prow { font-size: 13px; color: var(--text-2); padding: 6px 0; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
+<div class="offline" id="offline">⚠ Device unreachable — is the Web Server still running?</div>
 
-<header>
-  <div class="hrow">
-    <a class="back" href="/" title="File Manager">‹</a>
-    <h1>Music<span class="dot">.</span></h1>
-  </div>
-  <div class="searchwrap">
-    <input id="q" type="text" placeholder="Search albums, songs, artists…" autocomplete="off">
-    <span class="clearq" id="clearq">✕</span>
-  </div>
-  <div class="chips" id="chips">
-    <div class="chip active" data-type="newest">Newest</div>
-    <div class="chip" data-type="frequent">Most Played</div>
-    <div class="chip" data-type="random">Random</div>
-    <div class="chip" data-type="alphabeticalByName">A–Z</div>
+<header class="hdr">
+  <div class="wrap">
+    <div class="hdr-row">
+      <a class="back" href="/" title="Files">‹</a>
+      <div class="title">Music<span class="dot">.</span></div>
+      <div class="hdr-meta"><span id="disk"></span></div>
+    </div>
+    <div class="searchwrap">
+      <input id="q" class="search" type="text" placeholder="Search albums, songs, artists…" autocomplete="off">
+      <span class="search-clear" id="clearq">✕</span>
+    </div>
+    <div class="chips" id="chips">
+      <div class="chip active" data-type="newest">Newest</div>
+      <div class="chip" data-type="frequent">Most Played</div>
+      <div class="chip" data-type="random">Random</div>
+      <div class="chip" data-type="alphabeticalByName">A–Z</div>
+    </div>
   </div>
 </header>
 
-<main id="main">
-  <div class="hint">Loading…</div>
-</main>
+<main class="wrap" id="main"><div class="hint">Loading…</div></main>
 
 <!-- Album detail overlay -->
 <div id="detail">
@@ -192,56 +72,55 @@
       <div class="dsub" id="dsub"></div>
     </div>
   </div>
-  <div class="dactions">
-    <button class="dlall" id="dlall" onclick="downloadCurrentAlbum()">⬇ Download Album</button>
-  </div>
-  <div class="dsongs" id="dsongs"></div>
+  <div class="dactions wrap"><button class="btn-cta" id="dlall" onclick="downloadCurrentAlbum()">⬇ Download Album</button></div>
+  <div class="wrap" id="dsongs"></div>
 </div>
 
 <!-- Download manager dock -->
 <div id="dock">
-  <div id="pending"><div id="pendingList"></div></div>
-  <div class="dockbar">
-    <div class="qtoggle" id="qtoggle" title="Download quality">
-      <span data-q="orig" class="on">Original</span>
-      <span data-q="mp3">MP3</span>
+  <div class="wrap">
+    <div id="pending"><div id="pendingList"></div></div>
+    <div class="dockbar">
+      <div class="qtoggle" id="qtoggle" title="Download quality">
+        <span data-q="orig" class="on">Original</span>
+        <span data-q="mp3">MP3</span>
+      </div>
+      <div class="dockinfo">
+        <div class="dockmain" id="dockmain">No downloads</div>
+        <div class="docksub" id="docksub">Queue is empty</div>
+        <div class="bar" id="bar"><div id="barfill"></div></div>
+      </div>
+      <span class="chev" id="chev" onclick="togglePending()">⌃</span>
     </div>
-    <div class="dockinfo">
-      <div class="dockmain" id="dockmain">No downloads</div>
-      <div class="docksub" id="docksub">Queue is empty</div>
-      <div class="bar" id="bar"><div id="barfill"></div></div>
-    </div>
-    <span class="chev" id="chev" onclick="togglePending()">⌃</span>
   </div>
 </div>
 
-<div id="toast"></div>
+<div class="toast" id="toast"></div>
 
 <script>
 (function(){
   var main = document.getElementById('main');
   var q = document.getElementById('q');
   var clearq = document.getElementById('clearq');
-  var quality = 'orig';          // 'orig' | 'mp3'
+  var quality = 'orig';
   var browseType = 'newest';
-  var currentAlbum = null;       // {id, name, artist, coverArt}
-  var searchTimer = null;
-  var pollTimer = null;
+  var currentAlbum = null;
+  var searchTimer = null, pollTimer = null;
+  var albumCache = {};
 
   function coverUrl(id, size){ return id ? '/api/navidrome/cover?id=' + encodeURIComponent(id) + '&size=' + size : ''; }
   function esc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fmtDur(sec){ if(!sec) return ''; var m=Math.floor(sec/60), s=sec%60; return m+':'+(s<10?'0':'')+s; }
+  function fmtSize(b){ if(b==null) return ''; var u=['B','KB','MB','GB','TB'],i=0; while(b>=1024&&i<u.length-1){b/=1024;i++;} return (i?b.toFixed(1):b)+' '+u[i]; }
 
   var toastEl = document.getElementById('toast'), toastT = null;
-  function toast(msg){
-    toastEl.textContent = msg; toastEl.classList.add('show');
-    clearTimeout(toastT); toastT = setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
-  }
+  function toast(msg){ toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(function(){ toastEl.classList.remove('show'); }, 2600); }
+  var offEl = document.getElementById('offline');
+  function online(ok){ offEl.classList.toggle('show', !ok); }
 
   function coverImg(id, size, cls){
     if(!id) return '<div class="'+cls+' ph">♪</div>';
-    return '<img class="'+cls+'" loading="lazy" src="'+coverUrl(id,size)+'" ' +
-           'onerror="this.outerHTML=\'<div class=&quot;'+cls+' ph&quot;>♪</div>\'">';
+    return '<img class="'+cls+'" loading="lazy" src="'+coverUrl(id,size)+'" onerror="this.outerHTML=\'<div class=&quot;'+cls+' ph&quot;>♪</div>\'">';
   }
 
   // ── Browse / search ───────────────────────────────────────────────
@@ -249,18 +128,15 @@
     main.innerHTML = '<div class="hint">Loading…</div>';
     fetch('/api/navidrome/albums?type=' + encodeURIComponent(browseType) + '&size=40')
       .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(d.error){ main.innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; }
-        renderAlbums(d.albums, null);
-      })
-      .catch(function(){ main.innerHTML = '<div class="hint">⚠️ Could not reach the server.</div>'; });
+      .then(function(d){ online(true); if(d.error){ main.innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; } renderAlbums(d.albums); })
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Could not reach the server.</div>'; });
   }
-
   function doSearch(query){
     main.innerHTML = '<div class="hint">Searching…</div>';
     fetch('/api/navidrome/search?q=' + encodeURIComponent(query))
       .then(function(r){ return r.json(); })
       .then(function(d){
+        online(true);
         if(d.error){ main.innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; }
         var albums = d.albums || [], songs = d.songs || [];
         if(albums.length === 0 && songs.length === 0){ main.innerHTML = '<div class="hint">No results for “' + esc(query) + '”.</div>'; return; }
@@ -269,14 +145,12 @@
         if(songs.length){ html += '<div class="section-title">Songs</div>' + songsHtml(songs); }
         main.innerHTML = html;
       })
-      .catch(function(){ main.innerHTML = '<div class="hint">⚠️ Search failed.</div>'; });
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Search failed.</div>'; });
   }
-
-  function renderAlbums(albums, title){
+  function renderAlbums(albums){
     if(!albums || !albums.length){ main.innerHTML = '<div class="hint">No albums found.</div>'; return; }
-    main.innerHTML = (title ? '<div class="section-title">'+esc(title)+'</div>' : '') + gridHtml(albums);
+    main.innerHTML = gridHtml(albums);
   }
-
   function gridHtml(albums){
     var h = '<div class="grid">';
     albums.forEach(function(al){
@@ -284,65 +158,54 @@
       var sub = esc(al.artist || '') + (al.year ? ' · ' + al.year : '');
       h += '<div class="card" onclick="openAlbum(\'' + esc(al.id).replace(/'/g,"\\'") + '\')">' +
            coverImg(al.coverArt, 300, 'cover') +
-           '<div class="cname">' + esc(al.name) + '</div>' +
-           '<div class="cartist">' + sub + '</div></div>';
+           '<div class="cname">' + esc(al.name) + '</div><div class="csub">' + sub + '</div></div>';
     });
     return h + '</div>';
   }
-
   function songsHtml(songs){
     var h = '';
     songs.forEach(function(s){
       var payload = encodeURIComponent(JSON.stringify(s));
-      h += '<div class="songrow">' +
-           coverImg(s.coverArt, 80, 'sart') +
-           '<div class="songmeta"><div class="stitle">' + esc(s.title) + '</div>' +
-           '<div class="ssub">' + esc(s.artist) + (s.album ? ' — ' + esc(s.album) : '') + '</div></div>' +
-           '<button class="dlbtn" onclick="downloadSong(this, \'' + payload + '\')">⬇</button></div>';
+      h += '<div class="row">' + coverImg(s.coverArt, 80, 'row-thumb') +
+           '<div class="row-main"><div class="row-title">' + esc(s.title) + '</div>' +
+           '<div class="row-sub">' + esc(s.artist) + (s.album ? ' — ' + esc(s.album) : '') + '</div></div>' +
+           '<button class="iconbtn" onclick="downloadSong(this, \'' + payload + '\')">⬇</button></div>';
     });
     return h;
   }
 
-  var albumCache = {};
-
   // ── Album detail ──────────────────────────────────────────────────
   window.openAlbum = function(id){
-    var al = albumCache[id];
-    if(!al) return;
+    var al = albumCache[id]; if(!al) return;
     currentAlbum = al;
     document.getElementById('dcover').src = coverUrl(al.coverArt, 400);
     document.getElementById('dtitle').textContent = al.name;
     document.getElementById('dsub').textContent = (al.artist||'') + (al.year? ' · '+al.year : '') + (al.songCount? ' · '+al.songCount+' songs':'');
     document.getElementById('dsongs').innerHTML = '<div class="hint">Loading tracks…</div>';
-    var dlall = document.getElementById('dlall');
-    dlall.disabled = false; dlall.textContent = '⬇ Download Album';
-    document.getElementById('detail').style.display = 'block';
-    window.scrollTo(0,0);
-
+    var dlall = document.getElementById('dlall'); dlall.disabled = false; dlall.textContent = '⬇ Download Album';
+    document.getElementById('detail').style.display = 'block'; window.scrollTo(0,0);
+    loadTracks(id);
+  };
+  function loadTracks(id){
     fetch('/api/navidrome/album?id=' + encodeURIComponent(id))
       .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(d.error){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; }
-        renderTracks(d.songs || []);
-      })
+      .then(function(d){ if(d.error){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; } renderTracks(d.songs || []); })
       .catch(function(){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ Could not load tracks.</div>'; });
-  };
-
+  }
   function renderTracks(songs){
     if(!songs.length){ document.getElementById('dsongs').innerHTML = '<div class="hint">No tracks.</div>'; return; }
     var h = '';
     songs.forEach(function(s){
+      var idj = esc(s.id).replace(/'/g,"\\'");
       var btn = s.downloaded
-        ? '<button class="dlbtn done">✓</button>'
-        : '<button class="dlbtn" onclick="downloadTrack(this, \'' + esc(s.id).replace(/'/g,"\\'") + '\')">⬇</button>';
-      h += '<div class="trow"><div class="tnum">' + (s.track||'') + '</div>' +
-           '<div class="tmeta"><div class="stitle">' + esc(s.title) + '</div>' +
-           '<div class="ssub">' + esc(s.artist) + '</div></div>' +
-           '<div class="tdur">' + fmtDur(s.duration) + '</div>' + btn + '</div>';
+        ? '<button class="iconbtn done">✓</button><button class="iconbtn" style="color:var(--danger);" onclick="deleteTrack(\'' + idj + '\')">🗑</button>'
+        : '<button class="iconbtn" onclick="downloadTrack(this, \'' + idj + '\')">⬇</button>';
+      h += '<div class="row"><div class="tnum">' + (s.track||'') + '</div>' +
+           '<div class="row-main"><div class="row-title">' + esc(s.title) + '</div><div class="row-sub">' + esc(s.artist) + '</div></div>' +
+           '<div class="tdur">' + fmtDur(s.duration) + '</div><div class="row-actions">' + btn + '</div></div>';
     });
     document.getElementById('dsongs').innerHTML = h;
   }
-
   window.closeDetail = function(){ document.getElementById('detail').style.display = 'none'; currentAlbum = null; };
 
   // ── Downloads ─────────────────────────────────────────────────────
@@ -351,92 +214,83 @@
     fetch('/api/navidrome/download', { method:'POST', body: JSON.stringify(body) })
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if(d.ok){
-          if(d.queued > 0) toast('⬇ Queued ' + d.queued + (d.queued===1?' track':' tracks'));
-          else if(d.alreadyHave > 0) toast('✓ Already downloaded');
-          if(onOk) onOk(d);
-          pollQueue();
-        } else {
-          toast('⚠️ ' + (d.error || 'Download failed'));
-        }
+        if(d.ok){ if(d.queued > 0) toast('⬇ Queued ' + d.queued + (d.queued===1?' track':' tracks')); else if(d.alreadyHave > 0) toast('✓ Already downloaded'); if(onOk) onOk(d); pollQueue(); }
+        else { toast('⚠️ ' + (d.error || 'Download failed')); }
       })
-      .catch(function(){ toast('⚠️ Request failed'); });
+      .catch(function(){ online(false); toast('⚠️ Request failed'); });
   }
-
   window.downloadCurrentAlbum = function(){
     if(!currentAlbum) return;
-    var btn = document.getElementById('dlall');
-    btn.disabled = true; btn.textContent = '⏳ Queueing…';
-    postDownload({ albumId: currentAlbum.id }, function(){
-      btn.textContent = '⬇ Download Album'; btn.disabled = false;
-    });
+    var btn = document.getElementById('dlall'); btn.disabled = true; btn.textContent = '⏳ Queueing…';
+    postDownload({ albumId: currentAlbum.id }, function(){ btn.textContent = '⬇ Download Album'; btn.disabled = false; });
   };
-
   window.downloadTrack = function(btn, songId){
     if(!currentAlbum) return;
     btn.disabled = true; btn.textContent = '⏳';
-    postDownload({ albumId: currentAlbum.id, songIds: [songId] }, function(){
-      btn.textContent = '⬇'; btn.disabled = false;
-    });
+    postDownload({ albumId: currentAlbum.id, songIds: [songId] }, function(){ btn.textContent = '⬇'; btn.disabled = false; });
   };
-
   window.downloadSong = function(btn, payload){
-    var song;
-    try { song = JSON.parse(decodeURIComponent(payload)); } catch(e){ return; }
+    var song; try { song = JSON.parse(decodeURIComponent(payload)); } catch(e){ return; }
     btn.disabled = true; btn.textContent = '⏳';
     postDownload({ songs: [song] }, function(){ btn.textContent = '⬇'; btn.disabled = false; });
   };
+  window.deleteTrack = function(songId){
+    if(!currentAlbum) return;
+    if(!confirm('Delete this downloaded track from the device?')) return;
+    fetch('/api/navidrome/delete', { method:'POST', body: JSON.stringify({ albumId: currentAlbum.id, songIds: [songId] }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d.ok){ toast('🗑 Deleted ' + (d.deleted||0)); loadTracks(currentAlbum.id); disk(); } else toast('⚠️ ' + (d.error||'Delete failed')); })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
 
-  // ── Download-manager dock ─────────────────────────────────────────
-  var dockmain = document.getElementById('dockmain');
-  var docksub = document.getElementById('docksub');
-  var bar = document.getElementById('bar');
-  var barfill = document.getElementById('barfill');
-  var pendingList = document.getElementById('pendingList');
+  // ── Dock / queue ──────────────────────────────────────────────────
+  var dockmain = document.getElementById('dockmain'), docksub = document.getElementById('docksub');
+  var bar = document.getElementById('bar'), barfill = document.getElementById('barfill'), pendingList = document.getElementById('pendingList');
 
   function renderQueue(d){
-    var active = d.active, total = d.total||0, done = d.done||0, pending = d.pending||[];
+    online(true);
+    var active = d.active, total = d.total||0, done = d.done||0, pending = d.pending||[], failed = d.failed||0;
+    var failTxt = failed>0 ? ' · <span class="fail">⚠ '+failed+' failed</span>' : '';
     if(!active && pending.length === 0){
       dockmain.textContent = 'No downloads';
-      docksub.textContent = 'Queue is empty';
+      docksub.innerHTML = 'Queue is empty' + failTxt;
       bar.classList.remove('indet'); barfill.style.width = '0%';
-      pendingList.innerHTML = '<div class="prow" style="border:none;color:var(--text2)">Nothing queued.</div>';
+      pendingList.innerHTML = '<div class="prow" style="border:none;">Nothing queued.</div>';
       return 8000;
     }
     dockmain.textContent = '⬇ ' + (d.current || 'Downloading…');
-    var remaining = pending.length;
-    docksub.textContent = (done + (active?1:0)) + ' / ' + total + '  ·  ' + remaining + ' waiting';
-    if(d.percent >= 0){ bar.classList.remove('indet'); barfill.style.width = d.percent + '%'; }
-    else { bar.classList.add('indet'); }
+    docksub.innerHTML = (done + (active?1:0)) + ' / ' + total + ' · ' + pending.length + ' waiting' + failTxt;
+    if(d.percent >= 0){ bar.classList.remove('indet'); barfill.style.width = d.percent + '%'; } else { bar.classList.add('indet'); }
     var ph = '<div class="prow" style="border:none;display:flex;align-items:center;gap:8px">' +
-             '<b style="color:var(--accent);text-transform:uppercase;letter-spacing:1px;font-size:11px">Queue</b> <span style="flex-grow:1"></span>' +
-             '<button class="clearbtn" onclick="clearQueue()">Clear pending</button></div>';
-    if(remaining === 0) ph += '<div class="prow" style="color:var(--text2)">Last track downloading…</div>';
+             '<b style="color:var(--accent);text-transform:uppercase;letter-spacing:1px;font-size:11px">Queue</b><span style="flex-grow:1"></span>' +
+             '<button class="btn btn-danger btn-sm" onclick="clearQueue()">Clear pending</button></div>';
+    if(pending.length === 0) ph += '<div class="prow">Last track downloading…</div>';
     else pending.forEach(function(t){ ph += '<div class="prow">• ' + esc(t) + '</div>'; });
     pendingList.innerHTML = ph;
     return 2000;
   }
-
   function pollQueue(){
     if(pollTimer){ clearTimeout(pollTimer); pollTimer = null; }
     fetch('/api/navidrome/queue')
       .then(function(r){ return r.json(); })
-      .then(function(d){ var next = renderQueue(d); pollTimer = setTimeout(pollQueue, next); })
-      .catch(function(){ pollTimer = setTimeout(pollQueue, 8000); });
+      .then(function(d){ pollTimer = setTimeout(pollQueue, renderQueue(d)); })
+      .catch(function(){ online(false); pollTimer = setTimeout(pollQueue, 8000); });
   }
-
   window.clearQueue = function(){
-    fetch('/api/navidrome/cancel', { method:'POST' })
-      .then(function(r){ return r.json(); })
+    fetch('/api/navidrome/cancel', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(d){ if(d.removed>0) toast('Cleared ' + d.removed + ' from queue'); pollQueue(); })
       .catch(function(){ toast('⚠️ Could not clear'); });
   };
-
   window.togglePending = function(){
-    var p = document.getElementById('pending');
-    p.classList.toggle('open');
+    var p = document.getElementById('pending'); p.classList.toggle('open');
     document.getElementById('chev').textContent = p.classList.contains('open') ? '⌄' : '⌃';
   };
+
+  function disk(){
+    fetch('/api/diskinfo').then(function(r){return r.json();}).then(function(d){
+      if(d.freeBytes!=null) document.getElementById('disk').innerHTML = '💾 ' + fmtSize(d.freeBytes) + ' free';
+    }).catch(function(){});
+  }
 
   // ── Wiring ────────────────────────────────────────────────────────
   q.addEventListener('input', function(){
@@ -447,29 +301,22 @@
     if(!val){ loadBrowse(); return; }
     searchTimer = setTimeout(function(){ doSearch(val); }, 350);
   });
-  clearq.addEventListener('click', function(){ q.value=''; clearq.style.display='none';
-    document.getElementById('chips').style.display='flex'; loadBrowse(); q.focus(); });
-
+  clearq.addEventListener('click', function(){ q.value=''; clearq.style.display='none'; document.getElementById('chips').style.display='flex'; loadBrowse(); q.focus(); });
   document.getElementById('chips').addEventListener('click', function(e){
     var chip = e.target.closest('.chip'); if(!chip) return;
     browseType = chip.getAttribute('data-type');
     Array.prototype.forEach.call(this.querySelectorAll('.chip'), function(c){ c.classList.remove('active'); });
-    chip.classList.add('active');
-    loadBrowse();
+    chip.classList.add('active'); loadBrowse();
   });
-
   document.getElementById('qtoggle').addEventListener('click', function(e){
     var span = e.target.closest('span'); if(!span) return;
     quality = span.getAttribute('data-q');
     Array.prototype.forEach.call(this.querySelectorAll('span'), function(s){ s.classList.remove('on'); });
     span.classList.add('on');
   });
-
-  // Close detail with Escape (desktop)
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
 
-  loadBrowse();
-  pollQueue();
+  loadBrowse(); pollQueue(); disk();
 })();
 </script>
 </body>

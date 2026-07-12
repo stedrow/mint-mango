@@ -655,6 +655,7 @@ public class NavidromeManager {
     private volatile int webDone = 0;
     private volatile String webCurrentTitle = "";
     private volatile int webCurrentPercent = -1;
+    private volatile int webFailed = 0; // tracks that gave up after all retries, surfaced in the web dock
     private volatile String[] webPending = new String[0];
 
     /** Rebuild the web snapshot from current queue state. Main thread only. */
@@ -674,6 +675,7 @@ public class NavidromeManager {
                 .append(",\"total\":").append(webTotal)
                 .append(",\"done\":").append(webDone)
                 .append(",\"percent\":").append(webCurrentPercent)
+                .append(",\"failed\":").append(webFailed)
                 .append(",\"current\":\"").append(jsonEsc(webCurrentTitle)).append("\"")
                 .append(",\"pending\":[");
         String[] p = webPending;
@@ -798,6 +800,7 @@ public class NavidromeManager {
             navidromeQueueDone = 0;
             webCurrentTitle = "";
             webCurrentPercent = -1;
+            webFailed = 0;
             rebuildWebSnapshot();
             updateNavidromeDownloadStatus(a, null);
             refreshNavidromeSongLabels(a);
@@ -862,6 +865,7 @@ public class NavidromeManager {
                             return;
                         }
                         navidromeQueueDone++;
+                        webFailed++;
                         logNavidromeDownloadError(a, song, message + " (gave up after " + (item.retryCount + 1) + " attempts)");
                         Toast.makeText(a, "❌ " + song.title + ": " + message, Toast.LENGTH_SHORT).show();
                         processNextNavidromeDownload(a);

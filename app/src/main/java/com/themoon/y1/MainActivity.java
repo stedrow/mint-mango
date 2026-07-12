@@ -335,7 +335,7 @@ public class MainActivity extends Activity {
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [Fix] Removed the manual APP_VERSION variable and only kept the server folder address.
     public boolean is24HourFormat = false;
-    private TextView tvServerStatus, tvServerIp;
+    private TextView tvServerStatus, tvServerIp, tvServerPin;
     private Button btnServerToggle;
     // 🚀 [Added] Advanced loading indicator overlay that covers the whole screen
     public LinearLayout layoutLoadingOverlay;
@@ -1391,6 +1391,7 @@ public class MainActivity extends Activity {
         layoutWebServerMode = findViewById(R.id.layout_webserver_mode);
         tvServerStatus = findViewById(R.id.tv_server_status);
         tvServerIp = findViewById(R.id.tv_server_ip);
+        tvServerPin = findViewById(R.id.tv_server_pin);
         btnServerToggle = findViewById(R.id.btn_server_toggle);
 
         layoutNavidromeMode = findViewById(R.id.layout_navidrome_mode);
@@ -2072,6 +2073,7 @@ public class MainActivity extends Activity {
             tvServerStatus.setTextColor(0xFFFFFFFF);
             tvServerIp.setText("http://" + webServer.getLocalIpAddress() + ":8080");
             tvServerIp.setTextColor(0xFFFFFFFF);
+            tvServerPin.setText(t("PIN") + "  " + webServer.getPin());
             btnServerToggle.setText(t("STOP SERVER"));
         } else {
             // 💡 Apple style: a subtle, understated gray!
@@ -2079,6 +2081,7 @@ public class MainActivity extends Activity {
             tvServerStatus.setTextColor(0xFF888888);
             tvServerIp.setText("http://---.---.---.---:8080");
             tvServerIp.setTextColor(0xFF888888);
+            tvServerPin.setText("");
             btnServerToggle.setText(t("START SERVER"));
         }
     }

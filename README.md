@@ -83,26 +83,35 @@ The launcher includes a built-in Subsonic API client so you can browse and strea
 ### Browse & Download from your browser (Web Server)
 
 The built-in Web Server (main menu → **Web Server**, then open the shown
-`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) now includes a
-**Music** page — a download manager for pulling albums onto the Y1 from a real
+`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) is a small,
+PIN-protected web app themed to match the launcher (cyan on black). It has two
+pages: a **Files** manager and a **Music** download manager.
+
+**Sign in with a PIN.** When you start the server the Y1 shows a 6-digit PIN
+under the address. Enter it once in the browser to unlock — this stops any other
+device on the Wi-Fi from browsing/deleting your files or reading your stored
+Navidrome login. A new PIN is generated each time the server starts, and five
+wrong tries locks logins for 30 seconds.
+
+**Music page** — a download manager for pulling albums onto the Y1 from a real
 keyboard and a big screen instead of the wheel:
 
-- **Browse & Download Music** button on the Web Server home page opens `/music`
+- **Browse & Download Music** button on the Files page opens `/music`
 - Browse **Newest / Most Played / Random / A–Z**, or **search** albums, songs
   and artists — all shown as an album-art grid
 - Open an album to see its tracks, then **Download Album** or grab individual
-  tracks; tracks already on the device show a ✓
+  tracks; tracks already on the device show a ✓ (and a 🗑 to delete the download)
 - An **Original / MP3** quality toggle (Original keeps FLAC/ALAC/etc. as-is; MP3
   transcodes to 192 kbps for a smaller download)
-- A live **download dock** at the bottom shows the current transfer's progress,
-  the queue, and a **Clear pending** button
+- A live **download dock** shows the current transfer's progress, the queue, any
+  failed tracks, and a **Clear pending** button; free space is shown in the header
 
 Downloads run through the **same one-at-a-time queue as on-device downloads**
 (the ~190 kbps link can't share), so queueing from the browser behaves exactly
 like queueing on the Y1 — wake/Wi-Fi locks, retries, library registration and
 cover-art caching all included. Album art is fetched once, cached on the device
-and in the browser, and served small, to stay light on the Y1's hardware and
-network.
+and in the browser, and served small; responses use keep-alive to keep the Y1's
+per-request overhead low.
 
 ---
 

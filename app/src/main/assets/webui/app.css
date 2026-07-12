@@ -1,0 +1,181 @@
+/* Mint Mango web UI — shared design system.
+   Cyan (#00FFFF) accent on black, square corners (button_radius:0),
+   white primary / muted secondary text, black-on-cyan for active/primary. */
+:root {
+  --bg: #050B0B;
+  --bg-elev: #0A1211;
+  --panel: rgba(255,255,255,0.038);
+  --panel-2: rgba(255,255,255,0.02);
+  --line: #163130;
+  --line-soft: #0F2221;
+  --btn: rgba(255,255,255,0.07);
+  --btn-hi: rgba(0,255,255,0.13);
+  --accent: #00FFFF;
+  --accent-dim: #00CFCF;
+  --accent-glow: rgba(0,255,255,0.22);
+  --on-accent: #001A19;
+  --text: #ECF7F6;
+  --text-2: #7F9695;
+  --danger: #FF6B6B;
+  --good: #00E6B8;
+  --shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: 'Inter', 'Roboto', 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  background-image: radial-gradient(120% 60% at 50% -10%, rgba(0,255,255,0.06), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text); margin: 0; line-height: 1.45;
+  -webkit-tap-highlight-color: transparent; text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; }
+
+/* Thin cyan scrollbar */
+* { scrollbar-width: thin; scrollbar-color: #16403E transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: #16403E; border-radius: 0; }
+*::-webkit-scrollbar-thumb:hover { background: #1E5C59; }
+
+.wrap { max-width: 1000px; margin: 0 auto; }
+
+/* ── Header ─────────────────────────────────────────── */
+.hdr {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(5,11,11,0.82); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line); padding: 14px 16px 12px;
+}
+.hdr-row { display: flex; align-items: center; gap: 12px; }
+.back {
+  font-size: 20px; color: var(--accent); width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; border: 1px solid var(--line);
+  transition: 0.15s;
+}
+.back:hover { border-color: var(--accent); background: var(--btn-hi); }
+.title { font-size: 18px; font-weight: 800; margin: 0; letter-spacing: 2px; text-transform: uppercase; flex-grow: 1; }
+.title .dot { color: var(--accent); }
+.hdr-meta { font-size: 12px; color: var(--text-2); white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.hdr-meta b { color: var(--text); font-weight: 600; }
+
+/* ── Search ─────────────────────────────────────────── */
+.searchwrap { position: relative; margin-top: 12px; }
+.search {
+  width: 100%; font-size: 15px; padding: 12px 40px 12px 14px; color: var(--text);
+  background: var(--btn); border: 1px solid var(--line); outline: none; transition: 0.15s;
+}
+.search:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+.search::placeholder { color: #5E7574; }
+.search-clear {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  color: #5E7574; cursor: pointer; font-size: 16px; display: none;
+}
+
+/* ── Chips ──────────────────────────────────────────── */
+.chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.chip {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 13px;
+  background: var(--btn); color: var(--text-2); cursor: pointer; border: 1px solid transparent;
+  transition: 0.12s; user-select: none;
+}
+.chip:hover { color: var(--text); }
+.chip.active { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+/* ── Buttons ────────────────────────────────────────── */
+.btn {
+  font-size: 14px; font-weight: 600; padding: 10px 16px; cursor: pointer; border: 1px solid var(--line);
+  background: var(--btn); color: var(--text); transition: 0.14s; font-family: inherit; letter-spacing: 0.3px;
+}
+.btn:hover { border-color: var(--accent); background: var(--btn-hi); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+.btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 700; }
+.btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); }
+.btn-ghost { background: transparent; color: var(--accent); }
+.btn-ghost:hover { background: var(--btn-hi); border-color: var(--accent); }
+.btn-danger { background: transparent; color: var(--danger); border-color: var(--line); }
+.btn-danger:hover { background: rgba(255,107,107,0.12); border-color: var(--danger); color: var(--danger); }
+.btn-sm { font-size: 12px; padding: 7px 12px; }
+.btn-block { width: 100%; text-align: center; }
+.btn-cta {
+  width: 100%; background: var(--accent); color: var(--on-accent); border: none; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 1.2px; font-size: 14px; padding: 14px; cursor: pointer;
+  transition: 0.14s;
+}
+.btn-cta:hover { background: var(--accent-dim); }
+.btn-cta:active { transform: translateY(1px); }
+
+/* ── Inputs ─────────────────────────────────────────── */
+.input {
+  width: 100%; font-size: 14px; padding: 12px 14px; color: var(--text);
+  background: var(--btn); border: 1px solid var(--line); outline: none; transition: 0.15s; font-family: inherit;
+}
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+.input::placeholder { color: #5E7574; }
+
+/* ── Panels / layout bits ───────────────────────────── */
+main { padding: 18px 16px 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); padding: 18px; margin-bottom: 16px; }
+.panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--accent); font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin: 20px 2px 12px; font-weight: 700; }
+.hint { color: var(--text-2); text-align: center; padding: 44px 20px; font-size: 15px; }
+.muted { color: var(--text-2); }
+.spacer { flex-grow: 1; }
+
+/* ── Album grid + covers ────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 18px; }
+.card { cursor: pointer; }
+.cover {
+  width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block;
+  background: linear-gradient(135deg, #12211F, #0A1312); border: 1px solid var(--line); transition: 0.16s;
+}
+.card:hover .cover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow), var(--shadow); transform: translateY(-2px); }
+.cover.ph { display: flex; align-items: center; justify-content: center; font-size: 34px; color: #2A5652; }
+.cname { font-size: 14px; font-weight: 500; margin: 10px 1px 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.csub { font-size: 12px; color: var(--text-2); margin: 0 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Rows (songs / files / tracks) ──────────────────── */
+.row {
+  display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: var(--panel);
+  border: 1px solid transparent; border-bottom: 1px solid var(--line-soft); transition: 0.12s;
+}
+.row:hover { background: var(--btn-hi); }
+.row-ico { width: 38px; height: 38px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--accent); background: var(--panel-2); border: 1px solid var(--line-soft); }
+.row-thumb { width: 38px; height: 38px; flex-shrink: 0; object-fit: cover; background: #12211F; border: 1px solid var(--line-soft); }
+.row-main { flex-grow: 1; overflow: hidden; }
+.row-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Small circular/icon action button used in rows */
+.iconbtn {
+  flex-shrink: 0; background: var(--btn); color: var(--accent); border: 1px solid var(--line);
+  font-size: 13px; font-weight: 700; padding: 7px 12px; cursor: pointer; transition: 0.12s;
+}
+.iconbtn:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.iconbtn.done { background: transparent; color: var(--good); border-color: transparent; cursor: default; }
+.iconbtn.done:hover { background: transparent; color: var(--good); }
+.iconbtn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Toast ──────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
+  background: var(--bg-elev); color: var(--text); padding: 12px 20px; border: 1px solid var(--accent);
+  font-size: 14px; z-index: 400; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 90%;
+  box-shadow: var(--shadow);
+}
+.toast.show { opacity: 1; }
+
+/* ── Offline banner ─────────────────────────────────── */
+.offline {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 500; background: var(--danger); color: #200;
+  text-align: center; font-size: 13px; font-weight: 700; padding: 8px; transform: translateY(-100%);
+  transition: transform 0.25s; letter-spacing: 0.4px;
+}
+.offline.show { transform: translateY(0); }
+
+/* ── Progress bar ───────────────────────────────────── */
+.bar { height: 3px; background: var(--line); overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; box-shadow: 0 0 8px var(--accent); }
+.bar.indet > div { width: 35%; animation: mm-slide 1.2s infinite ease-in-out; }
+@keyframes mm-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }

@@ -75,284 +75,21 @@ public class Y1WebServer extends Thread {
     private boolean running = true;
     private final File rootFolder = new File("/storage/sdcard0"); // file manager serves the whole device, not just the app's music folder
     private Context context;
-    private final ExecutorService connectionPool = Executors.newFixedThreadPool(8);
-    // The File-Manager page is a compile-time-constant string; hold it in one
-    // static final field so it is allocated once instead of per GET / request.
-    private static final String FILE_MANAGER_HTML =
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                            "<title>Y1 File Manager</title><style>" +
-                            // 🚀 [design tweak] Background color and default font (based on Material Dark Theme)
-                            "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#05100F; color:#EAF7F5; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
-                            "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:0; border:none; outline:none; transition:0.2s;} " +
-                            "input[type=text]{width:calc(100% - 120px); background:#0F1B1A; color:#EAF7F5; border-radius:0; padding:12px;} " +
-                            "input[type=password]{background:#0F1B1A; color:#EAF7F5; padding:12px;} " + // match the dark theme (was browser-default white)
-                            "input[type=text]:focus, input[type=password]:focus{outline:1px solid #00FFFF;} " +
+    // Wider than before because keep-alive connections now hold their pool thread across an
+    // idle gap (browsers open several); the threads are almost always blocked on a socket read,
+    // so they're cheap. Paired with a short idle SO_TIMEOUT so they free quickly.
+    private final ExecutorService connectionPool = Executors.newFixedThreadPool(16);
+    // Auth: a per-run 6-digit PIN shown on the Y1's Web Server screen. All pages and
+    // /api/* (except the login page/assets) require a session cookie obtained by POSTing
+    // this PIN to /api/login, so a random device on the same Wi-Fi can't browse/delete
+    // files or read the stored Navidrome credentials.
+    private final String pin = String.format(Locale.US, "%06d", new java.security.SecureRandom().nextInt(1000000));
+    private final java.util.Set<String> sessions = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    private final java.security.SecureRandom rng = new java.security.SecureRandom();
+    private int failedLogins = 0;
+    private long lockUntilMs = 0L;
 
-                            // 🚀 [design tweak] Button colors (purple accent & modern tone)
-                            "button{background:#00FFFF; color:#001A19; font-weight:600; cursor:pointer;} " + // default button (light purple)
-                            "button:hover{background:#00CFCF;} " +
-                            "button.danger{background:#12201F; color:#E57373;} " + // delete/cancel button (dark gray background, red text)
-                            "button.danger:hover{background:#EF5350; color:#fff;} " +
-                            "button.action{background:#10201E; color:#00FFFF;} " + // sub-action button (dark background, purple text)
-                            "button.action:hover{background:#17302E;} " +
-
-                            // 🚀 [design tweak] Boxes and list items
-                            ".box{background:#0D1817; padding:20px; border-radius:0; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
-                            ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #17302E; cursor:pointer; transition:0.2s;} " +
-                            ".item:last-child{border-bottom:none;} " +
-                            ".item:hover{background:#12211F; border-radius:0;} " +
-                            ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:12px;} " +
-                            ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;} " +
-                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:0; background:#0B1413;} " +
-                            ".icon{font-size:22px; width:40px; text-align:center; color:#00FFFF;} " + // icons unified to the same light purple tone
-                            ".btn-group{display:flex; gap:6px;} " +
-
-                            // Audio player
-                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#0D1817; border-top:1px solid #17302E; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
-                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:0;} " +
-
-                            // Drag & drop animation
-                            "#uploadBox{transition:0.3s; border:2px dashed #17302E;} " +
-                            "#uploadBox.dragover{background:#12211F; border:2px dashed #00FFFF;} " +
-
-                            // Text editor modal
-                            "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(18,18,22,0.95); z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
-                            "#editorArea{width:100%; height:calc(100% - 120px); background:#05100F; color:#EAF7F5; font-family:'Courier New', monospace; font-size:15px; border:1px solid #17302E; border-radius:0; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
-                            "#editorTitle{color:#00FFFF; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
-                            "</style></head><body>" +
-
-                            "<h2 style='color:#EAF7F5; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
-
-                            // Upload / create-folder box
-                            "<div class='box' id='uploadBox'>" +
-                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#00FFFF;'>📍 <span id='currentPathText'>/</span></div>" +
-                            "<div style='text-align:center; color:#888888; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #17302E;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
-                            "<div style='display:flex; gap:8px; margin-bottom:15px;'>" +
-                            "<input type='text' id='fName' placeholder='New folder name...'>" +
-                            "<button onclick='createFolder()'>Create</button></div>" +
-                            "<div style='display:flex; gap:8px; align-items:center;'>" +
-                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#888888;'>" +
-                            "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
-                            "<div id='status' style='margin-top:12px; color:#00E6B8; font-weight:600; font-size:14px;'></div>" +
-                            "</div>" +
-
-                            // Navidrome music browser banner → dedicated download-manager page
-                            "<a href='/music' style='text-decoration:none;'>" +
-                            "<div class='box' style='display:flex; align-items:center; gap:14px; background:linear-gradient(135deg,#0A2624,#0D1817); cursor:pointer;'>" +
-                            "<div style='font-size:30px;'>🎧</div>" +
-                            "<div style='flex-grow:1;'>" +
-                            "<div style='font-size:16px; font-weight:600; color:#EAF7F5;'>Browse &amp; Download Music</div>" +
-                            "<div style='font-size:13px; color:#888888; margin-top:2px;'>Search Navidrome and queue albums to this device</div>" +
-                            "</div>" +
-                            "<div style='font-size:20px; color:#00FFFF;'>〉</div>" +
-                            "</div></a>" +
-
-                            // Navidrome settings box
-                            "<div class='box'>" +
-                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#00FFFF;'>🎵 Navidrome Settings</div>" +
-                            "<div style='display:flex; flex-direction:column; gap:8px;'>" +
-                            "<input type='text' id='navUrl' placeholder='Server URL  e.g. http://192.168.1.100:4533' style='width:100%; box-sizing:border-box;'>" +
-                            "<input type='text' id='navUser' placeholder='Username'>" +
-                            "<input type='password' id='navPass' placeholder='Password'>" +
-                            "</div>" +
-                            "<div style='margin-top:10px; display:flex; gap:8px;'>" +
-                            "<button onclick='saveNavSettings()' style='flex:1;'>💾 Save</button>" +
-                            "<button class='action' onclick='loadNavSettings()' style='flex:1;'>📋 Load Current</button>" +
-                            "</div>" +
-                            "<div id='navStatus' style='margin-top:8px; color:#00E6B8; font-size:13px;'></div>" +
-                            "</div>" +
-
-                            // File list box
-                            "<div class='box' id='fileList'>Loading...</div>" +
-
-                            // Floating audio player
-                            "<div id='audioBox'>" +
-                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#00FFFF;'></div>" +
-                            "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
-                            "</div>" +
-
-                            // Fullscreen text editor
-                            "<div id='editorBox'>" +
-                            "<h3 id='editorTitle'>📝 Edit File</h3>" +
-                            "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
-                            "<div style='display:flex; gap:12px; margin-top:15px;'>" +
-                            "<button class='action' style='flex:1; background:#00FFFF; color:#001A19;' onclick='saveFile()'>💾 Save Settings</button>" +
-                            "<button class='danger' style='flex:1;' onclick='closeEditor()'>Cancel</button>" +
-                            "</div></div>" +
-
-                            "<script>" +
-                            "let currentPath = '';" +
-                            "function loadList() {" +
-                            "  fetch('/api/list?dir=' + encodeURIComponent(currentPath)).then(r=>r.json()).then(data => {" +
-                            "    document.getElementById('currentPathText').innerText = '/' + currentPath;" +
-                            "    let html = '';" +
-                            "    if(currentPath !== '') html += `<div class='item' onclick='goUp()'><div class='item-left'><div class='icon'>🔙</div><b style='color:#00FFFF;'>[Go Back]</b></div></div>`;" +
-                            "    data.forEach(f => {" +
-                            "      let ext = f.name.split('.').pop().toLowerCase();" +
-                            "      let isImg = ['jpg','jpeg','png','webp','gif'].includes(ext);" +
-                            "      let isAudio = ['mp3','flac','wav','ogg','m4a','aac'].includes(ext);" +
-                            "      let isText = ['json','txt','xml','ini','md','m3u','m3u8','eq'].includes(ext);" +
-                            "      let fullPath = currentPath ? currentPath + '/' + f.name : f.name;" +
-                            "      let safePath = encodeURIComponent(fullPath);" +
-
-                            "      let iconHtml = f.isDir ? `<div class='icon'>📁</div>` : " +
-                            "                     isImg ? `<img src='/api/file?path=${safePath}' class='thumb' loading='lazy'>` : " +
-                            "                     isAudio ? `<div class='icon'>🎵</div>` : " +
-                            "                     isText ? `<div class='icon'>📝</div>` : `<div class='icon'>📄</div>`;" +
-
-                            "      let rowAction = f.isDir ? `onclick=\"goInto('${f.name.replace(/'/g, \"\\\\'\")}')\"` : " +
-                            "                      isAudio ? `onclick=\"playAudio('${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\"` : " +
-                            "                      isText ? `onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\"` : " +
-                            "                      isImg ? `onclick=\"window.open('/api/file?path=${safePath}', '_blank')\"` : '';" +
-
-                            "      let editBtn = isText ? `<button class='action' onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\">Edit</button>` : '';" +
-                            "      let renameBtn = `<button class='action' onclick=\"renameItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Rename</button>`;" +
-
-                            "      html += `<div class='item' ${rowAction}>` +" +
-                            "              `<div class='item-left'>${iconHtml}<span class='item-name'>${f.name}</span></div>` +" +
-                            "              `<div class='btn-group'>${editBtn}${renameBtn}<button class='danger' onclick=\"deleteItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Delete</button></div>` +" +
-                            "              `</div>`;" +
-                            "    });" +
-                            "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:15px; color:#888888;\">No files found.</div>';" +
-                            "    document.getElementById('fileList').innerHTML = html;" +
-                            "  });" +
-                            "}" +
-                            "function goInto(dirName) { currentPath = currentPath ? currentPath + '/' + dirName : dirName; loadList(); }" +
-                            "function goUp() { let parts = currentPath.split('/'); parts.pop(); currentPath = parts.join('/'); loadList(); }" +
-
-                            "function playAudio(path, name) {" +
-                            "  document.getElementById('audioBox').style.display = 'block';" +
-                            "  document.getElementById('audioTitle').innerText = '▶ ' + name;" +
-                            "  let player = document.getElementById('audioPlayer');" +
-                            "  player.src = '/api/file?path=' + path;" +
-                            "  player.play();" +
-                            "}" +
-
-                            "let editingPath = '';" +
-                            "function openEditor(e, path, name) {" +
-                            "  if(e) e.stopPropagation();" +
-                            "  editingPath = path;" +
-                            "  document.getElementById('editorTitle').innerText = '📝 Editing: ' + name;" +
-                            "  document.getElementById('editorArea').value = 'Loading content...';" +
-                            "  document.getElementById('editorBox').style.display = 'block';" +
-                            "  fetch('/api/file?path=' + path).then(r => r.text()).then(txt => {" +
-                            "    document.getElementById('editorArea').value = txt;" +
-                            "  });" +
-                            "}" +
-                            "function closeEditor() { document.getElementById('editorBox').style.display = 'none'; editingPath=''; }" +
-                            "function saveFile() {" +
-                            "  let content = document.getElementById('editorArea').value;" +
-                            "  fetch('/api/save?path=' + editingPath, { method: 'POST', body: content }).then(() => {" +
-                            "    alert('✅ File saved successfully!'); closeEditor();" +
-                            "  }).catch(e => alert('Failed to save.'));" +
-                            "}" +
-
-                            "function createFolder() { " +
-                            "  var n = document.getElementById('fName').value; if(!n) return;" +
-                            "  fetch('/api/create?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(n), {method:'POST'}).then(()=>{ document.getElementById('fName').value=''; loadList();});" +
-                            "}" +
-                            "function renameItem(e, oldName) { " +
-                            "  e.stopPropagation();" +
-                            "  var newName = prompt('Enter new name for: ' + oldName, oldName);" +
-                            "  if(!newName || newName === oldName) return;" +
-                            "  fetch('/api/rename?dir=' + encodeURIComponent(currentPath) + '&old=' + encodeURIComponent(oldName) + '&new=' + encodeURIComponent(newName), {method:'POST'}).then(()=>loadList());" +
-                            "}" +
-                            "function deleteItem(e, name) { " +
-                            "  e.stopPropagation();" +
-                            "  if(!confirm('Delete ' + name + '?')) return;" +
-                            "  fetch('/api/delete?path=' + encodeURIComponent(currentPath ? currentPath + '/' + name : name), {method:'POST'}).then(()=>loadList());" +
-                            "}" +
-
-                            "async function uploadAll(droppedFiles) { " +
-                            "  var files = droppedFiles || document.getElementById('fInput').files; var st = document.getElementById('status'); " +
-                            "  if(files.length === 0) return;" +
-                            "  for(var i=0; i<files.length; i++) { " +
-                            "    st.innerText = 'Uploading: ' + files[i].name + ' (' + (i+1) + '/' + files.length + ')'; " +
-                            "    await fetch('/api/upload?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(files[i].name), {method:'POST', body:files[i]}); " +
-                            "  } " +
-                            "  st.innerText = '✅ Upload Complete!'; document.getElementById('fInput').value=''; loadList();" +
-                            "}" +
-
-                            "async function uploadFolderItems(fileList) { " +
-                            "  var st = document.getElementById('status'); " +
-                            "  for(var i=0; i<fileList.length; i++) { " +
-                            "    let item = fileList[i]; " +
-                            "    let displayPath = item.path ? item.path + item.file.name : item.file.name; " +
-                            "    st.innerText = 'Uploading: ' + displayPath + ' (' + (i+1) + '/' + fileList.length + ')'; " +
-                            "    let targetDir = currentPath; " +
-                            "    if(item.path) { " +
-                            "       let subDir = item.path.replace(/\\/$/, ''); " +
-                            "       targetDir = currentPath ? currentPath + '/' + subDir : subDir; " +
-                            "    } " +
-                            "    await fetch('/api/upload?dir=' + encodeURIComponent(targetDir) + '&name=' + encodeURIComponent(item.file.name), {method:'POST', body:item.file}); " +
-                            "  } " +
-                            "  st.innerText = '✅ Folder Upload Complete!'; loadList();" +
-                            "}" +
-
-                            "let dropZone = document.getElementById('uploadBox');" +
-                            "dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });" +
-                            "dropZone.addEventListener('dragleave', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); });" +
-                            "dropZone.addEventListener('drop', function(e) { " +
-                            "  e.preventDefault(); dropZone.classList.remove('dragover'); " +
-                            "  let items = e.dataTransfer.items; " +
-                            "  if(!items) { if(e.dataTransfer.files.length > 0) uploadAll(e.dataTransfer.files); return; } " +
-                            "  " +
-                            "  document.getElementById('status').innerText = 'Scanning dropped items...'; " +
-                            "  let filesToUpload = []; " +
-                            "  let pending = 0; " +
-                            "  " +
-                            "  function scanEntry(item, path) { " +
-                            "    if(item.isFile) { " +
-                            "      pending++; " +
-                            "      item.file(f => { filesToUpload.push({file: f, path: path}); pending--; checkDone(); }); " +
-                            "    } else if(item.isDirectory) { " +
-                            "      let dirReader = item.createReader(); " +
-                            "      pending++; " +
-                            "      dirReader.readEntries(entries => { " +
-                            "        entries.forEach(entry => scanEntry(entry, path + item.name + '/')); " +
-                            "        pending--; checkDone(); " +
-                            "      }); " +
-                            "    } " +
-                            "  } " +
-                            "  function checkDone() { " +
-                            "    if(pending === 0) { " +
-                            "      if(filesToUpload.length > 0) uploadFolderItems(filesToUpload); " +
-                            "      else document.getElementById('status').innerText = 'No files found.'; " +
-                            "    } " +
-                            "  } " +
-                            "  for(let i=0; i<items.length; i++) { " +
-                            "    let entry = items[i].webkitGetAsEntry(); " +
-                            "    if(entry) scanEntry(entry, ''); " +
-                            "  } " +
-                            "});" +
-
-                            "function loadNavSettings() {" +
-                            "  fetch('/api/navidrome-settings').then(r=>r.json()).then(d => {" +
-                            "    document.getElementById('navUrl').value = d.url || '';" +
-                            "    document.getElementById('navUser').value = d.user || '';" +
-                            "    document.getElementById('navPass').value = d.pass || '';" +
-                            "    document.getElementById('navStatus').innerText = d.url ? '✅ Settings loaded.' : 'ℹ️ Not configured yet.';" +
-                            "  }).catch(()=>{ document.getElementById('navStatus').innerText='⚠️ Could not load.'; });" +
-                            "}" +
-                            "async function saveNavSettings() {" +
-                            "  var url = document.getElementById('navUrl').value.trim();" +
-                            "  var user = document.getElementById('navUser').value.trim();" +
-                            "  var pass = document.getElementById('navPass').value;" +
-                            "  if(!url||!user){document.getElementById('navStatus').innerText='⚠️ URL and username are required.';return;}" +
-                            "  document.getElementById('navStatus').innerText='⏳ Saving & testing connection...';" +
-                            "  var body = JSON.stringify({url:url,user:user,pass:pass});" +
-                            "  try {" +
-                            "    let r = await fetch('/api/navidrome-settings', {method:'POST', body:body});" +
-                            "    let d = await r.json();" +
-                            "    if (d.ok) { document.getElementById('navStatus').innerText='✅ Saved and connected! Open Navidrome on the Y1.'; }" +
-                            "    else { document.getElementById('navStatus').innerText='⚠️ Saved, but could not connect: ' + (d.error || 'unknown error'); }" +
-                            "  } catch(e) {" +
-                            "    document.getElementById('navStatus').innerText='❌ Save request failed: ' + e;" +
-                            "  }" +
-                            "}" +
-
-                            "window.onload = function(){ loadList(); loadNavSettings(); };" +
-                            "</script></body></html>";
+    public String getPin() { return pin; }
 
     public Y1WebServer(Context context) {
         this.context = context;
@@ -487,19 +224,36 @@ public class Y1WebServer extends Thread {
         sb.append("}");
     }
 
-    private void sendJson(OutputStream os, String json) throws java.io.IOException {
-        os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+    // ── Response writers (all emit Content-Length + Connection so keep-alive works) ──
+    private void sendResponse(OutputStream os, int status, String statusText, String contentType,
+                              byte[] body, boolean keepAlive, String extraHeaders) throws java.io.IOException {
+        StringBuilder h = new StringBuilder();
+        h.append("HTTP/1.1 ").append(status).append(' ').append(statusText).append("\r\n");
+        if (contentType != null) h.append("Content-Type: ").append(contentType).append("\r\n");
+        h.append("Content-Length: ").append(body.length).append("\r\n");
+        if (extraHeaders != null) h.append(extraHeaders);
+        h.append("Connection: ").append(keepAlive ? "keep-alive" : "close").append("\r\n\r\n");
+        os.write(h.toString().getBytes("UTF-8"));
+        if (body.length > 0) os.write(body);
     }
 
-    private void sendJsonError(OutputStream os, String message) throws java.io.IOException {
-        os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
-                + "{\"ok\":false,\"error\":\"" + jsonEsc(message) + "\"}").getBytes("UTF-8"));
+    private void sendJson(OutputStream os, String json, boolean keepAlive) throws java.io.IOException {
+        sendResponse(os, 200, "OK", "application/json; charset=UTF-8", json.getBytes("UTF-8"), keepAlive, null);
+    }
+    private void sendJsonError(OutputStream os, String message, boolean keepAlive) throws java.io.IOException {
+        sendJson(os, "{\"ok\":false,\"error\":\"" + jsonEsc(message) + "\"}", keepAlive);
+    }
+    private void sendText(OutputStream os, int status, String statusText, String text, boolean keepAlive) throws java.io.IOException {
+        sendResponse(os, status, statusText, "text/plain; charset=UTF-8", text.getBytes("UTF-8"), keepAlive, null);
+    }
+    private void sendRedirect(OutputStream os, String location, boolean keepAlive) throws java.io.IOException {
+        sendResponse(os, 302, "Found", null, new byte[0], keepAlive, "Location: " + location + "\r\n");
     }
 
-    /** Read exactly contentLength bytes of a request body as a UTF-8 string. */
+    /** Read exactly contentLength bytes of a request body as a UTF-8 string (small API bodies). */
     private static String readRequestBody(InputStream is, int contentLength) throws java.io.IOException {
         if (contentLength <= 0) return "";
-        byte[] body = new byte[Math.min(contentLength, 1 << 20)]; // 1MB cap — these bodies are tiny JSON
+        byte[] body = new byte[contentLength];
         int total = 0;
         while (total < body.length) {
             int r = is.read(body, total, body.length - total);
@@ -509,8 +263,18 @@ public class Y1WebServer extends Thread {
         return new String(body, 0, total, "UTF-8");
     }
 
-    /** Serve a file bundled under assets/ (used for the music page). */
-    private void serveAsset(OutputStream os, String assetPath, String contentType) throws java.io.IOException {
+    /** Discard exactly n body bytes so the stream stays aligned for the next keep-alive request. */
+    private static void drainBody(InputStream is, long n) throws java.io.IOException {
+        byte[] buf = new byte[8192];
+        while (n > 0) {
+            int r = is.read(buf, 0, (int) Math.min(buf.length, n));
+            if (r == -1) break;
+            n -= r;
+        }
+    }
+
+    /** Serve a file bundled under assets/webui. */
+    private void serveAsset(OutputStream os, String assetPath, String contentType, boolean keepAlive) throws java.io.IOException {
         InputStream in = null;
         try {
             in = context.getAssets().open(assetPath);
@@ -518,12 +282,9 @@ public class Y1WebServer extends Thread {
             byte[] tmp = new byte[8192];
             int r;
             while ((r = in.read(tmp)) != -1) buf.write(tmp, 0, r);
-            byte[] bytes = buf.toByteArray();
-            os.write(("HTTP/1.1 200 OK\r\nContent-Type: " + contentType
-                    + "\r\nContent-Length: " + bytes.length + "\r\n\r\n").getBytes("UTF-8"));
-            os.write(bytes);
+            sendResponse(os, 200, "OK", contentType, buf.toByteArray(), keepAlive, null);
         } catch (java.io.FileNotFoundException fnf) {
-            os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
+            sendText(os, 404, "Not Found", "Not Found", keepAlive);
         } finally {
             if (in != null) try { in.close(); } catch (Exception e) { Log.d(TAG, "asset close failed", e); }
         }
@@ -534,48 +295,92 @@ public class Y1WebServer extends Thread {
         try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
     }
 
+    // ── Auth (PIN + session cookie) ──────────────────────────────────────────────
+    private boolean isAuthed(String cookieHeader) {
+        if (cookieHeader == null) return false;
+        for (String c : cookieHeader.split(";")) {
+            c = c.trim();
+            if (c.startsWith("y1auth=")) return sessions.contains(c.substring(7));
+        }
+        return false;
+    }
+    private String newSessionToken() {
+        byte[] b = new byte[24];
+        rng.nextBytes(b);
+        StringBuilder sb = new StringBuilder(48);
+        for (byte x : b) sb.append(String.format(Locale.US, "%02x", x));
+        return sb.toString();
+    }
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null || a.length() != b.length()) return false;
+        int r = 0;
+        for (int i = 0; i < a.length(); i++) r |= a.charAt(i) ^ b.charAt(i);
+        return r == 0;
+    }
+    private void handleLogin(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
+        long now = System.currentTimeMillis();
+        if (now < lockUntilMs) { sendJsonError(os, "Too many attempts — wait a moment and try again.", keepAlive); return; }
+        String given = "";
+        try { given = new JSONObject(body).optString("pin", "").trim(); } catch (Exception e) { Log.d(TAG, "login parse failed", e); }
+        if (!given.isEmpty() && constantTimeEquals(given, pin)) {
+            String token = newSessionToken();
+            sessions.add(token);
+            failedLogins = 0;
+            sendResponse(os, 200, "OK", "application/json; charset=UTF-8", "{\"ok\":true}".getBytes("UTF-8"),
+                    keepAlive, "Set-Cookie: y1auth=" + token + "; Path=/; HttpOnly; SameSite=Strict\r\n");
+        } else {
+            failedLogins++;
+            // Throttle brute force: after 5 wrong tries, freeze all logins for 30s.
+            if (failedLogins >= 5) { lockUntilMs = now + 30000; failedLogins = 0; }
+            sendJsonError(os, "Incorrect PIN", keepAlive);
+        }
+    }
+
     /**
-     * Resolve a download request body into concrete songs and enqueue them into the
-     * (main-thread) NavidromeManager queue. Body is one of:
-     *   {"albumId":"..","transcoded":bool}                 — whole album
-     *   {"albumId":"..","songIds":[".."],"transcoded":bool} — selected album tracks
-     *   {"songs":[{...}],"transcoded":bool}                — songs the browser already has
-     * The album fetch (network) happens here on the web thread; only the actual enqueue
-     * hops to the main thread, kept short so polling stays responsive.
+     * Resolve a request body into concrete songs. Body is one of:
+     *   {"albumId":".."}                 — whole album
+     *   {"albumId":"..","songIds":[".."]} — selected album tracks
+     *   {"songs":[{...}]}                — songs the browser already has
+     * The album fetch (network) happens on the web thread; callers hop to the main thread
+     * only for the short enqueue/delete step.
      */
-    private void handleNavidromeDownload(OutputStream os, String body) throws java.io.IOException {
-        final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs = new java.util.ArrayList<>();
-        boolean transcoded;
+    private java.util.List<com.themoon.y1.subsonic.SubsonicSong> resolveSongsFromBody(JSONObject obj) throws Exception {
+        java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs = new java.util.ArrayList<>();
+        String albumId = obj.optString("albumId", "");
+        if (!albumId.isEmpty()) {
+            java.util.List<com.themoon.y1.subsonic.SubsonicSong> albumSongs =
+                    com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(albumId);
+            org.json.JSONArray idFilter = obj.optJSONArray("songIds");
+            if (idFilter != null && idFilter.length() > 0) {
+                java.util.Set<String> keep = new java.util.HashSet<>();
+                for (int i = 0; i < idFilter.length(); i++) keep.add(idFilter.optString(i));
+                for (com.themoon.y1.subsonic.SubsonicSong s : albumSongs) if (keep.contains(s.id)) songs.add(s);
+            } else {
+                songs.addAll(albumSongs);
+            }
+        } else {
+            org.json.JSONArray arr = obj.optJSONArray("songs");
+            if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                songs.add(com.themoon.y1.subsonic.SubsonicSong.fromWebJson(arr.getJSONObject(i)));
+            }
+        }
+        return songs;
+    }
+
+    private void handleNavidromeDownload(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
+        final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs;
+        final boolean transcoded;
         try {
             JSONObject obj = new JSONObject(body);
             transcoded = obj.optBoolean("transcoded", false);
-            String albumId = obj.optString("albumId", "");
-            if (!albumId.isEmpty()) {
-                java.util.List<com.themoon.y1.subsonic.SubsonicSong> albumSongs =
-                        com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(albumId);
-                org.json.JSONArray idFilter = obj.optJSONArray("songIds");
-                if (idFilter != null && idFilter.length() > 0) {
-                    java.util.Set<String> keep = new java.util.HashSet<>();
-                    for (int i = 0; i < idFilter.length(); i++) keep.add(idFilter.optString(i));
-                    for (com.themoon.y1.subsonic.SubsonicSong s : albumSongs) if (keep.contains(s.id)) songs.add(s);
-                } else {
-                    songs.addAll(albumSongs);
-                }
-            } else {
-                org.json.JSONArray arr = obj.optJSONArray("songs");
-                if (arr != null) for (int i = 0; i < arr.length(); i++) {
-                    songs.add(com.themoon.y1.subsonic.SubsonicSong.fromWebJson(arr.getJSONObject(i)));
-                }
-            }
+            songs = resolveSongsFromBody(obj);
         } catch (Exception e) {
-            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request");
+            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request", keepAlive);
             return;
         }
-
-        if (songs.isEmpty()) { sendJsonError(os, "No tracks to download"); return; }
-
+        if (songs.isEmpty()) { sendJsonError(os, "No tracks to download", keepAlive); return; }
         final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
-        if (a == null) { sendJsonError(os, "Player app not running"); return; }
+        if (a == null) { sendJsonError(os, "Player app not running", keepAlive); return; }
 
         final boolean tr = transcoded;
         final com.themoon.y1.managers.NavidromeManager.EnqueueResult[] holder = new com.themoon.y1.managers.NavidromeManager.EnqueueResult[1];
@@ -587,15 +392,47 @@ public class Y1WebServer extends Thread {
         try { latch.await(15, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
         com.themoon.y1.managers.NavidromeManager.EnqueueResult r = holder[0];
-        if (r == null) { sendJsonError(os, "Timed out queueing download"); return; }
-        if (r.error != null) { sendJsonError(os, r.error); return; }
-        sendJson(os, "{\"ok\":true,\"queued\":" + r.queued + ",\"alreadyHave\":" + r.alreadyHave + "}");
+        if (r == null) { sendJsonError(os, "Timed out queueing download", keepAlive); return; }
+        if (r.error != null) { sendJsonError(os, r.error, keepAlive); return; }
+        sendJson(os, "{\"ok\":true,\"queued\":" + r.queued + ",\"alreadyHave\":" + r.alreadyHave + "}", keepAlive);
     }
 
-    private class RequestHandler implements Runnable {
-        private Socket socket;
-        public RequestHandler(Socket socket) { this.socket = socket; }
+    private void handleNavidromeDelete(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
+        final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs;
+        try {
+            songs = resolveSongsFromBody(new JSONObject(body));
+        } catch (Exception e) {
+            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request", keepAlive);
+            return;
+        }
+        if (songs.isEmpty()) { sendJsonError(os, "Nothing to delete", keepAlive); return; }
+        final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
+        if (a == null) { sendJsonError(os, "Player app not running", keepAlive); return; }
 
+        final int[] deleted = {0};
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        a.runOnUiThread(new Runnable() { @Override public void run() {
+            try {
+                com.themoon.y1.managers.NavidromeManager nm = com.themoon.y1.managers.NavidromeManager.getInstance();
+                for (com.themoon.y1.subsonic.SubsonicSong s : songs) if (nm.deleteNavidromeDownload(a, s)) deleted[0]++;
+                nm.refreshNavidromeSongLabels(a);
+            } finally { latch.countDown(); }
+        }});
+        try { latch.await(10, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        sendJson(os, "{\"ok\":true,\"deleted\":" + deleted[0] + "}", keepAlive);
+    }
+
+    private static final int MAX_HEADER_LINE = 8192;       // one header line
+    private static final int MAX_HEADERS = 100;            // header lines per request
+    private static final int MAX_REQUESTS_PER_CONN = 200;  // keep-alive request cap per socket
+    private static final int NONSTREAM_BODY_CAP = 1 << 20; // 1MB cap for JSON bodies read into memory
+
+    private class RequestHandler implements Runnable {
+        private final Socket socket;
+        RequestHandler(Socket socket) { this.socket = socket; }
+
+        // Reads one CRLF/LF-terminated header line, capped so a client that never sends a
+        // newline can't grow the buffer without bound (memory-exhaustion guard).
         private String readHeaderLine(InputStream is) throws java.io.IOException {
             StringBuilder sb = new StringBuilder();
             int c;
@@ -603,440 +440,417 @@ public class Y1WebServer extends Thread {
                 if (c == '\r') continue;
                 if (c == '\n') break;
                 sb.append((char) c);
+                if (sb.length() > MAX_HEADER_LINE) throw new java.io.IOException("Header line too long");
             }
             return sb.toString();
         }
 
         public void run() {
             try {
-                // One BufferedInputStream for the whole request: header lines are read
-                // byte-by-byte (cheap now that they hit the buffer) and any request body
-                // is read from this SAME stream so already-buffered body bytes aren't lost.
+                // Short idle timeout: keeps the connection warm across a burst (cover grid,
+                // 2s queue polls) but frees the pool thread quickly when the browser goes quiet.
+                socket.setSoTimeout(10000);
                 InputStream is = new BufferedInputStream(socket.getInputStream());
                 OutputStream os = socket.getOutputStream();
-
-                String requestLine = readHeaderLine(is);
-                if (requestLine == null || requestLine.isEmpty()) return;
-
-                String[] parts = requestLine.split(" ");
-                String method = parts[0];
-                String path = parts[1];
-
-                int contentLength = 0;
-                String rangeHeader = null;
-                String line;
-                while (!(line = readHeaderLine(is)).isEmpty()) {
-                    String lower = line.toLowerCase();
-                    if (lower.startsWith("content-length:")) {
-                        contentLength = Integer.parseInt(line.split(":")[1].trim());
-                    } else if (lower.startsWith("range:")) {
-                        rangeHeader = line.substring(6).trim();
-                    }
-                }
-
-                // 1. Send the screen UI (frontend - inline player + 🚀 text editor built in + 🚀 drag & drop support)
-                if (method.equals("GET") && path.equals("/")) {
-                    String html = FILE_MANAGER_HTML;
-
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
-                }
-                // 2. [API] Returns the file and folder list (JSON format)
-                else if (method.equals("GET") && path.startsWith("/api/list")) {
-                    String q = path.contains("?") ? path.split("\\?")[1] : "";
-                    String dirStr = "";
-                    if (q.startsWith("dir=")) dirStr = URLDecoder.decode(q.substring(4), "UTF-8");
-
-                    File targetDir = resolveSafePath(dirStr);
-                    StringBuilder json = new StringBuilder("[");
-
-                    if (targetDir.exists() && targetDir.isDirectory()) {
-                        File[] files = targetDir.listFiles();
-                        if (files != null) {
-                            for (int i=0; i<2; i++) {
-                                for (File f : files) {
-                                    boolean isDir = f.isDirectory();
-                                    if ((i == 0 && isDir) || (i == 1 && !isDir)) {
-                                        if (json.length() > 1) json.append(",");
-                                        json.append("{\"name\":\"").append(f.getName().replace("\"", "\\\"")).append("\",\"isDir\":").append(isDir).append("}");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    json.append("]");
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json.toString()).getBytes("UTF-8"));
-                }
-
-                // 3. [API] Create folder
-                else if (method.equals("POST") && path.startsWith("/api/create")) {
-                    String q = path.split("\\?")[1];
-                    String[] params = q.split("&");
-                    String dirStr = "", name = "";
-                    for (String p : params) {
-                        if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
-                        if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
-                    }
-                    File newDir = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
-                    newDir.mkdirs();
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
-                }
-
-                // 4. [API] Delete file or folder
-                else if (method.equals("POST") && path.startsWith("/api/delete")) {
-                    String q = path.split("\\?")[1];
-                    String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = resolveSafePath(targetPath);
-                    if (targetFile.exists()) {
-                        deleteFileOrFolder(targetFile);
-                    }
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
-                }
-
-                // 🚀 [fix 5] [API] File/folder rename engine!
-                else if (method.equals("POST") && path.startsWith("/api/rename")) {
-                    String q = path.split("\\?")[1];
-                    String[] params = q.split("&");
-                    String dirStr = "", oldName = "", newName = "";
-                    for (String p : params) {
-                        if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
-                        if (p.startsWith("old=")) oldName = URLDecoder.decode(p.substring(4), "UTF-8");
-                        if (p.startsWith("new=")) newName = URLDecoder.decode(p.substring(4), "UTF-8");
-                    }
-
-                    File oldFile = resolveSafePath(dirStr.isEmpty() ? oldName : dirStr + "/" + oldName);
-                    File newFile = resolveSafePath(dirStr.isEmpty() ? newName : dirStr + "/" + newName);
-
-                    // Only rename safely when the existing file exists and no file with the new name already exists
-                    if (oldFile.exists() && !newFile.exists()) {
-                        oldFile.renameTo(newFile);
-                    }
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
-                }
-
-                // [API] Navidrome settings – GET
-                else if (method.equals("GET") && path.equals("/api/navidrome-settings")) {
-                    android.content.SharedPreferences prefs = context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE);
-                    String navUrl = prefs.getString("navidrome_url", "");
-                    String navUser = prefs.getString("navidrome_user", "");
-                    String navPass = prefs.getString("navidrome_pass", "");
-                    String json = "{\"url\":\"" + navUrl.replace("\"","\\\"") + "\",\"user\":\"" + navUser.replace("\"","\\\"") + "\",\"pass\":\"" + navPass.replace("\"","\\\"") + "\"}";
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
-                }
-
-                // [API] Navidrome settings – POST
-                else if (method.equals("POST") && path.equals("/api/navidrome-settings")) {
-                    byte[] bodyBytes = new byte[Math.min(contentLength, 4096)];
-                    int totalRead = 0;
-                    while (totalRead < bodyBytes.length) {
-                        int r = is.read(bodyBytes, totalRead, bodyBytes.length - totalRead);
-                        if (r == -1) break;
-                        totalRead += r;
-                    }
-                    String body = new String(bodyBytes, 0, totalRead, "UTF-8");
-                    boolean pingOk = false;
-                    String pingError = "Invalid request";
+                int served = 0;
+                boolean keepGoing = true;
+                while (running && keepGoing && served < MAX_REQUESTS_PER_CONN) {
+                    String requestLine;
                     try {
-                        org.json.JSONObject obj = new org.json.JSONObject(body);
-                        String navUrl = obj.optString("url", "").trim().replaceAll("/+$", "");
-                        String navUser = obj.optString("user", "").trim();
-                        String navPass = obj.optString("pass", "");
-                        context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE).edit()
-                                .putString("navidrome_url", navUrl)
-                                .putString("navidrome_user", navUser)
-                                .putString("navidrome_pass", navPass)
-                                .apply();
-                        com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
-                        if (com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) {
-                            com.themoon.y1.subsonic.NavidromeProxyServer.ensureStarted();
-                        }
-
-                        // Actually test the new settings against the server rather than just
-                        // trusting the save — this is what was silently failing before: the
-                        // Y1 kept showing the previous server's cached artist list with no
-                        // indication the new URL/login didn't work.
-                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-                        final boolean[] okHolder = {false};
-                        final String[] errHolder = {"Timed out waiting for server"};
-                        com.themoon.y1.subsonic.SubsonicClient.getInstance().ping(
-                                new com.themoon.y1.subsonic.SubsonicClient.Callback<Boolean>() {
-                                    @Override public void onSuccess(Boolean result) { okHolder[0] = true; latch.countDown(); }
-                                    @Override public void onError(String message) { errHolder[0] = message; latch.countDown(); }
-                                });
-                        latch.await(8, java.util.concurrent.TimeUnit.SECONDS);
-                        pingOk = okHolder[0];
-                        pingError = errHolder[0];
-                    } catch (Exception e) {
-                        pingError = e.getMessage() != null ? e.getMessage() : "Save failed";
+                        requestLine = readHeaderLine(is);
+                    } catch (java.net.SocketTimeoutException ste) {
+                        break; // idle keep-alive connection -> close
                     }
-                    String json = pingOk
-                            ? "{\"ok\":true}"
-                            : "{\"ok\":false,\"error\":\"" + (pingError == null ? "Unknown error" : pingError.replace("\\", "\\\\").replace("\"", "\\\"")) + "\"}";
-                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+                    if (requestLine.isEmpty()) break; // client closed / no further pipelined request
+                    served++;
+                    keepGoing = handleRequest(is, os, requestLine);
+                    os.flush();
                 }
-
-                // ── Navidrome download manager ──────────────────────────────────
-                // Music browser page (served from assets so it isn't a giant Java string)
-                else if (method.equals("GET") && (path.equals("/music") || path.startsWith("/music?"))) {
-                    serveAsset(os, "webui/music.html", "text/html; charset=UTF-8");
-                }
-                // [API] Browse albums — getAlbumList2 (type=newest/frequent/random/alphabeticalByName)
-                else if (method.equals("GET") && path.startsWith("/api/navidrome/albums")) {
-                    if (!com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) { sendJsonError(os, "Navidrome is not configured — set the server URL and login on the main page first."); }
-                    else {
-                    java.util.Map<String, String> qp = parseQuery(path);
-                    String type = qp.containsKey("type") ? qp.get("type") : "newest";
-                    int size = parseIntSafe(qp.get("size"), 24);
-                    int offset = parseIntSafe(qp.get("offset"), 0);
-                    try {
-                        java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums =
-                                com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumListBlocking(type, size, offset);
-                        StringBuilder json = new StringBuilder("{\"albums\":[");
-                        for (int i = 0; i < albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, albums.get(i)); }
-                        json.append("]}");
-                        sendJson(os, json.toString());
-                    } catch (Exception e) {
-                        sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Browse failed");
-                    }
-                    }
-                }
-                // [API] Search — search3 (albums + songs)
-                else if (method.equals("GET") && path.startsWith("/api/navidrome/search")) {
-                    java.util.Map<String, String> qp = parseQuery(path);
-                    String query = qp.containsKey("q") ? qp.get("q") : "";
-                    if (query.trim().isEmpty()) { sendJson(os, "{\"albums\":[],\"songs\":[]}"); }
-                    else {
-                        try {
-                            com.themoon.y1.subsonic.SubsonicClient.SearchResult r =
-                                    com.themoon.y1.subsonic.SubsonicClient.getInstance().searchBlocking(query, 30, 30);
-                            StringBuilder json = new StringBuilder("{\"albums\":[");
-                            for (int i = 0; i < r.albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, r.albums.get(i)); }
-                            json.append("],\"songs\":[");
-                            for (int i = 0; i < r.songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, r.songs.get(i), false); }
-                            json.append("]}");
-                            sendJson(os, json.toString());
-                        } catch (Exception e) {
-                            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Search failed");
-                        }
-                    }
-                }
-                // [API] Album detail — track list with per-track downloaded flag
-                else if (method.equals("GET") && path.startsWith("/api/navidrome/album")) {
-                    java.util.Map<String, String> qp = parseQuery(path);
-                    String id = qp.get("id");
-                    if (id == null || id.isEmpty()) { sendJsonError(os, "Missing album id"); }
-                    else {
-                        try {
-                            java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs =
-                                    com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(id);
-                            StringBuilder json = new StringBuilder("{\"songs\":[");
-                            for (int i = 0; i < songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, songs.get(i), true); }
-                            json.append("]}");
-                            sendJson(os, json.toString());
-                        } catch (Exception e) {
-                            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Load failed");
-                        }
-                    }
-                }
-                // [API] Cover art proxy — disk-cached, small, long browser-cache header
-                else if (method.equals("GET") && path.startsWith("/api/navidrome/cover")) {
-                    java.util.Map<String, String> qp = parseQuery(path);
-                    String id = qp.get("id");
-                    int size = parseIntSafe(qp.get("size"), 200);
-                    if (size < 32) size = 32; if (size > 640) size = 640;
-                    if (id == null || id.isEmpty()) {
-                        os.write("HTTP/1.1 404 Not Found\r\n\r\nNo cover".getBytes("UTF-8"));
-                    } else {
-                        try {
-                            File cacheDir = new File("/storage/sdcard0/Y1_Covers/NavidromeWeb");
-                            File cacheFile = new File(cacheDir, id.replaceAll("[^A-Za-z0-9._-]", "_") + "_" + size + ".jpg");
-                            File art = com.themoon.y1.subsonic.SubsonicClient.getInstance().cacheCoverArtBlocking(id, size, cacheFile);
-                            long len = art.length();
-                            os.write(("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: " + len
-                                    + "\r\nCache-Control: max-age=604800\r\n\r\n").getBytes("UTF-8"));
-                            FileInputStream fis = new FileInputStream(art);
-                            try {
-                                byte[] buffer = new byte[8192];
-                                int n;
-                                while ((n = fis.read(buffer)) != -1) os.write(buffer, 0, n);
-                            } finally { fis.close(); }
-                        } catch (Exception e) {
-                            os.write("HTTP/1.1 404 Not Found\r\n\r\nNo cover".getBytes("UTF-8"));
-                        }
-                    }
-                }
-                // [API] Live download-queue state (cheap to poll)
-                else if (method.equals("GET") && path.startsWith("/api/navidrome/queue")) {
-                    sendJson(os, com.themoon.y1.managers.NavidromeManager.getInstance().getWebQueueJson());
-                }
-                // [API] Enqueue a download — {albumId, transcoded, songIds?} or {songs:[...], transcoded}
-                else if (method.equals("POST") && path.startsWith("/api/navidrome/download")) {
-                    String body = readRequestBody(is, contentLength);
-                    handleNavidromeDownload(os, body);
-                }
-                // [API] Clear the pending queue (the in-flight track finishes)
-                else if (method.equals("POST") && path.startsWith("/api/navidrome/cancel")) {
-                    final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
-                    if (a == null) { sendJsonError(os, "Player app not running"); }
-                    else {
-                        final int[] removed = {0};
-                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-                        a.runOnUiThread(new Runnable() { @Override public void run() {
-                            try { removed[0] = com.themoon.y1.managers.NavidromeManager.getInstance().clearPendingNavidromeDownloads(); }
-                            finally { latch.countDown(); }
-                        }});
-                        try { latch.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                        sendJson(os, "{\"ok\":true,\"removed\":" + removed[0] + "}");
-                    }
-                }
-
-                // 5. [API] Read file (streaming, download, load code)
-                else if (method.equals("GET") && path.startsWith("/api/file")) {
-                    String q = path.split("\\?")[1];
-                    String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = resolveSafePath(targetPath);
-
-                    if (!targetFile.exists() || targetFile.isDirectory()) {
-                        os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
-                    } else {
-                        String mimeType = "application/octet-stream";
-                        String lowerName = targetFile.getName().toLowerCase();
-                        if (lowerName.endsWith(".mp3")) mimeType = "audio/mpeg";
-                        else if (lowerName.endsWith(".flac")) mimeType = "audio/flac";
-                        else if (lowerName.endsWith(".wav")) mimeType = "audio/wav";
-                        else if (lowerName.endsWith(".ogg")) mimeType = "audio/ogg";
-                        else if (lowerName.endsWith(".m4a") || lowerName.endsWith(".aac")) mimeType = "audio/mp4";
-                        else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
-                        else if (lowerName.endsWith(".png")) mimeType = "image/png";
-                        else if (lowerName.endsWith(".json")) mimeType = "application/json";
-                            // 🚀 [fix 2] Explicitly makes the browser treat these newly added file types as plain text so they open in the editor window!
-                        else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")) mimeType = "text/plain";
-
-                        long fileLen = targetFile.length();
-
-                        // Honour a "Range: bytes=start-[end]" request so browser audio seeks
-                        // fetch only the requested slice (206) instead of re-streaming from 0.
-                        RangeResult range = parseRange(rangeHeader, fileLen);
-                        long start = range.start;
-                        long end = range.end;
-                        boolean partial = range.partial;
-
-                        String header;
-                        if (partial) {
-                            long contentLen = end - start + 1;
-                            header = "HTTP/1.1 206 Partial Content\r\n" +
-                                    "Content-Type: " + mimeType + "\r\n" +
-                                    "Content-Length: " + contentLen + "\r\n" +
-                                    "Content-Range: bytes " + start + "-" + end + "/" + fileLen + "\r\n" +
-                                    "Accept-Ranges: bytes\r\n\r\n";
-                        } else {
-                            header = "HTTP/1.1 200 OK\r\n" +
-                                    "Content-Type: " + mimeType + "\r\n" +
-                                    "Content-Length: " + fileLen + "\r\n" +
-                                    "Accept-Ranges: bytes\r\n\r\n";
-                        }
-                        os.write(header.getBytes("UTF-8"));
-
-                        FileInputStream fis = new FileInputStream(targetFile);
-                        try {
-                            if (partial && start > 0) {
-                                long toSkip = start;
-                                while (toSkip > 0) {
-                                    long skipped = fis.skip(toSkip);
-                                    if (skipped <= 0) break;
-                                    toSkip -= skipped;
-                                }
-                            }
-                            byte[] buffer = new byte[8192];
-                            int bytesRead;
-                            if (partial) {
-                                long remaining = end - start + 1;
-                                while (remaining > 0
-                                        && (bytesRead = fis.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
-                                    os.write(buffer, 0, bytesRead);
-                                    remaining -= bytesRead;
-                                }
-                            } else {
-                                while ((bytesRead = fis.read(buffer)) != -1) {
-                                    os.write(buffer, 0, bytesRead);
-                                }
-                            }
-                        } finally {
-                            fis.close();
-                        }
-                    }
-                }
-
-                // 6. [API] File upload
-                else if (method.equals("POST") && path.startsWith("/api/upload")) {
-                    String q = path.split("\\?")[1];
-                    String[] params = q.split("&");
-                    String dirStr = "", name = "unnamed.file";
-                    for (String p : params) {
-                        if (p.startsWith("dir=")) dirStr = URLDecoder.decode(p.substring(4), "UTF-8");
-                        if (p.startsWith("name=")) name = URLDecoder.decode(p.substring(5), "UTF-8");
-                    }
-
-                    File targetDir = resolveSafePath(dirStr);
-                    if (!targetDir.exists()) targetDir.mkdirs();
-                    File outFile = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
-
-                    FileOutputStream fos = new FileOutputStream(outFile);
-                    try {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        int totalRead = 0;
-                        while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
-                            fos.write(buffer, 0, bytesRead);
-                            totalRead += bytesRead;
-                        }
-                        fos.flush();
-                        try {
-                            fos.getFD().sync();
-                        } catch (Exception e) {
-                            Log.d(TAG, "fsync failed after upload write", e);
-                        }
-                    } finally {
-                        fos.close();
-                    }
-
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
-                }
-
-                // 7. [API] 🚀 Save text file (overwrites the on-device file with text sent from the code editor)
-                else if (method.equals("POST") && path.startsWith("/api/save")) {
-                    String q = path.split("\\?")[1];
-                    String targetPath = URLDecoder.decode(q.substring(5), "UTF-8");
-                    File targetFile = resolveSafePath(targetPath);
-
-                    FileOutputStream fos = new FileOutputStream(targetFile);
-                    try {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        int totalRead = 0;
-                        // Write the received text body straight through to the file as-is.
-                        while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
-                            fos.write(buffer, 0, bytesRead);
-                            totalRead += bytesRead;
-                        }
-                        fos.flush();
-                        try {
-                            fos.getFD().sync();
-                        } catch (Exception e) {
-                            Log.d(TAG, "fsync failed after upload write", e);
-                        }
-                    } finally {
-                        fos.close();
-                    }
-
-                    os.write("HTTP/1.1 200 OK\r\n\r\nOK".getBytes("UTF-8"));
-                }
-
-                os.flush();
             } catch (Exception e) {
                 Log.w(TAG, "Request failed", e);
             } finally {
                 try { socket.close(); } catch (Exception e) { /* socket already gone */ }
             }
+        }
+
+        /** Handle one request; returns whether the connection may be reused for another. */
+        private boolean handleRequest(InputStream is, OutputStream os, String requestLine) throws java.io.IOException {
+            String[] parts = requestLine.split(" ");
+            if (parts.length < 2) { sendText(os, 400, "Bad Request", "Bad Request", false); return false; }
+            String method = parts[0];
+            String path = parts[1];
+
+            int contentLength = 0;
+            String rangeHeader = null, cookie = null;
+            boolean clientClose = false;
+            String line;
+            int headerCount = 0;
+            while (!(line = readHeaderLine(is)).isEmpty()) {
+                if (++headerCount > MAX_HEADERS) { sendText(os, 431, "Request Header Fields Too Large", "Too many headers", false); return false; }
+                String lower = line.toLowerCase();
+                if (lower.startsWith("content-length:")) {
+                    try { contentLength = Integer.parseInt(line.substring(15).trim()); }
+                    catch (NumberFormatException nfe) { contentLength = 0; }
+                } else if (lower.startsWith("range:")) {
+                    rangeHeader = line.substring(6).trim();
+                } else if (lower.startsWith("cookie:")) {
+                    cookie = line.substring(7).trim();
+                } else if (lower.startsWith("connection:")) {
+                    if (lower.contains("close")) clientClose = true;
+                }
+            }
+            if (contentLength < 0) contentLength = 0;
+            boolean keepAlive = !clientClose && running;
+
+            // Pre-read small bodies so the stream stays aligned for the next keep-alive request.
+            // Large binary uploads (upload/save) are streamed straight to disk by their handlers.
+            boolean streamsBody = method.equals("POST") && (path.startsWith("/api/upload") || path.startsWith("/api/save"));
+            String body = "";
+            if (!streamsBody && contentLength > 0) {
+                if (contentLength > NONSTREAM_BODY_CAP) { drainBody(is, contentLength); sendJsonError(os, "Request too large", false); return false; }
+                body = readRequestBody(is, contentLength);
+            }
+
+            // ── Auth gate: everything except the login page/assets needs a session cookie ──
+            boolean isPublic = path.equals("/login") || path.startsWith("/login?")
+                    || path.equals("/app.css")
+                    || path.equals("/favicon.ico")
+                    || (method.equals("POST") && path.equals("/api/login"));
+            if (!isPublic && !isAuthed(cookie)) {
+                if (streamsBody && contentLength > 0) drainBody(is, contentLength);
+                if (path.startsWith("/api/")) {
+                    sendResponse(os, 401, "Unauthorized", "application/json; charset=UTF-8",
+                            "{\"ok\":false,\"error\":\"unauthorized\"}".getBytes("UTF-8"), keepAlive, null);
+                } else {
+                    sendRedirect(os, "/login?next=" + java.net.URLEncoder.encode(path, "UTF-8"), keepAlive);
+                }
+                return keepAlive;
+            }
+
+            // ── Public routes ──
+            if (method.equals("POST") && path.equals("/api/login")) { handleLogin(os, body, keepAlive); return keepAlive; }
+            if (method.equals("GET") && (path.equals("/login") || path.startsWith("/login?"))) { serveAsset(os, "webui/login.html", "text/html; charset=UTF-8", keepAlive); return keepAlive; }
+            if (method.equals("GET") && path.equals("/app.css")) { serveAsset(os, "webui/app.css", "text/css; charset=UTF-8", keepAlive); return keepAlive; }
+            if (method.equals("GET") && path.equals("/favicon.ico")) { sendText(os, 404, "Not Found", "", keepAlive); return keepAlive; }
+
+            // ── Pages ──
+            if (method.equals("GET") && path.equals("/")) { serveAsset(os, "webui/files.html", "text/html; charset=UTF-8", keepAlive); return keepAlive; }
+            if (method.equals("GET") && (path.equals("/music") || path.startsWith("/music?"))) { serveAsset(os, "webui/music.html", "text/html; charset=UTF-8", keepAlive); return keepAlive; }
+
+            // ── Disk info ──
+            if (method.equals("GET") && path.startsWith("/api/diskinfo")) {
+                long free = 0, total = 0;
+                try {
+                    android.os.StatFs sf = new android.os.StatFs("/storage/sdcard0");
+                    free = (long) sf.getAvailableBlocks() * sf.getBlockSize();
+                    total = (long) sf.getBlockCount() * sf.getBlockSize();
+                } catch (Exception e) { Log.d(TAG, "statfs failed", e); }
+                sendJson(os, "{\"freeBytes\":" + free + ",\"totalBytes\":" + total + "}", keepAlive);
+                return keepAlive;
+            }
+
+            // ── File manager: list ──
+            if (method.equals("GET") && path.startsWith("/api/list")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String dirStr = qp.containsKey("dir") ? qp.get("dir") : "";
+                File targetDir = resolveSafePath(dirStr);
+                StringBuilder json = new StringBuilder("[");
+                if (targetDir.exists() && targetDir.isDirectory()) {
+                    File[] files = targetDir.listFiles();
+                    if (files != null) {
+                        for (int i = 0; i < 2; i++) {
+                            for (File f : files) {
+                                boolean isDir = f.isDirectory();
+                                if ((i == 0 && isDir) || (i == 1 && !isDir)) {
+                                    if (json.length() > 1) json.append(",");
+                                    json.append("{\"name\":\"").append(jsonEsc(f.getName())).append("\",\"isDir\":").append(isDir).append("}");
+                                }
+                            }
+                        }
+                    }
+                }
+                json.append("]");
+                sendJson(os, json.toString(), keepAlive);
+                return keepAlive;
+            }
+            // ── File manager: create folder ──
+            if (method.equals("POST") && path.startsWith("/api/create")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String dirStr = qp.containsKey("dir") ? qp.get("dir") : "";
+                String name = qp.containsKey("name") ? qp.get("name") : "";
+                if (!name.isEmpty()) { File nd = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name); nd.mkdirs(); }
+                sendText(os, 200, "OK", "OK", keepAlive);
+                return keepAlive;
+            }
+            // ── File manager: delete ──
+            if (method.equals("POST") && path.startsWith("/api/delete")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String targetPath = qp.containsKey("path") ? qp.get("path") : "";
+                if (!targetPath.isEmpty()) { File tf = resolveSafePath(targetPath); if (tf.exists()) deleteFileOrFolder(tf); }
+                sendText(os, 200, "OK", "OK", keepAlive);
+                return keepAlive;
+            }
+            // ── File manager: rename ──
+            if (method.equals("POST") && path.startsWith("/api/rename")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String dirStr = qp.containsKey("dir") ? qp.get("dir") : "";
+                String oldName = qp.containsKey("old") ? qp.get("old") : "";
+                String newName = qp.containsKey("new") ? qp.get("new") : "";
+                if (!oldName.isEmpty() && !newName.isEmpty()) {
+                    File oldFile = resolveSafePath(dirStr.isEmpty() ? oldName : dirStr + "/" + oldName);
+                    File newFile = resolveSafePath(dirStr.isEmpty() ? newName : dirStr + "/" + newName);
+                    if (oldFile.exists() && !newFile.exists()) oldFile.renameTo(newFile);
+                }
+                sendText(os, 200, "OK", "OK", keepAlive);
+                return keepAlive;
+            }
+            // ── Navidrome settings: GET (never returns the stored password) ──
+            if (method.equals("GET") && path.equals("/api/navidrome-settings")) {
+                android.content.SharedPreferences prefs = context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE);
+                String navUrl = prefs.getString("navidrome_url", "");
+                String navUser = prefs.getString("navidrome_user", "");
+                boolean hasPass = !prefs.getString("navidrome_pass", "").isEmpty();
+                sendJson(os, "{\"url\":\"" + jsonEsc(navUrl) + "\",\"user\":\"" + jsonEsc(navUser) + "\",\"hasPassword\":" + hasPass + "}", keepAlive);
+                return keepAlive;
+            }
+            // ── Navidrome settings: POST (pass optional — omitted keeps the stored one) ──
+            if (method.equals("POST") && path.equals("/api/navidrome-settings")) {
+                boolean pingOk = false;
+                String pingError = "Invalid request";
+                try {
+                    JSONObject obj = new JSONObject(body);
+                    String navUrl = obj.optString("url", "").trim().replaceAll("/+$", "");
+                    String navUser = obj.optString("user", "").trim();
+                    android.content.SharedPreferences prefs = context.getSharedPreferences("Y1Prefs", android.content.Context.MODE_PRIVATE);
+                    String navPass = obj.has("pass") ? obj.optString("pass", "") : prefs.getString("navidrome_pass", "");
+                    prefs.edit()
+                            .putString("navidrome_url", navUrl)
+                            .putString("navidrome_user", navUser)
+                            .putString("navidrome_pass", navPass)
+                            .apply();
+                    com.themoon.y1.subsonic.SubsonicClient.getInstance().saveSettings(context, navUrl, navUser, navPass);
+                    if (com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) {
+                        com.themoon.y1.subsonic.NavidromeProxyServer.ensureStarted();
+                    }
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    final boolean[] okHolder = {false};
+                    final String[] errHolder = {"Timed out waiting for server"};
+                    com.themoon.y1.subsonic.SubsonicClient.getInstance().ping(
+                            new com.themoon.y1.subsonic.SubsonicClient.Callback<Boolean>() {
+                                @Override public void onSuccess(Boolean result) { okHolder[0] = true; latch.countDown(); }
+                                @Override public void onError(String message) { errHolder[0] = message; latch.countDown(); }
+                            });
+                    latch.await(8, java.util.concurrent.TimeUnit.SECONDS);
+                    pingOk = okHolder[0];
+                    pingError = errHolder[0];
+                } catch (Exception e) {
+                    pingError = e.getMessage() != null ? e.getMessage() : "Save failed";
+                }
+                sendJson(os, pingOk ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"" + jsonEsc(pingError == null ? "Unknown error" : pingError) + "\"}", keepAlive);
+                return keepAlive;
+            }
+
+            // ── Navidrome browse: albums (getAlbumList2) ──
+            if (method.equals("GET") && path.startsWith("/api/navidrome/albums")) {
+                if (!com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) { sendJsonError(os, "Navidrome is not configured — set the server URL and login on the Files page first.", keepAlive); return keepAlive; }
+                java.util.Map<String, String> qp = parseQuery(path);
+                String type = qp.containsKey("type") ? qp.get("type") : "newest";
+                int size = parseIntSafe(qp.get("size"), 24);
+                int offset = parseIntSafe(qp.get("offset"), 0);
+                try {
+                    java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums =
+                            com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumListBlocking(type, size, offset);
+                    StringBuilder json = new StringBuilder("{\"albums\":[");
+                    for (int i = 0; i < albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, albums.get(i)); }
+                    json.append("]}");
+                    sendJson(os, json.toString(), keepAlive);
+                } catch (Exception e) { sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Browse failed", keepAlive); }
+                return keepAlive;
+            }
+            // ── Navidrome search (search3) ──
+            if (method.equals("GET") && path.startsWith("/api/navidrome/search")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String query = qp.containsKey("q") ? qp.get("q") : "";
+                if (query.trim().isEmpty()) { sendJson(os, "{\"albums\":[],\"songs\":[]}", keepAlive); return keepAlive; }
+                try {
+                    com.themoon.y1.subsonic.SubsonicClient.SearchResult r =
+                            com.themoon.y1.subsonic.SubsonicClient.getInstance().searchBlocking(query, 30, 30);
+                    StringBuilder json = new StringBuilder("{\"albums\":[");
+                    for (int i = 0; i < r.albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, r.albums.get(i)); }
+                    json.append("],\"songs\":[");
+                    for (int i = 0; i < r.songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, r.songs.get(i), false); }
+                    json.append("]}");
+                    sendJson(os, json.toString(), keepAlive);
+                } catch (Exception e) { sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Search failed", keepAlive); }
+                return keepAlive;
+            }
+            // ── Navidrome album detail (getAlbum) — must come AFTER /albums ──
+            if (method.equals("GET") && path.startsWith("/api/navidrome/album")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String id = qp.get("id");
+                if (id == null || id.isEmpty()) { sendJsonError(os, "Missing album id", keepAlive); return keepAlive; }
+                try {
+                    java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs =
+                            com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(id);
+                    StringBuilder json = new StringBuilder("{\"songs\":[");
+                    for (int i = 0; i < songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, songs.get(i), true); }
+                    json.append("]}");
+                    sendJson(os, json.toString(), keepAlive);
+                } catch (Exception e) { sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Load failed", keepAlive); }
+                return keepAlive;
+            }
+            // ── Navidrome cover proxy (disk-cached) ──
+            if (method.equals("GET") && path.startsWith("/api/navidrome/cover")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String id = qp.get("id");
+                int size = parseIntSafe(qp.get("size"), 200);
+                if (size < 32) size = 32;
+                if (size > 640) size = 640;
+                if (id == null || id.isEmpty()) { sendText(os, 404, "Not Found", "No cover", keepAlive); return keepAlive; }
+                File art;
+                try {
+                    File cacheDir = new File("/storage/sdcard0/Y1_Covers/NavidromeWeb");
+                    File cacheFile = new File(cacheDir, id.replaceAll("[^A-Za-z0-9._-]", "_") + "_" + size + ".jpg");
+                    art = com.themoon.y1.subsonic.SubsonicClient.getInstance().cacheCoverArtBlocking(id, size, cacheFile);
+                } catch (Exception e) {
+                    sendText(os, 404, "Not Found", "No cover", keepAlive);
+                    return keepAlive;
+                }
+                os.write(("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: " + art.length()
+                        + "\r\nCache-Control: max-age=604800\r\nConnection: " + (keepAlive ? "keep-alive" : "close") + "\r\n\r\n").getBytes("UTF-8"));
+                FileInputStream fis = new FileInputStream(art);
+                try {
+                    byte[] buffer = new byte[8192];
+                    int n;
+                    while ((n = fis.read(buffer)) != -1) os.write(buffer, 0, n);
+                } finally { fis.close(); }
+                return keepAlive;
+            }
+            // ── Navidrome download queue state ──
+            if (method.equals("GET") && path.startsWith("/api/navidrome/queue")) {
+                sendJson(os, com.themoon.y1.managers.NavidromeManager.getInstance().getWebQueueJson(), keepAlive);
+                return keepAlive;
+            }
+            // ── Navidrome enqueue download ──
+            if (method.equals("POST") && path.startsWith("/api/navidrome/download")) { handleNavidromeDownload(os, body, keepAlive); return keepAlive; }
+            // ── Navidrome delete downloaded track(s) ──
+            if (method.equals("POST") && path.startsWith("/api/navidrome/delete")) { handleNavidromeDelete(os, body, keepAlive); return keepAlive; }
+            // ── Navidrome clear pending queue ──
+            if (method.equals("POST") && path.startsWith("/api/navidrome/cancel")) {
+                final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
+                if (a == null) { sendJsonError(os, "Player app not running", keepAlive); return keepAlive; }
+                final int[] removed = {0};
+                final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                a.runOnUiThread(new Runnable() { @Override public void run() {
+                    try { removed[0] = com.themoon.y1.managers.NavidromeManager.getInstance().clearPendingNavidromeDownloads(); }
+                    finally { latch.countDown(); }
+                }});
+                try { latch.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                sendJson(os, "{\"ok\":true,\"removed\":" + removed[0] + "}", keepAlive);
+                return keepAlive;
+            }
+
+            // ── File read/stream (audio seek, image view, editor load). Always closes the
+            //    connection afterward: a client aborting a media stream mid-transfer would
+            //    otherwise leave the socket in an unknown state for the next request. ──
+            if (method.equals("GET") && path.startsWith("/api/file")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String targetPath = qp.containsKey("path") ? qp.get("path") : "";
+                File targetFile = resolveSafePath(targetPath);
+                if (!targetFile.exists() || targetFile.isDirectory()) { sendText(os, 404, "Not Found", "Not Found", false); return false; }
+                String mimeType = "application/octet-stream";
+                String lowerName = targetFile.getName().toLowerCase();
+                if (lowerName.endsWith(".mp3")) mimeType = "audio/mpeg";
+                else if (lowerName.endsWith(".flac")) mimeType = "audio/flac";
+                else if (lowerName.endsWith(".wav")) mimeType = "audio/wav";
+                else if (lowerName.endsWith(".ogg") || lowerName.endsWith(".opus")) mimeType = "audio/ogg";
+                else if (lowerName.endsWith(".m4a") || lowerName.endsWith(".aac")) mimeType = "audio/mp4";
+                else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
+                else if (lowerName.endsWith(".png")) mimeType = "image/png";
+                else if (lowerName.endsWith(".webp")) mimeType = "image/webp";
+                else if (lowerName.endsWith(".gif")) mimeType = "image/gif";
+                else if (lowerName.endsWith(".json")) mimeType = "application/json";
+                else if (lowerName.endsWith(".txt") || lowerName.endsWith(".m3u") || lowerName.endsWith(".m3u8") || lowerName.endsWith(".eq")
+                        || lowerName.endsWith(".md") || lowerName.endsWith(".log") || lowerName.endsWith(".xml") || lowerName.endsWith(".ini")
+                        || lowerName.endsWith(".cfg") || lowerName.endsWith(".csv")) mimeType = "text/plain; charset=UTF-8";
+
+                long fileLen = targetFile.length();
+                RangeResult range = parseRange(rangeHeader, fileLen);
+                long start = range.start, end = range.end;
+                boolean partial = range.partial;
+                String header;
+                if (partial) {
+                    header = "HTTP/1.1 206 Partial Content\r\nContent-Type: " + mimeType + "\r\nContent-Length: " + (end - start + 1)
+                            + "\r\nContent-Range: bytes " + start + "-" + end + "/" + fileLen + "\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n";
+                } else {
+                    header = "HTTP/1.1 200 OK\r\nContent-Type: " + mimeType + "\r\nContent-Length: " + fileLen
+                            + "\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n";
+                }
+                os.write(header.getBytes("UTF-8"));
+                FileInputStream fis = new FileInputStream(targetFile);
+                try {
+                    if (partial && start > 0) {
+                        long toSkip = start;
+                        while (toSkip > 0) { long skipped = fis.skip(toSkip); if (skipped <= 0) break; toSkip -= skipped; }
+                    }
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    if (partial) {
+                        long remaining = end - start + 1;
+                        while (remaining > 0 && (bytesRead = fis.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
+                            os.write(buffer, 0, bytesRead);
+                            remaining -= bytesRead;
+                        }
+                    } else {
+                        while ((bytesRead = fis.read(buffer)) != -1) os.write(buffer, 0, bytesRead);
+                    }
+                } finally { fis.close(); }
+                return false; // always close after a file stream
+            }
+            // ── File upload (streams the body straight to disk) ──
+            if (method.equals("POST") && path.startsWith("/api/upload")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String dirStr = qp.containsKey("dir") ? qp.get("dir") : "";
+                String name = qp.containsKey("name") ? qp.get("name") : "unnamed.file";
+                File targetDir = resolveSafePath(dirStr);
+                if (!targetDir.exists()) targetDir.mkdirs();
+                File outFile = resolveSafePath(dirStr.isEmpty() ? name : dirStr + "/" + name);
+                FileOutputStream fos = new FileOutputStream(outFile);
+                try {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead, totalRead = 0;
+                    while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                        fos.write(buffer, 0, bytesRead);
+                        totalRead += bytesRead;
+                    }
+                    fos.flush();
+                    try { fos.getFD().sync(); } catch (Exception e) { Log.d(TAG, "fsync failed after upload write", e); }
+                } finally { fos.close(); }
+                sendText(os, 200, "OK", "OK", keepAlive);
+                return keepAlive;
+            }
+            // ── Save text file (streams the body straight to disk) ──
+            if (method.equals("POST") && path.startsWith("/api/save")) {
+                java.util.Map<String, String> qp = parseQuery(path);
+                String targetPath = qp.containsKey("path") ? qp.get("path") : "";
+                File targetFile = resolveSafePath(targetPath);
+                FileOutputStream fos = new FileOutputStream(targetFile);
+                try {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead, totalRead = 0;
+                    while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                        fos.write(buffer, 0, bytesRead);
+                        totalRead += bytesRead;
+                    }
+                    fos.flush();
+                    try { fos.getFD().sync(); } catch (Exception e) { Log.d(TAG, "fsync failed after save write", e); }
+                } finally { fos.close(); }
+                sendText(os, 200, "OK", "OK", keepAlive);
+                return keepAlive;
+            }
+
+            sendText(os, 404, "Not Found", "Not Found", keepAlive);
+            return keepAlive;
         }
     }
 }
