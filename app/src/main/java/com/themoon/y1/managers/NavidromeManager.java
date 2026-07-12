@@ -578,13 +578,41 @@ public class NavidromeManager {
         return deleted;
     }
 
+    /** Outcome of an enqueue attempt, so callers (on-device Toasts, or the Web Server
+     *  download manager) can report what happened without the queueing logic having to
+     *  know which UI it's serving. */
+    public static class EnqueueResult {
+        public int queued;      // tracks actually added to the queue
+        public int alreadyHave; // tracks skipped because already downloaded/queued
+        public String error;    // non-null => nothing was queued (e.g. not enough space)
+    }
+
     public void enqueueNavidromeDownloads(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
-        if (songs == null || songs.isEmpty()) return;
+        EnqueueResult r = enqueueNavidromeDownloadsCore(a, songs, transcoded);
+        if (r.error != null) {
+            Toast.makeText(a, "❌ " + r.error, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (r.queued == 0) {
+            Toast.makeText(a, "✅ Already downloaded", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(a, "⬇ Queued " + r.queued + (r.queued == 1 ? " track" : " tracks"), Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Core enqueue logic shared by the on-device UI and the Web Server download manager.
+     * Returns what happened instead of showing UI. MUST run on the main thread (it mutates
+     * the queue and can kick off {@link #processNextNavidromeDownload}, which touches views).
+     */
+    public EnqueueResult enqueueNavidromeDownloadsCore(MainActivity a, java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs, boolean transcoded) {
+        EnqueueResult res = new EnqueueResult();
+        if (songs == null || songs.isEmpty()) { res.error = a.t("No tracks"); return res; }
         java.util.List<NavidromeDownloadItem> toAdd = new java.util.ArrayList<NavidromeDownloadItem>();
         long neededBytes = 0;
         for (com.themoon.y1.subsonic.SubsonicSong song : songs) {
             String target = transcoded ? song.getLocalPathMp3() : song.getLocalPath();
-            if (new java.io.File(target).exists() || isNavidromeDownloadQueued(a, song.id)) continue;
+            if (new java.io.File(target).exists() || isNavidromeDownloadQueued(a, song.id)) { res.alreadyHave++; continue; }
             toAdd.add(new NavidromeDownloadItem(song, transcoded));
             if (transcoded) {
                 neededBytes += (long) song.durationSecs * 24000L; // 192kbps ≈ 24KB/s
@@ -593,10 +621,7 @@ public class NavidromeManager {
                         : (long) song.durationSecs * 130000L; // ~1Mbps FLAC fallback
             }
         }
-        if (toAdd.isEmpty()) {
-            Toast.makeText(a, "✅ Already downloaded", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (toAdd.isEmpty()) return res; // queued=0, alreadyHave set — nothing new
 
         // Free-space check with a 50MB safety margin — a FLAC album on a full
         // card would otherwise fail confusingly mid-queue
@@ -604,19 +629,90 @@ public class NavidromeManager {
             android.os.StatFs sf = new android.os.StatFs("/storage/sdcard0");
             long available = (long) sf.getAvailableBlocks() * sf.getBlockSize();
             if (neededBytes + 50L * 1024 * 1024 > available) {
-                Toast.makeText(a, "❌ " + a.t("Not enough space") + ": ~" + (neededBytes / (1024 * 1024))
-                        + " MB " + a.t("needed") + ", " + (available / (1024 * 1024)) + " MB " + a.t("free"),
-                        Toast.LENGTH_LONG).show();
-                return;
+                res.error = a.t("Not enough space") + ": ~" + (neededBytes / (1024 * 1024))
+                        + " MB " + a.t("needed") + ", " + (available / (1024 * 1024)) + " MB " + a.t("free");
+                return res;
             }
         } catch (Exception ignored) {
-            Log.d(TAG, "enqueueNavidromeDownloads failed", ignored);
+            Log.d(TAG, "enqueueNavidromeDownloadsCore free-space check failed", ignored);
         }
 
         navidromeDownloadQueue.addAll(toAdd);
         navidromeQueueTotal += toAdd.size();
-        Toast.makeText(a, "⬇ Queued " + toAdd.size() + (toAdd.size() == 1 ? " track" : " tracks"), Toast.LENGTH_SHORT).show();
+        res.queued = toAdd.size();
+        rebuildWebSnapshot();
         if (!isNavidromeDownloading) processNextNavidromeDownload(a);
+        return res;
+    }
+
+    // ── Web Server download-manager bridge ──────────────────────────────────────
+    // A lock-free snapshot of queue state the Web Server can poll cheaply. Written only
+    // on the main thread (in the enqueue/progress/complete paths); read from the web
+    // server's threads. Volatile primitives + a wholesale array swap keep reads safe
+    // without a per-poll main-thread hop.
+    private volatile boolean webActive = false;
+    private volatile int webTotal = 0;
+    private volatile int webDone = 0;
+    private volatile String webCurrentTitle = "";
+    private volatile int webCurrentPercent = -1;
+    private volatile String[] webPending = new String[0];
+
+    /** Rebuild the web snapshot from current queue state. Main thread only. */
+    private void rebuildWebSnapshot() {
+        webActive = isNavidromeDownloading;
+        webTotal = navidromeQueueTotal;
+        webDone = navidromeQueueDone;
+        java.util.List<String> titles = new java.util.ArrayList<String>();
+        for (NavidromeDownloadItem it : navidromeDownloadQueue) titles.add(it.song.title);
+        webPending = titles.toArray(new String[0]);
+    }
+
+    /** JSON snapshot for GET /api/navidrome/queue. Safe to call from any thread. */
+    public String getWebQueueJson() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"active\":").append(webActive)
+                .append(",\"total\":").append(webTotal)
+                .append(",\"done\":").append(webDone)
+                .append(",\"percent\":").append(webCurrentPercent)
+                .append(",\"current\":\"").append(jsonEsc(webCurrentTitle)).append("\"")
+                .append(",\"pending\":[");
+        String[] p = webPending;
+        for (int i = 0; i < p.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(jsonEsc(p[i])).append("\"");
+        }
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    /** Clear the pending (not-yet-started) queue; the in-flight track finishes. Main thread only. */
+    public int clearPendingNavidromeDownloads() {
+        int removed = navidromeDownloadQueue.size();
+        navidromeDownloadQueue.clear();
+        // Keep the totals coherent so the finish toast reads sensibly: total collapses to
+        // whatever has completed plus the one still transferring.
+        navidromeQueueTotal = navidromeQueueDone + (isNavidromeDownloading ? 1 : 0);
+        rebuildWebSnapshot();
+        return removed;
+    }
+
+    private static String jsonEsc(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format(java.util.Locale.US, "\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public boolean isNavidromeDownloadQueued(MainActivity a, String songId) {
@@ -700,12 +796,18 @@ public class NavidromeManager {
             }
             navidromeQueueTotal = 0;
             navidromeQueueDone = 0;
+            webCurrentTitle = "";
+            webCurrentPercent = -1;
+            rebuildWebSnapshot();
             updateNavidromeDownloadStatus(a, null);
             refreshNavidromeSongLabels(a);
             return;
         }
         isNavidromeDownloading = true;
         currentNavidromeDownloadId = song.id;
+        webCurrentTitle = song.title;
+        webCurrentPercent = 0;
+        rebuildWebSnapshot();
         acquireNavidromeDownloadLocks(a);
         try {
             startNavidromeDownload(a, item, song);
@@ -727,6 +829,7 @@ public class NavidromeManager {
                 new com.themoon.y1.subsonic.SubsonicClient.DownloadCallback() {
                     @Override
                     public void onProgress(int percent, long bytesSoFar) {
+                        webCurrentPercent = percent; // -1 for transcodes (unknown length) — the web UI shows a spinner
                         String p = percent >= 0 ? percent + "%"
                                 : String.format(java.util.Locale.US, "%.1f MB", bytesSoFar / 1048576f);
                         updateNavidromeDownloadStatus(a, "⬇ " + (navidromeQueueDone + 1) + "/" + navidromeQueueTotal

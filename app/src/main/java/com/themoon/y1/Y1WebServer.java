@@ -134,6 +134,17 @@ public class Y1WebServer extends Thread {
                             "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
                             "</div>" +
 
+                            // Navidrome music browser banner → dedicated download-manager page
+                            "<a href='/music' style='text-decoration:none;'>" +
+                            "<div class='box' style='display:flex; align-items:center; gap:14px; background:linear-gradient(135deg,#3B2E5A,#252530); cursor:pointer;'>" +
+                            "<div style='font-size:30px;'>🎧</div>" +
+                            "<div style='flex-grow:1;'>" +
+                            "<div style='font-size:16px; font-weight:600; color:#E0E0E0;'>Browse &amp; Download Music</div>" +
+                            "<div style='font-size:13px; color:#9E9E9E; margin-top:2px;'>Search Navidrome and queue albums to this device</div>" +
+                            "</div>" +
+                            "<div style='font-size:20px; color:#B39DDB;'>〉</div>" +
+                            "</div></a>" +
+
                             // Navidrome settings box
                             "<div class='box'>" +
                             "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>🎵 Navidrome Settings</div>" +
@@ -408,6 +419,177 @@ public class Y1WebServer extends Thread {
         fileOrDirectory.delete();
     }
 
+    // ── Helpers for the Navidrome download-manager endpoints ────────────────────
+
+    /** Parse the query string of a request path ("/api/x?a=1&b=2") into decoded pairs. */
+    private static java.util.Map<String, String> parseQuery(String path) {
+        java.util.Map<String, String> out = new java.util.HashMap<>();
+        int q = path.indexOf('?');
+        if (q < 0 || q == path.length() - 1) return out;
+        for (String pair : path.substring(q + 1).split("&")) {
+            int eq = pair.indexOf('=');
+            try {
+                if (eq < 0) out.put(URLDecoder.decode(pair, "UTF-8"), "");
+                else out.put(URLDecoder.decode(pair.substring(0, eq), "UTF-8"),
+                        URLDecoder.decode(pair.substring(eq + 1), "UTF-8"));
+            } catch (Exception e) { Log.d(TAG, "parseQuery decode failed for: " + pair, e); }
+        }
+        return out;
+    }
+
+    private static String jsonEsc(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format(Locale.US, "\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void appendAlbumJson(StringBuilder sb, com.themoon.y1.subsonic.SubsonicAlbum al) {
+        sb.append("{\"id\":\"").append(jsonEsc(al.id)).append("\"")
+                .append(",\"name\":\"").append(jsonEsc(al.name)).append("\"")
+                .append(",\"artist\":\"").append(jsonEsc(al.artistName)).append("\"")
+                .append(",\"year\":").append(al.year)
+                .append(",\"songCount\":").append(al.songCount)
+                .append(",\"coverArt\":\"").append(jsonEsc(al.coverArtId)).append("\"}");
+    }
+
+    /** Full song JSON. include the downloaded flag only in album detail (a cheap stat()
+     *  per song) — never in big list responses where it would add up. */
+    private static void appendSongJson(StringBuilder sb, com.themoon.y1.subsonic.SubsonicSong s, boolean withDownloaded) {
+        sb.append("{\"id\":\"").append(jsonEsc(s.id)).append("\"")
+                .append(",\"title\":\"").append(jsonEsc(s.title)).append("\"")
+                .append(",\"artist\":\"").append(jsonEsc(s.artist)).append("\"")
+                .append(",\"album\":\"").append(jsonEsc(s.album)).append("\"")
+                .append(",\"albumId\":\"").append(jsonEsc(s.albumId)).append("\"")
+                .append(",\"albumArtist\":\"").append(jsonEsc(s.albumArtist)).append("\"")
+                .append(",\"track\":").append(s.track)
+                .append(",\"duration\":").append(s.durationSecs)
+                .append(",\"size\":").append(s.sizeBytes)
+                .append(",\"suffix\":\"").append(jsonEsc(s.suffix)).append("\"")
+                .append(",\"year\":").append(s.year)
+                .append(",\"genre\":\"").append(jsonEsc(s.genre)).append("\"")
+                .append(",\"coverArt\":\"").append(jsonEsc(s.coverArtId)).append("\"");
+        if (withDownloaded) sb.append(",\"downloaded\":").append(s.isDownloaded());
+        sb.append("}");
+    }
+
+    private void sendJson(OutputStream os, String json) throws java.io.IOException {
+        os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+    }
+
+    private void sendJsonError(OutputStream os, String message) throws java.io.IOException {
+        os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+                + "{\"ok\":false,\"error\":\"" + jsonEsc(message) + "\"}").getBytes("UTF-8"));
+    }
+
+    /** Read exactly contentLength bytes of a request body as a UTF-8 string. */
+    private static String readRequestBody(InputStream is, int contentLength) throws java.io.IOException {
+        if (contentLength <= 0) return "";
+        byte[] body = new byte[Math.min(contentLength, 1 << 20)]; // 1MB cap — these bodies are tiny JSON
+        int total = 0;
+        while (total < body.length) {
+            int r = is.read(body, total, body.length - total);
+            if (r == -1) break;
+            total += r;
+        }
+        return new String(body, 0, total, "UTF-8");
+    }
+
+    /** Serve a file bundled under assets/ (used for the music page). */
+    private void serveAsset(OutputStream os, String assetPath, String contentType) throws java.io.IOException {
+        InputStream in = null;
+        try {
+            in = context.getAssets().open(assetPath);
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] tmp = new byte[8192];
+            int r;
+            while ((r = in.read(tmp)) != -1) buf.write(tmp, 0, r);
+            byte[] bytes = buf.toByteArray();
+            os.write(("HTTP/1.1 200 OK\r\nContent-Type: " + contentType
+                    + "\r\nContent-Length: " + bytes.length + "\r\n\r\n").getBytes("UTF-8"));
+            os.write(bytes);
+        } catch (java.io.FileNotFoundException fnf) {
+            os.write("HTTP/1.1 404 Not Found\r\n\r\nNot Found".getBytes("UTF-8"));
+        } finally {
+            if (in != null) try { in.close(); } catch (Exception e) { Log.d(TAG, "asset close failed", e); }
+        }
+    }
+
+    private static int parseIntSafe(String s, int def) {
+        if (s == null) return def;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
+    }
+
+    /**
+     * Resolve a download request body into concrete songs and enqueue them into the
+     * (main-thread) NavidromeManager queue. Body is one of:
+     *   {"albumId":"..","transcoded":bool}                 — whole album
+     *   {"albumId":"..","songIds":[".."],"transcoded":bool} — selected album tracks
+     *   {"songs":[{...}],"transcoded":bool}                — songs the browser already has
+     * The album fetch (network) happens here on the web thread; only the actual enqueue
+     * hops to the main thread, kept short so polling stays responsive.
+     */
+    private void handleNavidromeDownload(OutputStream os, String body) throws java.io.IOException {
+        final java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs = new java.util.ArrayList<>();
+        boolean transcoded;
+        try {
+            JSONObject obj = new JSONObject(body);
+            transcoded = obj.optBoolean("transcoded", false);
+            String albumId = obj.optString("albumId", "");
+            if (!albumId.isEmpty()) {
+                java.util.List<com.themoon.y1.subsonic.SubsonicSong> albumSongs =
+                        com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(albumId);
+                org.json.JSONArray idFilter = obj.optJSONArray("songIds");
+                if (idFilter != null && idFilter.length() > 0) {
+                    java.util.Set<String> keep = new java.util.HashSet<>();
+                    for (int i = 0; i < idFilter.length(); i++) keep.add(idFilter.optString(i));
+                    for (com.themoon.y1.subsonic.SubsonicSong s : albumSongs) if (keep.contains(s.id)) songs.add(s);
+                } else {
+                    songs.addAll(albumSongs);
+                }
+            } else {
+                org.json.JSONArray arr = obj.optJSONArray("songs");
+                if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                    songs.add(com.themoon.y1.subsonic.SubsonicSong.fromWebJson(arr.getJSONObject(i)));
+                }
+            }
+        } catch (Exception e) {
+            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Bad request");
+            return;
+        }
+
+        if (songs.isEmpty()) { sendJsonError(os, "No tracks to download"); return; }
+
+        final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
+        if (a == null) { sendJsonError(os, "Player app not running"); return; }
+
+        final boolean tr = transcoded;
+        final com.themoon.y1.managers.NavidromeManager.EnqueueResult[] holder = new com.themoon.y1.managers.NavidromeManager.EnqueueResult[1];
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        a.runOnUiThread(new Runnable() { @Override public void run() {
+            try { holder[0] = com.themoon.y1.managers.NavidromeManager.getInstance().enqueueNavidromeDownloadsCore(a, songs, tr); }
+            finally { latch.countDown(); }
+        }});
+        try { latch.await(15, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+
+        com.themoon.y1.managers.NavidromeManager.EnqueueResult r = holder[0];
+        if (r == null) { sendJsonError(os, "Timed out queueing download"); return; }
+        if (r.error != null) { sendJsonError(os, r.error); return; }
+        sendJson(os, "{\"ok\":true,\"queued\":" + r.queued + ",\"alreadyHave\":" + r.alreadyHave + "}");
+    }
+
     private class RequestHandler implements Runnable {
         private Socket socket;
         public RequestHandler(Socket socket) { this.socket = socket; }
@@ -588,6 +770,121 @@ public class Y1WebServer extends Thread {
                             ? "{\"ok\":true}"
                             : "{\"ok\":false,\"error\":\"" + (pingError == null ? "Unknown error" : pingError.replace("\\", "\\\\").replace("\"", "\\\"")) + "\"}";
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
+                }
+
+                // ── Navidrome download manager ──────────────────────────────────
+                // Music browser page (served from assets so it isn't a giant Java string)
+                else if (method.equals("GET") && (path.equals("/music") || path.startsWith("/music?"))) {
+                    serveAsset(os, "webui/music.html", "text/html; charset=UTF-8");
+                }
+                // [API] Browse albums — getAlbumList2 (type=newest/frequent/random/alphabeticalByName)
+                else if (method.equals("GET") && path.startsWith("/api/navidrome/albums")) {
+                    if (!com.themoon.y1.subsonic.SubsonicClient.getInstance().isConfigured()) { sendJsonError(os, "Navidrome is not configured — set the server URL and login on the main page first."); }
+                    else {
+                    java.util.Map<String, String> qp = parseQuery(path);
+                    String type = qp.containsKey("type") ? qp.get("type") : "newest";
+                    int size = parseIntSafe(qp.get("size"), 24);
+                    int offset = parseIntSafe(qp.get("offset"), 0);
+                    try {
+                        java.util.List<com.themoon.y1.subsonic.SubsonicAlbum> albums =
+                                com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumListBlocking(type, size, offset);
+                        StringBuilder json = new StringBuilder("{\"albums\":[");
+                        for (int i = 0; i < albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, albums.get(i)); }
+                        json.append("]}");
+                        sendJson(os, json.toString());
+                    } catch (Exception e) {
+                        sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Browse failed");
+                    }
+                    }
+                }
+                // [API] Search — search3 (albums + songs)
+                else if (method.equals("GET") && path.startsWith("/api/navidrome/search")) {
+                    java.util.Map<String, String> qp = parseQuery(path);
+                    String query = qp.containsKey("q") ? qp.get("q") : "";
+                    if (query.trim().isEmpty()) { sendJson(os, "{\"albums\":[],\"songs\":[]}"); }
+                    else {
+                        try {
+                            com.themoon.y1.subsonic.SubsonicClient.SearchResult r =
+                                    com.themoon.y1.subsonic.SubsonicClient.getInstance().searchBlocking(query, 30, 30);
+                            StringBuilder json = new StringBuilder("{\"albums\":[");
+                            for (int i = 0; i < r.albums.size(); i++) { if (i > 0) json.append(","); appendAlbumJson(json, r.albums.get(i)); }
+                            json.append("],\"songs\":[");
+                            for (int i = 0; i < r.songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, r.songs.get(i), false); }
+                            json.append("]}");
+                            sendJson(os, json.toString());
+                        } catch (Exception e) {
+                            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Search failed");
+                        }
+                    }
+                }
+                // [API] Album detail — track list with per-track downloaded flag
+                else if (method.equals("GET") && path.startsWith("/api/navidrome/album")) {
+                    java.util.Map<String, String> qp = parseQuery(path);
+                    String id = qp.get("id");
+                    if (id == null || id.isEmpty()) { sendJsonError(os, "Missing album id"); }
+                    else {
+                        try {
+                            java.util.List<com.themoon.y1.subsonic.SubsonicSong> songs =
+                                    com.themoon.y1.subsonic.SubsonicClient.getInstance().getAlbumSongsBlocking(id);
+                            StringBuilder json = new StringBuilder("{\"songs\":[");
+                            for (int i = 0; i < songs.size(); i++) { if (i > 0) json.append(","); appendSongJson(json, songs.get(i), true); }
+                            json.append("]}");
+                            sendJson(os, json.toString());
+                        } catch (Exception e) {
+                            sendJsonError(os, e.getMessage() != null ? e.getMessage() : "Load failed");
+                        }
+                    }
+                }
+                // [API] Cover art proxy — disk-cached, small, long browser-cache header
+                else if (method.equals("GET") && path.startsWith("/api/navidrome/cover")) {
+                    java.util.Map<String, String> qp = parseQuery(path);
+                    String id = qp.get("id");
+                    int size = parseIntSafe(qp.get("size"), 200);
+                    if (size < 32) size = 32; if (size > 640) size = 640;
+                    if (id == null || id.isEmpty()) {
+                        os.write("HTTP/1.1 404 Not Found\r\n\r\nNo cover".getBytes("UTF-8"));
+                    } else {
+                        try {
+                            File cacheDir = new File("/storage/sdcard0/Y1_Covers/NavidromeWeb");
+                            File cacheFile = new File(cacheDir, id.replaceAll("[^A-Za-z0-9._-]", "_") + "_" + size + ".jpg");
+                            File art = com.themoon.y1.subsonic.SubsonicClient.getInstance().cacheCoverArtBlocking(id, size, cacheFile);
+                            long len = art.length();
+                            os.write(("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: " + len
+                                    + "\r\nCache-Control: max-age=604800\r\n\r\n").getBytes("UTF-8"));
+                            FileInputStream fis = new FileInputStream(art);
+                            try {
+                                byte[] buffer = new byte[8192];
+                                int n;
+                                while ((n = fis.read(buffer)) != -1) os.write(buffer, 0, n);
+                            } finally { fis.close(); }
+                        } catch (Exception e) {
+                            os.write("HTTP/1.1 404 Not Found\r\n\r\nNo cover".getBytes("UTF-8"));
+                        }
+                    }
+                }
+                // [API] Live download-queue state (cheap to poll)
+                else if (method.equals("GET") && path.startsWith("/api/navidrome/queue")) {
+                    sendJson(os, com.themoon.y1.managers.NavidromeManager.getInstance().getWebQueueJson());
+                }
+                // [API] Enqueue a download — {albumId, transcoded, songIds?} or {songs:[...], transcoded}
+                else if (method.equals("POST") && path.startsWith("/api/navidrome/download")) {
+                    String body = readRequestBody(is, contentLength);
+                    handleNavidromeDownload(os, body);
+                }
+                // [API] Clear the pending queue (the in-flight track finishes)
+                else if (method.equals("POST") && path.startsWith("/api/navidrome/cancel")) {
+                    final com.themoon.y1.MainActivity a = com.themoon.y1.MainActivity.instance;
+                    if (a == null) { sendJsonError(os, "Player app not running"); }
+                    else {
+                        final int[] removed = {0};
+                        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                        a.runOnUiThread(new Runnable() { @Override public void run() {
+                            try { removed[0] = com.themoon.y1.managers.NavidromeManager.getInstance().clearPendingNavidromeDownloads(); }
+                            finally { latch.countDown(); }
+                        }});
+                        try { latch.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                        sendJson(os, "{\"ok\":true,\"removed\":" + removed[0] + "}");
+                    }
                 }
 
                 // 5. [API] Read file (streaming, download, load code)

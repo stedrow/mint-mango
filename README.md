@@ -80,6 +80,30 @@ The launcher includes a built-in Subsonic API client so you can browse and strea
   - Long-press a song title to download that track only
 - Back button navigates up: Songs → Albums → Artists → Main Menu
 
+### Browse & Download from your browser (Web Server)
+
+The built-in Web Server (main menu → **Web Server**, then open the shown
+`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) now includes a
+**Music** page — a download manager for pulling albums onto the Y1 from a real
+keyboard and a big screen instead of the wheel:
+
+- **Browse & Download Music** button on the Web Server home page opens `/music`
+- Browse **Newest / Most Played / Random / A–Z**, or **search** albums, songs
+  and artists — all shown as an album-art grid
+- Open an album to see its tracks, then **Download Album** or grab individual
+  tracks; tracks already on the device show a ✓
+- An **Original / MP3** quality toggle (Original keeps FLAC/ALAC/etc. as-is; MP3
+  transcodes to 192 kbps for a smaller download)
+- A live **download dock** at the bottom shows the current transfer's progress,
+  the queue, and a **Clear pending** button
+
+Downloads run through the **same one-at-a-time queue as on-device downloads**
+(the ~190 kbps link can't share), so queueing from the browser behaves exactly
+like queueing on the Y1 — wake/Wi-Fi locks, retries, library registration and
+cover-art caching all included. Album art is fetched once, cached on the device
+and in the browser, and served small, to stay light on the Y1's hardware and
+network.
+
 ---
 
 ## 🛠️ Building from Source

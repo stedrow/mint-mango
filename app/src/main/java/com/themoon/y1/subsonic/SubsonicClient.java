@@ -438,6 +438,132 @@ public class SubsonicClient {
         });
     }
 
+    // ── Blocking API (for the Web Server download manager) ──────────────────────
+    // These run synchronously on the CALLER's thread and throw on error. They are
+    // meant to be called from the Web Server's own connection-pool threads (never the
+    // main/UI thread), so a download manager in the browser can search/browse without
+    // the main-thread-callback ceremony the on-device UI needs.
+
+    /** Combined search3 result: albums + songs (artists intentionally skipped — the
+     *  web manager downloads albums/songs, not artists). */
+    public static class SearchResult {
+        public final List<SubsonicAlbum> albums = new ArrayList<>();
+        public final List<SubsonicSong> songs = new ArrayList<>();
+    }
+
+    public SearchResult searchBlocking(String query, int albumCount, int songCount) throws Exception {
+        JSONObject root = fetchJson(buildUrl("search3",
+                "query=" + encode(query) + "&artistCount=0&albumCount=" + albumCount + "&songCount=" + songCount));
+        JSONObject sr = root.getJSONObject("subsonic-response");
+        if (!"ok".equals(sr.getString("status"))) throw new Exception(extractError(root));
+        SearchResult res = new SearchResult();
+        JSONObject s3 = sr.optJSONObject("searchResult3");
+        if (s3 != null) {
+            JSONArray al = s3.optJSONArray("album");
+            if (al != null) for (int i = 0; i < al.length(); i++) res.albums.add(parseAlbumSummary(al.getJSONObject(i)));
+            JSONArray so = s3.optJSONArray("song");
+            if (so != null) for (int i = 0; i < so.length(); i++) res.songs.add(parseSong(so.getJSONObject(i), null, null));
+        }
+        return res;
+    }
+
+    /** getAlbumList2 — type is one of newest/frequent/recent/random/alphabeticalByName/etc. */
+    public List<SubsonicAlbum> getAlbumListBlocking(String type, int size, int offset) throws Exception {
+        JSONObject root = fetchJson(buildUrl("getAlbumList2",
+                "type=" + encode(type) + "&size=" + size + "&offset=" + offset));
+        JSONObject sr = root.getJSONObject("subsonic-response");
+        if (!"ok".equals(sr.getString("status"))) throw new Exception(extractError(root));
+        List<SubsonicAlbum> out = new ArrayList<>();
+        JSONObject listObj = sr.optJSONObject("albumList2");
+        if (listObj != null) {
+            JSONArray arr = listObj.optJSONArray("album");
+            if (arr != null) for (int i = 0; i < arr.length(); i++) out.add(parseAlbumSummary(arr.getJSONObject(i)));
+        }
+        return out;
+    }
+
+    /** Full track list for an album — better metadata (album artist, real album name)
+     *  than the per-song search results, so the downloader files tracks correctly. */
+    public List<SubsonicSong> getAlbumSongsBlocking(String albumId) throws Exception {
+        JSONObject root = fetchJson(buildUrl("getAlbum", "id=" + encode(albumId)));
+        JSONObject sr = root.getJSONObject("subsonic-response");
+        if (!"ok".equals(sr.getString("status"))) throw new Exception(extractError(root));
+        JSONObject albumObj = sr.getJSONObject("album");
+        String albumName = albumObj.optString("name", "");
+        String albumArtistName = albumObj.optString("artist", "");
+        String realAlbumId = albumObj.optString("id", albumId);
+        List<SubsonicSong> songs = new ArrayList<>();
+        JSONArray arr = albumObj.optJSONArray("song");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                SubsonicSong song = parseSong(arr.getJSONObject(i), albumName, albumArtistName);
+                song.album = albumName;
+                song.albumId = realAlbumId;
+                songs.add(song);
+            }
+        }
+        return songs;
+    }
+
+    /** Blocking cover-art fetch to a disk cache file; returns the cached File. Reuses
+     *  the cache on repeat calls so the browser's covers cost the Y1 nothing after the
+     *  first view. */
+    public File cacheCoverArtBlocking(String coverArtId, int size, File cacheFile) throws Exception {
+        if (cacheFile.exists() && cacheFile.length() > 0) return cacheFile;
+        HttpURLConnection conn = null;
+        InputStream is = null;
+        File partFile = new File(cacheFile.getAbsolutePath() + ".part");
+        try {
+            conn = openConnection(getCoverArtUrl(coverArtId, size));
+            conn.connect();
+            if (conn.getResponseCode() != 200) throw new Exception("HTTP " + conn.getResponseCode());
+            is = conn.getInputStream();
+            if (partFile.getParentFile() != null) partFile.getParentFile().mkdirs();
+            FileOutputStream fos = new FileOutputStream(partFile);
+            byte[] buf = new byte[16384];
+            int read;
+            while ((read = is.read(buf)) != -1) fos.write(buf, 0, read);
+            fos.close();
+            if (!partFile.renameTo(cacheFile)) throw new Exception("rename failed");
+            return cacheFile;
+        } catch (Exception e) {
+            try { partFile.delete(); } catch (Exception delEx) { android.util.Log.d(TAG, "cover partFile cleanup failed", delEx); }
+            throw e;
+        } finally {
+            drainAndClose(is);
+        }
+    }
+
+    private static SubsonicAlbum parseAlbumSummary(JSONObject a) {
+        SubsonicAlbum al = new SubsonicAlbum();
+        al.id = a.optString("id");
+        al.name = a.optString("name", a.optString("album", "Unknown"));
+        al.artistId = a.optString("artistId", null);
+        al.artistName = a.optString("artist", "");
+        al.year = a.optInt("year", 0);
+        al.songCount = a.optInt("songCount", 0);
+        al.coverArtId = a.optString("coverArt", null);
+        return al;
+    }
+
+    private static SubsonicSong parseSong(JSONObject s, String albumNameFallback, String albumArtistFallback) {
+        SubsonicSong song = new SubsonicSong();
+        song.id = s.optString("id");
+        song.title = s.optString("title", "Unknown");
+        song.artist = s.optString("artist", "Unknown");
+        song.album = s.optString("album", albumNameFallback != null ? albumNameFallback : "");
+        song.albumId = s.optString("albumId", null);
+        song.track = s.optInt("track", 0);
+        song.durationSecs = s.optInt("duration", 0);
+        song.sizeBytes = s.optLong("size", 0);
+        song.suffix = s.optString("suffix", "mp3");
+        song.coverArtId = s.optString("coverArt", null);
+        song.year = s.optInt("year", 0);
+        song.genre = s.optString("genre", null);
+        song.albumArtist = s.optString("albumArtist", albumArtistFallback != null ? albumArtistFallback : "");
+        return song;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private JSONObject fetchJson(String urlStr) throws Exception {
