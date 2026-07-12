@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Y1 Theme Editor (local)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0b0b0c; color: #eee; font-size: 13px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; background: #151517; border-bottom: 1px solid #2a2a2d;
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; color: #9be79b; }
+  header .hint { color: #888; font-size: 11px; }
+  .layout { display: flex; height: calc(100vh - 37px); }
+  .preview-pane {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    padding: 20px; overflow: auto; gap: 10px;
+  }
+  .preview-toolbar { display: flex; align-items: center; gap: 10px; color: #aaa; }
+  .preview-toolbar input[type=range] { width: 140px; }
+  #zoomLabel { color: #4dd; min-width: 34px; }
+  #stage-wrap { border: 1px solid #333; background: repeating-conic-gradient(#1a1a1a 0% 25%, #141414 0% 50%) 50% / 16px 16px; }
+  #stage {
+    position: relative; width: 480px; height: 360px; overflow: hidden;
+    background-size: cover; background-position: center;
+  }
+  /* Without this, <img>'s default native drag-image gesture hijacks pointer
+     capture after the first pointermove, killing makeDraggable() mid-drag. */
+  #stage img, #stage * { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
+  .el-node { position: absolute; cursor: pointer; }
+  .el-node.selected { outline: 2px solid #33e0ff; outline-offset: 1px; }
+  .el-box { background: rgba(0,0,0,.4); }
+  .el-list { outline: 1px dashed rgba(255,255,255,.25); overflow-y: auto; }
+  .el-btn {
+    display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .el-btn img.icon { width: 20px; height: 20px; object-fit: contain; flex: none; }
+  .el-btn .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .el-btn .right { flex: none; opacity: .8; }
+  .el-widget { display: flex; align-items: center; justify-content: center; text-align: center; }
+  .el-widget img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .hit-label {
+    position: absolute; top: -14px; left: 0; font-size: 9px; color: #33e0ff;
+    background: #000a; padding: 0 3px; white-space: nowrap; pointer-events: none;
+    display: none;
+  }
+  .el-node:hover .hit-label, .el-node.selected .hit-label { display: block; }
+  #hint-line { color: #666; font-size: 11px; }
+
+  .side { width: 380px; border-left: 1px solid #2a2a2d; background: #131314; display: flex; flex-direction: column; }
+  .tabs { display: flex; border-bottom: 1px solid #2a2a2d; }
+  .tabs button {
+    flex: 1; padding: 10px 0; background: none; border: none; color: #999;
+    cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .tabs button.active { color: #fff; background: #1d1d1f; border-bottom: 2px solid #33e0ff; }
+  .panel { flex: 1; overflow-y: auto; padding: 14px; }
+  .panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #7fd; margin: 16px 0 8px; }
+  .panel h3:first-child { margin-top: 0; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: #999; margin-bottom: 3px; }
+  .field input[type=text], .field input[type=number], .field select, .field textarea {
+    width: 100%; background: #0e0e10; border: 1px solid #333; color: #fff;
+    padding: 6px 8px; border-radius: 4px; font-size: 12px;
+  }
+  .color-field { display: flex; align-items: center; gap: 6px; }
+  .color-field input[type=color] { width: 30px; height: 26px; padding: 0; border: 1px solid #333; background: none; }
+  .color-field input[type=text] { flex: 1; font-family: monospace; }
+  .alpha-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .alpha-row input[type=range] { flex: 1; }
+  .alpha-row span { font-size: 10px; color: #6cf; width: 36px; text-align: right; }
+  button.btn {
+    background: #26262a; border: 1px solid #3a3a3e; color: #fff; padding: 7px 10px;
+    border-radius: 5px; cursor: pointer; font-size: 12px;
+  }
+  button.btn:hover { background: #313136; }
+  button.btn.primary { background: #1789c9; border-color: #1789c9; }
+  button.btn.primary:hover { background: #1f9cdf; }
+  button.btn.danger { background: #4a1f1f; border-color: #6b2b2b; color: #ff9d9d; }
+  .footer-actions { padding: 12px 14px; border-top: 1px solid #2a2a2d; display: flex; gap: 8px; }
+  .footer-actions button { flex: 1; }
+  .file-row { display: flex; gap: 6px; }
+  .file-row input[type=text] { flex: 1; }
+  .file-thumb { width: 26px; height: 26px; object-fit: contain; background: #000; border: 1px solid #333; border-radius: 3px; }
+  #elementList .el-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; background: #1a1a1c; border: 1px solid #2c2c2f; border-radius: 5px;
+    margin-bottom: 6px; cursor: pointer;
+  }
+  #elementList .el-item:hover { border-color: #33e0ff; }
+  #elementList .el-item .meta strong { display: block; font-size: 12px; }
+  #elementList .el-item .meta span { font-size: 10px; color: #888; }
+  #elementList .el-item .actions button { background: none; border: none; color: #888; cursor: pointer; padding: 2px 4px; }
+  #elementList .el-item .actions button:hover { color: #ff9d9d; }
+  .back-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .back-row button { background: none; border: none; color: #6cf; cursor: pointer; font-size: 16px; }
+  .back-row .idtitle { flex: 1; font-weight: 600; }
+  .subtle { color: #777; font-size: 10.5px; margin-top: 3px; }
+  .hidden { display: none !important; }
+  #addTypeMenu { position: absolute; background: #1c1c1f; border: 1px solid #333; border-radius: 6px; box-shadow: 0 8px 24px #000a; z-index: 50; }
+  #addTypeMenu button { display: block; width: 100%; text-align: left; padding: 8px 14px; background: none; border: none; color: #ddd; cursor: pointer; font-size: 12px; }
+  #addTypeMenu button:hover { background: #2a2a2e; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Y1 Theme Editor <span class="hint">(local, schema-matched to ThemeManager.java)</span></h1>
+  <span class="hint" id="statusLine"></span>
+</header>
+
+<div class="layout">
+  <div class="preview-pane">
+    <div class="preview-toolbar">
+      <label>Zoom</label>
+      <input type="range" id="zoom" min="50" max="200" value="100">
+      <span id="zoomLabel">100%</span>
+      <button class="btn" id="btnResetZoom">Reset</button>
+      <button class="btn" id="btnClearFocus">Clear focus</button>
+    </div>
+    <div id="stage-wrap">
+      <div id="stage"></div>
+    </div>
+    <div id="hint-line">Click an element to select/edit it. Click a button to simulate focus (updates focused colors + visible-on-focus widgets).</div>
+  </div>
+
+  <div class="side">
+    <div class="tabs">
+      <button id="tabGlobal" class="active">Global Settings</button>
+      <button id="tabElements">Elements</button>
+    </div>
+
+    <div class="panel" id="panelGlobal"></div>
+    <div class="panel hidden" id="panelElements"></div>
+
+    <div class="footer-actions">
+      <input type="file" id="fileImportZip" accept=".zip" class="hidden">
+      <input type="file" id="fileImportJson" accept=".json" class="hidden">
+      <button class="btn" id="btnImport">Import Theme (.zip/.json)</button>
+      <button class="btn primary" id="btnExport">Download Theme (.zip)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ---------------------------------------------------------------------
+ * Data model mirrors ThemeManager.MenuElement / ThemeData exactly:
+ * app/src/main/java/com/themoon/y1/ThemeManager.java
+ * Positioning math mirrors MainMenuManager.createDynamicLayoutParams /
+ * parseGravity: app/src/main/java/com/themoon/y1/managers/MainMenuManager.java
+ * ------------------------------------------------------------------- */
+
+const ELEMENT_DEFAULTS = {
+  box:               { width: 240, height: 325, gravity: 'top|left', radius: 0, padding: 0, bg_color: '#A0000000', action: 'NONE' },
+  list_box:          { width: 220, height: 290, gravity: 'top|left', radius: -1, padding: 0, bg_color: '' },
+  button:            { width: -1, height: 48, gravity: 'top|left', radius: -1, padding: 0, text_normal: 'New Item', text_right: '〉', action: 'NONE', text_size: 22, text_secondary_size: -1, text_position: 'bottom', text_align: 'left', bg_color: '' },
+  widget_clock:      { width: 150, height: 81, gravity: 'top|left', padding: 8, text_position: 'bottom', text_align: 'left' },
+  widget_analog_clock:{ width: 120, height: 120, gravity: 'top|left', padding: 0, text_position: 'bottom', text_align: 'left' },
+  widget_battery:    { width: 150, height: 30, gravity: 'top|left', padding: 0, text_position: 'bottom', text_align: 'left' },
+  widget_circular_battery: { width: 100, height: 100, gravity: 'top|left', padding: 0, text_position: 'bottom', text_align: 'left' },
+  widget_album:      { width: 211, height: 212, gravity: 'bottom|left', padding: 0, text_position: 'bottom', text_align: 'center' },
+  widget_focus_image:{ width: 211, height: 212, gravity: 'top|left', padding: 0, text_position: 'bottom', text_align: 'center' },
+};
+
+const TYPE_LABELS = {
+  box: 'Design Box (Background Split)',
+  list_box: 'List Box (Scroll Container)',
+  button: 'Standard Button',
+  widget_clock: 'Widget: Digital Clock',
+  widget_analog_clock: 'Widget: Analog Clock',
+  widget_battery: 'Widget: Battery Bar',
+  widget_circular_battery: 'Widget: Circular Battery',
+  widget_album: 'Widget: Album Art',
+  widget_focus_image: 'Widget: Dynamic Focus Image',
+};
+
+function blankElement(type, id) {
+  const d = ELEMENT_DEFAULTS[type];
+  return Object.assign({
+    id: id, type: type, parent_id: '', visible_on_focus: '',
+    x: 0, y: 0, width: 100, height: 50, gravity: 'top|left',
+    text_normal: '', text_focused: '', text_right: '', text_right_color: '', text_right_focused_color: '',
+    icon_normal: '', icon_focused: '', preview_image: '',
+    action: 'NONE', radius: -1, focus_index: -1,
+    text_size: -1, text_secondary_size: -1, text_position: 'bottom', text_align: 'center',
+    bg_color: '', padding: 0, focus_offset_x: 0, focus_offset_y: 0, focus_scale: 1.0,
+  }, d);
+}
+
+const ACTIONS = ['NONE','OPEN_PLAYER','OPEN_BROWSER','OPEN_RADIO','OPEN_AUDIOBOOKS','OPEN_BLUETOOTH','OPEN_WIFI','OPEN_SETTINGS'];
+
+/* ---------------------------------------------------------------------
+ * State
+ * ------------------------------------------------------------------- */
+
+let theme = {
+  name: 'My Theme',
+  font: '',
+  textPrimary: '#FFFFFFFF',
+  textSecondary: '#FF888888',
+  bgOverlay: '#88000000',
+  statusBarBg: '#88000000',
+  btnNormal: '#15FFFFFF',
+  btnFocused: '#FF00FFFF',
+  btnFocusedText: '#FF000000',
+  button_radius: 15,
+  bg_image: '',
+  main_menu: [],
+};
+
+// filename -> { blob, url } for every referenced asset (icons/bg_image/font)
+let assets = new Map();
+let selectedId = null;
+let focusedId = null;
+
+function seedDefaultMenu() {
+  theme.main_menu = [
+    Object.assign(blankElement('box', 'box'), { x:0, y:0 }),
+    Object.assign(blankElement('list_box', 'main_scroll_list'), { x:10, y:15 }),
+    Object.assign(blankElement('button', 'btn_now'), { parent_id:'main_scroll_list', x:0, y:0, text_normal:'Now Playing', action:'OPEN_PLAYER', focus_index:0 }),
+    Object.assign(blankElement('button', 'btn_music'), { parent_id:'main_scroll_list', x:0, y:8, text_normal:'Music', action:'OPEN_BROWSER', focus_index:1 }),
+    Object.assign(blankElement('widget_clock', 'widget_clock'), { x:284, y:18, visible_on_focus:'btn_now' }),
+    Object.assign(blankElement('widget_album', 'widget_album'), { x:254, y:13, visible_on_focus:'btn_now' }),
+  ];
+}
+seedDefaultMenu();
+
+function uid(prefix) {
+  return prefix + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function getEl(id) { return theme.main_menu.find(e => e.id === id); }
+
+/* ---------------------------------------------------------------------
+ * Color helpers: config.json stores #AARRGGBB (matches Android
+ * Color.parseColor, see ThemeManager.safeParseColor).
+ * ------------------------------------------------------------------- */
+
+function splitAARRGGBB(hex) {
+  hex = (hex || '').replace('#', '');
+  if (hex.length === 6) hex = 'FF' + hex;
+  if (hex.length !== 8) hex = 'FFFFFFFF';
+  return { a: hex.slice(0,2), rgb: '#' + hex.slice(2) };
+}
+function joinAARRGGBB(rgbHex, alphaHex) {
+  return '#' + alphaHex.toUpperCase() + rgbHex.replace('#','').toUpperCase();
+}
+function hexToAlphaFloat(a) { return parseInt(a, 16) / 255; }
+function alphaFloatToHex(f) { return Math.round(f * 255).toString(16).padStart(2,'0').toUpperCase(); }
+function toCssColor(aarrggbb) {
+  const { a, rgb } = splitAARRGGBB(aarrggbb);
+  const alpha = hexToAlphaFloat(a);
+  const r = parseInt(rgb.slice(1,3),16), g = parseInt(rgb.slice(3,5),16), b = parseInt(rgb.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/* ---------------------------------------------------------------------
+ * Gravity / layout math -- mirrors MainMenuManager exactly (density = 1,
+ * since config coordinates are treated as raw px on the 480x360 canvas).
+ * ------------------------------------------------------------------- */
+
+function parseGravity(str) {
+  str = (str || '').toLowerCase();
+  if (!str) return { top:true, left:true };
+  if (str === 'center') return { centerV:true, centerH:true };
+  return {
+    top: str.includes('top'), bottom: str.includes('bottom'),
+    left: str.includes('left'), right: str.includes('right'),
+    centerV: str.includes('center_vertical'), centerH: str.includes('center_horizontal'),
+  };
+}
+
+function applyDynamicLayout(node, el) {
+  const g = parseGravity(el.gravity);
+  node.style.width = el.width > 0 ? el.width + 'px' : 'auto';
+  node.style.height = el.height > 0 ? el.height + 'px' : 'auto';
+
+  node.style.left = node.style.right = node.style.top = node.style.bottom = 'auto';
+  node.style.transform = '';
+
+  if (g.centerV && g.centerH) {
+    node.style.left = '50%'; node.style.top = '50%';
+    node.style.transform = 'translate(-50%,-50%)';
+    return;
+  }
+  if (g.right) node.style.right = el.x + 'px'; else node.style.left = el.x + 'px';
+  if (g.bottom) node.style.bottom = el.y + 'px'; else node.style.top = el.y + 'px';
+  if (g.centerH && !g.right && !g.left) { node.style.left = '50%'; node.style.marginLeft = -(el.width>0?el.width/2:0) + 'px'; }
+  if (g.centerV && !g.top && !g.bottom) { node.style.top = '50%'; node.style.marginTop = -(el.height>0?el.height/2:0) + 'px'; }
+}
+
+/* ---------------------------------------------------------------------
+ * Rendering
+ * ------------------------------------------------------------------- */
+
+function assetUrl(filename) {
+  if (!filename) return '';
+  const a = assets.get(filename);
+  return a ? a.url : '';
+}
+
+function renderStage() {
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+  stage.style.backgroundColor = toCssColor(theme.bgOverlay);
+  stage.style.backgroundImage = theme.bg_image && assetUrl(theme.bg_image) ? `url(${assetUrl(theme.bg_image)})` : 'none';
+
+  const focused = focusedId ? getEl(focusedId) : null;
+
+  // Matches MainActivity.java's two-pass widget logic: hasLiveWidgetActivated
+  // is true if ANY widget (of any type) explicitly claims the focused button
+  // via visible_on_focus. widget_focus_image then has a singleton fallback:
+  // when nothing else claimed the focus, it shows the focused BUTTON's own
+  // preview_image (not its own), so per-row focus previews work even though
+  // the widget_focus_image element itself has no matching visible_on_focus.
+  const hasLiveWidgetActivated = !!focused && theme.main_menu.some(e =>
+    e.type !== 'box' && e.type !== 'list_box' && e.type !== 'button' &&
+    e.visible_on_focus && e.visible_on_focus === focused.id
+  );
+
+  // free-floating elements (no parent_id) laid out with gravity math
+  const listBoxes = theme.main_menu.filter(e => e.type === 'list_box');
+
+  theme.main_menu.filter(e => !e.parent_id).forEach(el => {
+    const node = document.createElement('div');
+    node.className = 'el-node';
+    node.dataset.id = el.id;
+    applyDynamicLayout(node, el);
+
+    if (el.type === 'box') {
+      node.classList.add('el-box');
+      node.style.background = el.bg_color ? toCssColor(el.bg_color) : 'transparent';
+      const r = el.radius === -1 ? theme.button_radius : el.radius;
+      node.style.borderRadius = r + 'px';
+    } else if (el.type === 'list_box') {
+      node.classList.add('el-list');
+      node.style.background = el.bg_color ? toCssColor(el.bg_color) : 'transparent';
+      renderListChildren(node, el);
+    } else {
+      node.classList.add('el-widget');
+      let visible, fallbackImage = null;
+      if (el.type === 'widget_focus_image') {
+        if (el.visible_on_focus && focused && focused.id === el.visible_on_focus) {
+          visible = true; // uses its own preview_image, handled in renderWidgetContent
+        } else if (!hasLiveWidgetActivated && focused && focused.preview_image) {
+          visible = true; fallbackImage = focused.preview_image;
+        } else {
+          visible = false;
+        }
+      } else {
+        visible = shouldShowWidget(el, focused);
+      }
+      node.style.display = visible ? 'flex' : 'none';
+      node.style.color = toCssColor(theme.textPrimary);
+      renderWidgetContent(node, el, focused, fallbackImage);
+    }
+
+    const label = document.createElement('div');
+    label.className = 'hit-label';
+    label.textContent = el.id + ' (' + el.type + ')';
+    node.appendChild(label);
+
+    if (el.id === selectedId) node.classList.add('selected');
+    makeDraggable(node, el);
+    stage.appendChild(node);
+  });
+
+  // Every click rebuilds the list from scratch (see renderAll -> renderStage),
+  // which resets any list_box's scrollTop to 0. Without this, clicking a
+  // scrolled-into-view button snaps the list back to the top, leaving the
+  // now-focused item highlighted but scrolled out of sight.
+  if (focused && focused.parent_id) {
+    const btnNode = stage.querySelector(`[data-id="${CSS.escape(focused.id)}"]`);
+    if (btnNode) btnNode.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+// Drag-to-move for free-floating elements (box/list_box/widgets), which are
+// positioned via gravity + x/y offsets (see applyDynamicLayout). A plain
+// click (no movement) still selects/focuses like before.
+function makeDraggable(node, el) {
+  node.style.cursor = 'move';
+  node.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    ev.stopPropagation();
+    const g = parseGravity(el.gravity);
+    if (g.centerV && g.centerH) { onNodeClick(el); return; } // centered elements: drag not supported
+    const zoom = (parseFloat(document.getElementById('zoom').value) || 100) / 100;
+    const startX = ev.clientX, startY = ev.clientY;
+    const startElX = el.x, startElY = el.y;
+    let moved = false;
+    node.setPointerCapture(ev.pointerId);
+
+    function onMove(e2) {
+      const dx = (e2.clientX - startX) / zoom;
+      const dy = (e2.clientY - startY) / zoom;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
+      el.x = Math.round(startElX + (g.right ? -dx : dx));
+      el.y = Math.round(startElY + (g.bottom ? -dy : dy));
+      // Reposition just this node in place -- do NOT call renderStage() here,
+      // it rebuilds the whole DOM tree (stage.innerHTML = '') which would
+      // destroy this very node mid-drag and silently kill pointer capture.
+      applyDynamicLayout(node, el);
+    }
+    function onUp() {
+      node.releasePointerCapture(ev.pointerId);
+      node.removeEventListener('pointermove', onMove);
+      node.removeEventListener('pointerup', onUp);
+      if (!moved) { onNodeClick(el); }
+      else { selectedId = el.id; renderAll(); }
+    }
+    node.addEventListener('pointermove', onMove);
+    node.addEventListener('pointerup', onUp);
+  });
+}
+
+function shouldShowWidget(el, focused) {
+  if (el.visible_on_focus) return !!focused && focused.id === el.visible_on_focus;
+  return true; // no visible_on_focus => always shown in the editor preview
+}
+
+function renderWidgetContent(node, el, focused, fallbackImage) {
+  node.innerHTML = '';
+  const img = document.createElement('img');
+  switch (el.type) {
+    case 'widget_clock': {
+      // Matches WidgetClockManager.java: one TextView, time line then a
+      // "EEE, MMM dd" date line at ~47% of the time's font size.
+      node.style.flexDirection = 'column';
+      const timeLine = document.createElement('div');
+      timeLine.textContent = '17:22'; timeLine.style.fontSize = '28px'; timeLine.style.fontWeight = '600';
+      const dateLine = document.createElement('div');
+      dateLine.textContent = 'Sat, Jun 15'; dateLine.style.fontSize = '13px'; dateLine.style.marginTop = '2px';
+      node.append(timeLine, dateLine);
+      break;
+    }
+    case 'widget_analog_clock':
+      node.style.border = `2px solid ${toCssColor(theme.textPrimary)}`;
+      node.style.borderRadius = '50%';
+      node.textContent = '\u{1F550}';
+      node.style.fontSize = '32px';
+      break;
+    case 'widget_battery':
+      node.textContent = '\u{1F50B} 100%';
+      break;
+    case 'widget_circular_battery':
+      node.style.border = `3px solid ${toCssColor(theme.textPrimary)}`;
+      node.style.borderRadius = '50%';
+      node.textContent = '100%';
+      break;
+    case 'widget_album': {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;height:100%;justify-content:center;';
+      const art = document.createElement('div');
+      art.style.cssText = 'width:70%;aspect-ratio:1;background:#333 center/cover no-repeat;border-radius:' + (el.radius===-1?4:el.radius) + 'px;';
+      if (el.preview_image && assetUrl(el.preview_image)) art.style.backgroundImage = `url(${assetUrl(el.preview_image)})`;
+      const title = document.createElement('div');
+      title.textContent = 'Song Title'; title.style.fontWeight = '600';
+      const artist = document.createElement('div');
+      artist.textContent = 'Artist Name'; artist.style.opacity = '0.8'; artist.style.fontSize = '11px';
+      wrap.append(art, title, artist);
+      node.appendChild(wrap);
+      return;
+    }
+    case 'widget_focus_image': {
+      const src = fallbackImage || el.preview_image;
+      if (src && assetUrl(src)) { img.src = assetUrl(src); node.appendChild(img); }
+      else { node.textContent = '(preview image)'; node.style.opacity = '0.5'; }
+      return;
+    }
+  }
+}
+
+function renderListChildren(listNode, listEl) {
+  const children = theme.main_menu.filter(e => e.parent_id === listEl.id)
+    .sort((a,b) => (a.focus_index ?? 0) - (b.focus_index ?? 0));
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;width:100%;';
+  children.forEach(el => {
+    const btn = document.createElement('div');
+    btn.className = 'el-node el-btn';
+    btn.dataset.id = el.id;
+    btn.style.position = 'relative';
+    btn.style.margin = `${el.y}px ${el.x}px 0 ${el.x}px`;
+    btn.style.height = (el.height > 0 ? el.height : 48) + 'px';
+    const isFocused = el.id === focusedId;
+    const r = el.radius === -1 ? theme.button_radius : el.radius;
+    btn.style.borderRadius = r + 'px';
+    // Matches MainMenuManager.java: bg_color only overrides the NORMAL state
+    // (line ~477); on focus the app always paints the global btnFocused color
+    // unconditionally (line ~525), ignoring any per-button bg_color.
+    btn.style.background = isFocused
+      ? toCssColor(theme.btnFocused)
+      : (el.bg_color ? toCssColor(el.bg_color) : toCssColor(theme.btnNormal));
+    btn.style.color = isFocused ? toCssColor(theme.btnFocusedText) : toCssColor(theme.textPrimary);
+    btn.style.padding = (el.padding || 0) + 'px';
+    btn.style.justifyContent = el.text_align === 'center' ? 'center' : (el.text_align === 'right' ? 'flex-end' : 'flex-start');
+
+    // isIconOnly matches MainMenuManager.java line 388: a blank text_normal
+    // switches the whole button into a centered, textless icon mode.
+    const isIconOnly = !el.text_normal || !el.text_normal.trim();
+    const iconName = isFocused && el.icon_focused ? el.icon_focused : el.icon_normal;
+    if (iconName && assetUrl(iconName)) {
+      const img = document.createElement('img');
+      img.className = 'icon'; img.src = assetUrl(iconName);
+      if (isIconOnly) { img.style.width = '28px'; img.style.height = '28px'; }
+      btn.appendChild(img);
+    }
+    if (isIconOnly) {
+      btn.style.justifyContent = 'center';
+    } else {
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.style.fontSize = (el.text_size > 0 ? el.text_size : 16) + 'px';
+      txt.textContent = (isFocused && el.text_focused) ? el.text_focused : el.text_normal;
+      btn.appendChild(txt);
+    }
+    if (!isIconOnly && el.text_right) {
+      const right = document.createElement('div');
+      right.className = 'right';
+      right.textContent = el.text_right;
+      right.style.color = isFocused
+        ? (el.text_right_focused_color || 'inherit')
+        : (el.text_right_color || 'inherit');
+      btn.appendChild(right);
+    }
+    const label = document.createElement('div');
+    label.className = 'hit-label';
+    label.textContent = el.id + ' (button)';
+    btn.appendChild(label);
+
+    // No selection outline here: buttons already show state via the theme's
+    // own focused color, and that outline isn't part of the actual theme.
+    // Stop pointerdown too, not just click: the parent list_box has a drag
+    // handler on pointerdown (see makeDraggable) that would otherwise
+    // intercept the bubbling event before this button's click ever fires.
+    btn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    btn.addEventListener('click', (ev) => { ev.stopPropagation(); onNodeClick(el); });
+    wrap.appendChild(btn);
+  });
+  listNode.appendChild(wrap);
+}
+
+function onNodeClick(el) {
+  selectedId = el.id;
+  if (el.type === 'button') focusedId = el.id;
+  document.getElementById('tabElements').click();
+  renderAll();
+}
+
+document.getElementById('stage-wrap').addEventListener('click', () => { selectedId = null; renderElementsPanel(); renderStage(); });
+document.getElementById('btnClearFocus').addEventListener('click', () => { focusedId = null; renderStage(); });
+
+/* ---------------------------------------------------------------------
+ * Global Settings panel
+ * ------------------------------------------------------------------- */
+
+const COLOR_FIELDS = [
+  ['textPrimary', 'Text Primary'], ['textSecondary', 'Text Secondary'],
+  ['bgOverlay', 'Background Overlay'], ['statusBarBg', 'Status Bar Bg'],
+  ['btnNormal', 'Button Normal Bg'], ['btnFocused', 'Button Focused Bg'],
+  ['btnFocusedText', 'Button Focused Text'],
+];
+
+function renderGlobalPanel() {
+  const p = document.getElementById('panelGlobal');
+  p.innerHTML = '';
+
+  p.appendChild(fieldBlock('Theme Name', textInput(theme.name, v => { theme.name = v; })));
+
+  const fontRow = document.createElement('div');
+  fontRow.className = 'field';
+  fontRow.innerHTML = `<label>Custom Font (.ttf/.otf)</label>`;
+  const fontFile = fileImportRow(theme.font, (name, blob, url) => {
+    theme.font = name; assets.set(name, { blob, url });
+    renderGlobalPanel();
+  }, () => { theme.font = ''; renderGlobalPanel(); });
+  fontRow.appendChild(fontFile);
+  p.appendChild(fontRow);
+
+  const bgRow = document.createElement('div');
+  bgRow.className = 'field';
+  bgRow.innerHTML = `<label>Full-screen Background Image (bg_image)</label>`;
+  const bgFile = fileImportRow(theme.bg_image, (name, blob, url) => {
+    theme.bg_image = name; assets.set(name, { blob, url });
+    renderGlobalPanel(); renderStage();
+  }, () => { theme.bg_image = ''; renderGlobalPanel(); renderStage(); });
+  bgRow.appendChild(bgFile);
+  p.appendChild(bgRow);
+
+  const h3 = document.createElement('h3'); h3.textContent = 'Colors & Styles (Android AARRGGBB)';
+  p.appendChild(h3);
+
+  const grid = document.createElement('div'); grid.className = 'row';
+  COLOR_FIELDS.forEach(([key, label]) => grid.appendChild(colorField(label, theme[key], v => { theme[key] = v; renderStage(); })));
+  p.appendChild(grid);
+
+  p.appendChild(fieldBlock('Default Button Radius', numberInput(theme.button_radius, v => { theme.button_radius = v; renderStage(); })));
+}
+
+function fieldBlock(label, inputEl) {
+  const d = document.createElement('div'); d.className = 'field';
+  const l = document.createElement('label'); l.textContent = label;
+  d.append(l, inputEl);
+  return d;
+}
+function textInput(value, onChange) {
+  const i = document.createElement('input'); i.type = 'text'; i.value = value || '';
+  i.addEventListener('input', () => onChange(i.value));
+  return i;
+}
+function numberInput(value, onChange) {
+  const i = document.createElement('input'); i.type = 'number'; i.value = value;
+  i.addEventListener('input', () => onChange(parseFloat(i.value) || 0));
+  return i;
+}
+function selectInput(options, value, onChange, labels) {
+  const s = document.createElement('select');
+  options.forEach(opt => {
+    const o = document.createElement('option'); o.value = opt; o.textContent = labels ? labels[opt] : opt;
+    if (opt === value) o.selected = true;
+    s.appendChild(o);
+  });
+  s.addEventListener('change', () => onChange(s.value));
+  return s;
+}
+
+function colorField(label, aarrggbb, onChange) {
+  const { a, rgb } = splitAARRGGBB(aarrggbb);
+  const wrap = document.createElement('div'); wrap.className = 'field';
+  const alphaPct = Math.round(hexToAlphaFloat(a) * 100);
+  wrap.innerHTML = `<label>${label} <span style="color:#6cf;float:right">Alpha: ${alphaPct}%</span></label>`;
+  const row = document.createElement('div'); row.className = 'color-field';
+  const colorPicker = document.createElement('input'); colorPicker.type = 'color'; colorPicker.value = rgb;
+  const hexBox = document.createElement('input'); hexBox.type = 'text'; hexBox.value = '#' + a + rgb.replace('#','').toUpperCase();
+  row.append(colorPicker, hexBox);
+  wrap.appendChild(row);
+  const alphaRow = document.createElement('div'); alphaRow.className = 'alpha-row';
+  const alphaSlider = document.createElement('input'); alphaSlider.type = 'range'; alphaSlider.min = 0; alphaSlider.max = 255; alphaSlider.value = parseInt(a,16);
+  const alphaLabel = document.createElement('span'); alphaLabel.textContent = alphaPct + '%';
+  alphaRow.append(alphaSlider, alphaLabel);
+  wrap.appendChild(alphaRow);
+
+  function commit(rgbHex, alphaHex) {
+    const full = joinAARRGGBB(rgbHex, alphaHex);
+    hexBox.value = full;
+    onChange(full);
+  }
+  colorPicker.addEventListener('input', () => commit(colorPicker.value, alphaSlider.value.toString(16).padStart? alphaSlider.value : alphaFloatToHex(alphaSlider.value/255)));
+  colorPicker.addEventListener('input', () => commit(colorPicker.value, alphaFloatToHex(alphaSlider.value/255)));
+  alphaSlider.addEventListener('input', () => {
+    alphaLabel.textContent = Math.round(alphaSlider.value/255*100) + '%';
+    commit(colorPicker.value, alphaFloatToHex(alphaSlider.value/255));
+  });
+  hexBox.addEventListener('change', () => {
+    const { a: na, rgb: nrgb } = splitAARRGGBB(hexBox.value);
+    colorPicker.value = nrgb; alphaSlider.value = parseInt(na,16);
+    alphaLabel.textContent = Math.round(hexToAlphaFloat(na)*100) + '%';
+    onChange('#' + na + nrgb.replace('#',''));
+  });
+  return wrap;
+}
+
+function fileImportRow(currentName, onLoad, onClear) {
+  const row = document.createElement('div'); row.className = 'file-row';
+  const nameBox = document.createElement('input'); nameBox.type = 'text'; nameBox.readOnly = true;
+  nameBox.value = currentName || '(none)';
+  const asset = currentName ? assets.get(currentName) : null;
+  if (asset && /\.(png|jpg|jpeg|webp)$/i.test(currentName)) {
+    const thumb = document.createElement('img'); thumb.className = 'file-thumb'; thumb.src = asset.url;
+    row.appendChild(thumb);
+  }
+  row.appendChild(nameBox);
+  const pick = document.createElement('input'); pick.type = 'file'; pick.className = 'hidden';
+  pick.addEventListener('change', () => {
+    const f = pick.files[0]; if (!f) return;
+    const url = URL.createObjectURL(f);
+    onLoad(f.name, f, url);
+  });
+  const pickBtn = document.createElement('button'); pickBtn.className = 'btn'; pickBtn.textContent = 'Load';
+  pickBtn.addEventListener('click', () => pick.click());
+  const clearBtn = document.createElement('button'); clearBtn.className = 'btn'; clearBtn.textContent = 'X';
+  clearBtn.addEventListener('click', onClear);
+  row.append(pick, pickBtn, clearBtn);
+  return row;
+}
+
+/* ---------------------------------------------------------------------
+ * Elements panel
+ * ------------------------------------------------------------------- */
+
+function renderElementsPanel() {
+  const p = document.getElementById('panelElements');
+  p.innerHTML = '';
+  if (selectedId && getEl(selectedId)) {
+    renderElementEditor(p, getEl(selectedId));
+  } else {
+    renderElementList(p);
+  }
+}
+
+function renderElementList(p) {
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn primary'; addBtn.style.width = '100%'; addBtn.textContent = '+ Add New Element';
+  addBtn.style.position = 'relative';
+  addBtn.addEventListener('click', (ev) => showAddTypeMenu(ev.currentTarget));
+  p.appendChild(addBtn);
+
+  const h = document.createElement('h3'); h.textContent = 'Current Placed Elements'; p.appendChild(h);
+
+  const list = document.createElement('div'); list.id = 'elementList';
+  theme.main_menu.forEach(el => {
+    const item = document.createElement('div'); item.className = 'el-item';
+    item.innerHTML = `<div class="meta"><strong>${el.id}</strong><span>${TYPE_LABELS[el.type] || el.type}</span></div>`;
+    const actions = document.createElement('div'); actions.className = 'actions';
+    const del = document.createElement('button'); del.textContent = '\u{1F5D1}';
+    del.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      theme.main_menu = theme.main_menu.filter(e => e.id !== el.id);
+      renderAll();
+    });
+    actions.appendChild(del);
+    item.appendChild(actions);
+    item.addEventListener('click', () => { selectedId = el.id; renderAll(); });
+    list.appendChild(item);
+  });
+  p.appendChild(list);
+}
+
+function showAddTypeMenu(anchor) {
+  document.getElementById('addTypeMenu')?.remove();
+  const menu = document.createElement('div'); menu.id = 'addTypeMenu';
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+  menu.style.left = rect.left + 'px';
+  menu.style.width = rect.width + 'px';
+  Object.keys(TYPE_LABELS).forEach(type => {
+    const b = document.createElement('button'); b.textContent = TYPE_LABELS[type];
+    b.addEventListener('click', () => {
+      const id = uid(type);
+      theme.main_menu.push(blankElement(type, id));
+      selectedId = id;
+      menu.remove();
+      renderAll();
+    });
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', function h(){ menu.remove(); document.removeEventListener('click', h); }, { once: true }));
+}
+
+function renderElementEditor(p, el) {
+  const back = document.createElement('div'); back.className = 'back-row';
+  const backBtn = document.createElement('button'); backBtn.textContent = '←';
+  backBtn.addEventListener('click', () => { selectedId = null; renderAll(); });
+  const title = document.createElement('div'); title.className = 'idtitle'; title.textContent = el.id;
+  const delBtn = document.createElement('button'); delBtn.className = 'btn danger'; delBtn.textContent = 'Delete';
+  delBtn.addEventListener('click', () => {
+    theme.main_menu = theme.main_menu.filter(e => e.id !== el.id);
+    selectedId = null; renderAll();
+  });
+  back.append(backBtn, title, delBtn);
+  p.appendChild(back);
+
+  const row1 = document.createElement('div'); row1.className = 'row';
+  row1.appendChild(fieldBlock('ID (unique string)', textInput(el.id, v => {
+    const old = el.id;
+    el.id = v;
+    theme.main_menu.forEach(e => { if (e.parent_id === old) e.parent_id = v; if (e.visible_on_focus === old) e.visible_on_focus = v; });
+    selectedId = v;
+  })));
+  row1.appendChild(fieldBlock('Type', selectInput(Object.keys(TYPE_LABELS), el.type, v => {
+    Object.assign(el, ELEMENT_DEFAULTS[v]);
+    el.type = v; renderAll();
+  }, TYPE_LABELS)));
+  p.appendChild(row1);
+
+  const h1 = document.createElement('h3'); h1.textContent = 'Relational & Dynamic Links'; p.appendChild(h1);
+  const row2 = document.createElement('div'); row2.className = 'row';
+  row2.appendChild(fieldBlock('Parent ID (container, for buttons in a list)', textInput(el.parent_id, v => { el.parent_id = v; renderStage(); })));
+  row2.appendChild(fieldBlock('Visible on Focus (target button ID)', textInput(el.visible_on_focus, v => { el.visible_on_focus = v; renderStage(); })));
+  p.appendChild(row2);
+
+  const h2 = document.createElement('h3'); h2.textContent = 'Layout & Coordinates'; p.appendChild(h2);
+  p.appendChild(fieldBlock('Gravity (Anchor)', selectInput(
+    ['top|left','top|right','bottom|left','bottom|right','center','center_vertical|left','top|center_horizontal'],
+    el.gravity, v => { el.gravity = v; renderStage(); }
+  )));
+  const row3 = document.createElement('div'); row3.className = 'row';
+  row3.appendChild(fieldBlock('X (horiz offset, or L/R margin for list buttons)', numberInput(el.x, v => { el.x = v; renderStage(); })));
+  row3.appendChild(fieldBlock('Y (vert offset, or top spacing for list buttons)', numberInput(el.y, v => { el.y = v; renderStage(); })));
+  p.appendChild(row3);
+  const row4 = document.createElement('div'); row4.className = 'row';
+  row4.appendChild(fieldBlock('Width (-1 = wrap/fill)', numberInput(el.width, v => { el.width = v; renderStage(); })));
+  row4.appendChild(fieldBlock('Height (-1 = wrap)', numberInput(el.height, v => { el.height = v; renderStage(); })));
+  p.appendChild(row4);
+
+  const h3b = document.createElement('h3'); h3b.textContent = 'Individual Design (Bg/Box)'; p.appendChild(h3b);
+  p.appendChild(fieldBlock('Bg Color (leave blank to inherit)', (() => {
+    const cf = colorFieldSimple(el.bg_color, v => { el.bg_color = v; renderStage(); });
+    return cf;
+  })()));
+  const row5 = document.createElement('div'); row5.className = 'row';
+  row5.appendChild(fieldBlock('Radius (-1 = use global default)', numberInput(el.radius, v => { el.radius = v; renderStage(); })));
+  row5.appendChild(fieldBlock('Padding', numberInput(el.padding, v => { el.padding = v; renderStage(); })));
+  p.appendChild(row5);
+
+  if (el.type === 'button') {
+    const h4 = document.createElement('h3'); h4.textContent = 'Button Settings'; p.appendChild(h4);
+    p.appendChild(fieldBlock('Focus Order (index)', numberInput(el.focus_index, v => { el.focus_index = v; renderStage(); })));
+    p.appendChild(fieldBlock('Button Text (normal)', textInput(el.text_normal, v => { el.text_normal = v; renderStage(); })));
+    p.appendChild(fieldBlock('Button Text (focused, blank = same as normal)', textInput(el.text_focused, v => { el.text_focused = v; renderStage(); })));
+    p.appendChild(fieldBlock('Right Text (arrow/point)', textInput(el.text_right, v => { el.text_right = v; renderStage(); })));
+
+    const h5 = document.createElement('h3'); h5.textContent = 'Right Text Colors (optional)'; p.appendChild(h5);
+    const row6 = document.createElement('div'); row6.className = 'row';
+    row6.appendChild(fieldBlock('Normal', colorFieldSimple(el.text_right_color, v => { el.text_right_color = v; renderStage(); })));
+    row6.appendChild(fieldBlock('Focused', colorFieldSimple(el.text_right_focused_color, v => { el.text_right_focused_color = v; renderStage(); })));
+    p.appendChild(row6);
+
+    p.appendChild(fieldBlock('Text Align', selectInput(['left','center','right'], el.text_align, v => { el.text_align = v; renderStage(); })));
+
+    const h6 = document.createElement('h3'); h6.textContent = 'Focus Animation'; p.appendChild(h6);
+    const row7 = document.createElement('div'); row7.className = 'row';
+    row7.appendChild(fieldBlock('Shift X (px)', numberInput(el.focus_offset_x, v => { el.focus_offset_x = v; })));
+    row7.appendChild(fieldBlock('Shift Y (px)', numberInput(el.focus_offset_y, v => { el.focus_offset_y = v; })));
+    p.appendChild(row7);
+    p.appendChild(fieldBlock('Scale (zoom)', numberInput(el.focus_scale, v => { el.focus_scale = v; })));
+
+    const h7 = document.createElement('h3'); h7.textContent = 'Text Sizes (px)'; p.appendChild(h7);
+    const row8 = document.createElement('div'); row8.className = 'row';
+    row8.appendChild(fieldBlock('Main Text Size', numberInput(el.text_size, v => { el.text_size = v; renderStage(); })));
+    row8.appendChild(fieldBlock('Secondary Text Size', numberInput(el.text_secondary_size, v => { el.text_secondary_size = v; })));
+    p.appendChild(row8);
+
+    p.appendChild(fieldBlock('Action', selectInput(ACTIONS, el.action, v => { el.action = v; })));
+
+    const h8 = document.createElement('h3'); h8.textContent = 'Images'; p.appendChild(h8);
+    p.appendChild(fieldBlock('Icon (normal state)', imageAssetRow(el.icon_normal, v => { el.icon_normal = v; renderStage(); })));
+    p.appendChild(fieldBlock('Icon (focused state, blank = same as normal)', imageAssetRow(el.icon_focused, v => { el.icon_focused = v; renderStage(); })));
+    p.appendChild(fieldBlock('Focus Preview Image (shown in widget_focus_image)', imageAssetRow(el.preview_image, v => { el.preview_image = v; renderStage(); })));
+  } else if (el.type === 'widget_focus_image' || el.type === 'widget_album') {
+    const h8 = document.createElement('h3'); h8.textContent = 'Images'; p.appendChild(h8);
+    p.appendChild(fieldBlock('Preview / Placeholder Image', imageAssetRow(el.preview_image, v => { el.preview_image = v; renderStage(); })));
+  }
+
+  if (el.type !== 'box' && el.type !== 'list_box' && el.type !== 'button') {
+    const h9 = document.createElement('h3'); h9.textContent = 'Widget Text'; p.appendChild(h9);
+    p.appendChild(fieldBlock('Text Position', selectInput(['top','bottom','left','right'], el.text_position, v => { el.text_position = v; })));
+    p.appendChild(fieldBlock('Text Align', selectInput(['left','center','right'], el.text_align, v => { el.text_align = v; })));
+  }
+}
+
+function colorFieldSimple(value, onChange) {
+  const wrap = document.createElement('div'); wrap.className = 'color-field';
+  const { a, rgb } = value ? splitAARRGGBB(value) : { a: 'FF', rgb: '#000000' };
+  const picker = document.createElement('input'); picker.type = 'color'; picker.value = rgb;
+  const hexBox = document.createElement('input'); hexBox.type = 'text'; hexBox.placeholder = '#AARRGGBB'; hexBox.value = value || '';
+  picker.addEventListener('input', () => { const v = joinAARRGGBB(picker.value, a); hexBox.value = v; onChange(v); });
+  hexBox.addEventListener('change', () => onChange(hexBox.value));
+  wrap.append(picker, hexBox);
+  return wrap;
+}
+
+function imageAssetRow(currentName, onChange) {
+  return fileImportRow(currentName, (name, blob, url) => {
+    assets.set(name, { blob, url });
+    onChange(name);
+    renderElementsPanel();
+  }, () => { onChange(''); renderElementsPanel(); });
+}
+
+/* ---------------------------------------------------------------------
+ * Tabs
+ * ------------------------------------------------------------------- */
+
+document.getElementById('tabGlobal').addEventListener('click', () => {
+  document.getElementById('tabGlobal').classList.add('active');
+  document.getElementById('tabElements').classList.remove('active');
+  document.getElementById('panelGlobal').classList.remove('hidden');
+  document.getElementById('panelElements').classList.add('hidden');
+});
+document.getElementById('tabElements').addEventListener('click', () => {
+  document.getElementById('tabElements').classList.add('active');
+  document.getElementById('tabGlobal').classList.remove('active');
+  document.getElementById('panelElements').classList.remove('hidden');
+  document.getElementById('panelGlobal').classList.add('hidden');
+  renderElementsPanel();
+});
+
+/* ---------------------------------------------------------------------
+ * Zoom
+ * ------------------------------------------------------------------- */
+
+document.getElementById('zoom').addEventListener('input', (e) => {
+  const pct = e.target.value;
+  document.getElementById('zoomLabel').textContent = pct + '%';
+  document.getElementById('stage').style.transform = `scale(${pct/100})`;
+  document.getElementById('stage').style.transformOrigin = 'top left';
+  document.getElementById('stage-wrap').style.width = (480 * pct/100) + 'px';
+  document.getElementById('stage-wrap').style.height = (360 * pct/100) + 'px';
+});
+document.getElementById('btnResetZoom').addEventListener('click', () => {
+  document.getElementById('zoom').value = 100;
+  document.getElementById('zoom').dispatchEvent(new Event('input'));
+});
+
+/* ---------------------------------------------------------------------
+ * Import / Export
+ * ------------------------------------------------------------------- */
+
+function buildConfigObject() {
+  return {
+    name: theme.name,
+    font: theme.font || '',
+    textPrimary: theme.textPrimary,
+    textSecondary: theme.textSecondary,
+    bgOverlay: theme.bgOverlay,
+    statusBarBg: theme.statusBarBg,
+    btnNormal: theme.btnNormal,
+    btnFocused: theme.btnFocused,
+    btnFocusedText: theme.btnFocusedText,
+    button_radius: theme.button_radius,
+    bg_image: theme.bg_image || undefined,
+    main_menu: theme.main_menu.map(el => {
+      const out = {
+        id: el.id, type: el.type,
+      };
+      if (el.parent_id) out.parent_id = el.parent_id;
+      if (el.visible_on_focus) out.visible_on_focus = el.visible_on_focus;
+      out.x = el.x; out.y = el.y; out.width = el.width; out.height = el.height;
+      out.gravity = el.gravity;
+      if (el.text_normal) out.text_normal = el.text_normal;
+      if (el.text_focused) out.text_focused = el.text_focused;
+      if (el.text_right) out.text_right = el.text_right;
+      if (el.text_right_color) out.text_right_color = el.text_right_color;
+      if (el.text_right_focused_color) out.text_right_focused_color = el.text_right_focused_color;
+      if (el.icon_normal) out.icon_normal = el.icon_normal;
+      if (el.icon_focused) out.icon_focused = el.icon_focused;
+      if (el.preview_image) out.preview_image = el.preview_image;
+      out.action = el.action || 'NONE';
+      out.radius = el.radius;
+      out.focus_index = el.focus_index;
+      out.text_size = el.text_size;
+      out.text_secondary_size = el.text_secondary_size;
+      out.text_position = el.text_position;
+      out.text_align = el.text_align;
+      if (el.bg_color) out.bg_color = el.bg_color;
+      out.padding = el.padding;
+      out.focus_offset_x = el.focus_offset_x;
+      out.focus_offset_y = el.focus_offset_y;
+      out.focus_scale = el.focus_scale;
+      return out;
+    }),
+  };
+}
+
+async function exportZip() {
+  const zip = new JSZip();
+  const cfg = buildConfigObject();
+  zip.file('config.json', JSON.stringify(cfg, null, 2));
+  for (const [name, asset] of assets.entries()) {
+    zip.file(name, asset.blob);
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (theme.name || 'theme').replace(/[^\w\- ]/g, '') + '.zip';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadConfigObject(cfg) {
+  theme.name = cfg.name || 'Imported Theme';
+  theme.font = cfg.font || '';
+  theme.textPrimary = cfg.textPrimary || '#FFFFFFFF';
+  theme.textSecondary = cfg.textSecondary || '#FF888888';
+  theme.bgOverlay = cfg.bgOverlay || '#88000000';
+  theme.statusBarBg = cfg.statusBarBg || theme.bgOverlay;
+  theme.btnNormal = cfg.btnNormal || '#15FFFFFF';
+  theme.btnFocused = cfg.btnFocused || '#DDFFFFFF';
+  theme.btnFocusedText = cfg.btnFocusedText || '#FF000000';
+  theme.button_radius = cfg.button_radius ?? 15;
+  theme.bg_image = cfg.bg_image || '';
+  theme.main_menu = (cfg.main_menu || []).map((el, i) => Object.assign(blankElement(el.type || 'button', el.id || ('item_' + i)), {
+    parent_id: el.parent_id || '', visible_on_focus: el.visible_on_focus || '',
+    x: el.x ?? 0, y: el.y ?? (i*60), width: el.width ?? 200, height: el.height ?? 50,
+    gravity: el.gravity || 'top|left',
+    text_normal: el.text_normal || '', text_focused: el.text_focused || '', text_right: el.text_right || '',
+    text_right_color: el.text_right_color || '', text_right_focused_color: el.text_right_focused_color || '',
+    icon_normal: el.icon_normal || '', icon_focused: el.icon_focused || '', preview_image: el.preview_image || '',
+    action: el.action || 'NONE', radius: el.radius ?? -1, focus_index: el.focus_index ?? (i+1),
+    text_size: el.text_size ?? -1, text_secondary_size: el.text_secondary_size ?? -1,
+    text_position: el.text_position || 'bottom', text_align: el.text_align || 'center',
+    bg_color: el.bg_color || '', padding: el.padding ?? 0,
+    focus_offset_x: el.focus_offset_x ?? 0, focus_offset_y: el.focus_offset_y ?? 0,
+    focus_scale: el.focus_scale ?? 1.0,
+  }));
+  selectedId = null; focusedId = null;
+}
+
+async function importZipFile(file) {
+  const zip = await JSZip.loadAsync(file);
+  const cfgFile = zip.file('config.json');
+  if (!cfgFile) { alert('No config.json found in zip root.'); return; }
+  const cfgText = await cfgFile.async('string');
+  const cfg = JSON.parse(cfgText.replace(/^﻿/, ''));
+  assets = new Map();
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir || path === 'config.json') continue;
+    const blob = await entry.async('blob');
+    const url = URL.createObjectURL(blob);
+    assets.set(path, { blob, url });
+  }
+  loadConfigObject(cfg);
+  renderAll();
+}
+
+document.getElementById('btnImport').addEventListener('click', () => {
+  const useZip = confirm('Import a theme .zip? Click Cancel to import a bare config.json instead.');
+  if (useZip) document.getElementById('fileImportZip').click();
+  else document.getElementById('fileImportJson').click();
+});
+document.getElementById('fileImportZip').addEventListener('change', (e) => {
+  const f = e.target.files[0]; if (f) importZipFile(f);
+});
+document.getElementById('fileImportJson').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const text = await f.text();
+  loadConfigObject(JSON.parse(text.replace(/^﻿/, '')));
+  renderAll();
+});
+document.getElementById('btnExport').addEventListener('click', exportZip);
+
+/* ---------------------------------------------------------------------
+ * Boot
+ * ------------------------------------------------------------------- */
+
+function renderAll() {
+  renderGlobalPanel();
+  renderElementsPanel();
+  renderStage();
+  document.getElementById('statusLine').textContent =
+    theme.main_menu.length + ' elements · ' + assets.size + ' assets loaded';
+}
+
+renderAll();
+</script>
+</body>
+</html>
