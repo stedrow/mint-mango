@@ -197,7 +197,15 @@ function blankElement(type, id) {
   }, d);
 }
 
-const ACTIONS = ['NONE','OPEN_PLAYER','OPEN_BROWSER','OPEN_RADIO','OPEN_AUDIOBOOKS','OPEN_BLUETOOTH','OPEN_WIFI','OPEN_SETTINGS'];
+// Full action set from MainMenuManager.java's onClick switch (~line 580-655) --
+// keep this in sync with that switch, it's the only source of truth.
+const ACTIONS = [
+  'NONE','OPEN_PLAYER','OPEN_COVER_FLOW','OPEN_BROWSER','OPEN_AUDIOBOOKS',
+  'OPEN_BLUETOOTH','OPEN_SETTINGS','OPEN_WEBSERVER','OPEN_RADIO',
+  'OPEN_ROOT_FOLDER','OPEN_WIFI','OPEN_NAVIDROME','OPEN_BRIGHTNESS',
+  'OPEN_STORAGE_INFO','OPEN_WIDGET_SETTINGS','OPEN_BACKGROUND_SETTINGS',
+  'OPEN_THEME_SETTINGS','OPEN_TIME_SETTINGS',
+];
 
 /* ---------------------------------------------------------------------
  * State

@@ -283,10 +283,18 @@ found in the Settings menu unless noted:
 
 # 🎨 Y1 Theme Editor User Manual
 
-* You can easily design and customize your own themes using the web editor below:
+* You can design and customize your own themes using the hosted web editor:
   👉 [Go to Theme Editor](https://theme-editor-gules.vercel.app/)
 <img width="1262" height="746" alt="스크린샷 2026-06-24 220127" src="https://github.com/user-attachments/assets/5a13893e-bb7a-412e-bbe9-41b358cde8e4" />
 
+* This fork also ships an **offline, local copy** at
+  [`tools/theme-editor/index.html`](tools/theme-editor/index.html) — open it
+  directly in a browser (or serve the folder, e.g.
+  `python3 -m http.server` from that directory). It has the same Global
+  Settings / Elements panels and import/export flow described below, plus a
+  live click-to-focus preview and drag-to-move for on-canvas elements. It's
+  kept schema-matched to `ThemeManager.java`/`MainMenuManager.java` in this
+  repo, so it won't drift from what the app actually parses.
 
 ⚠️ **Note:** This manual and the themes created are only compatible with **Launcher version 0.8 or higher**.
 
@@ -333,6 +341,7 @@ These are the components (elements) you can place on the screen. Click **[Add Ne
 * **Circular Battery:** A circular battery gauge with the percentage in the center.
 * **Battery Bar:** A horizontal, pill-shaped battery bar.
 * **Album Art:** Displays the cover, title, and artist of the currently playing track. You can flexibly align the text relative to the album image (Top, Bottom, Left, Right).
+* **Dynamic Focus Image:** Shows a preview image tied to whichever button currently has focus — either its own assigned image, or (if nothing else claims that focus) the focused button's own preview image as a fallback.
 
 ### 3) Design Box
 * A pure design element used to partition the screen or create an aesthetic background/frame behind buttons.
@@ -356,12 +365,19 @@ These are the components (elements) you can place on the screen. Click **[Add Ne
 
 ### 📌 Action
 The direct shortcut command executed on the device when a button is clicked.
-* `Now Playing` (Current playback screen)
-* `Music Library` (Audio browser)
-* `Root Folder` (Device's overall file manager)
-* `Bluetooth`, `Wi-Fi Settings`, `Settings Menu` 
-* `Web Server` (Wireless file transfer server)
-* `Display Brightness`, `Storage Info`, `Date & Time Settings`, etc.
+Full list (`MainMenuManager.java`'s click-handling switch is the source of truth):
+* `OPEN_PLAYER` (Now Playing screen)
+* `OPEN_COVER_FLOW` (Cover-flow music browser)
+* `OPEN_BROWSER` (Music library / file browser)
+* `OPEN_AUDIOBOOKS` (Audiobook library)
+* `OPEN_BLUETOOTH`, `OPEN_WIFI`, `OPEN_SETTINGS` (Bluetooth / Wi-Fi / Settings menu)
+* `OPEN_WEBSERVER` (Wireless file transfer server)
+* `OPEN_RADIO` (Built-in FM radio)
+* `OPEN_ROOT_FOLDER` (Device's overall file manager, rooted at `/storage/sdcard0`)
+* `OPEN_NAVIDROME` (Navidrome/Subsonic browser)
+* `OPEN_BRIGHTNESS`, `OPEN_STORAGE_INFO`, `OPEN_TIME_SETTINGS` (Display brightness / storage info / date & time settings)
+* `OPEN_WIDGET_SETTINGS`, `OPEN_BACKGROUND_SETTINGS`, `OPEN_THEME_SETTINGS` (the same sub-screens under the Settings menu)
+* `NONE` (no action)
 
 ---
 
@@ -387,19 +403,33 @@ Creating a custom theme is the ultimate way to make this DAP (Digital Audio Play
 ## 🛠️ Step 2: Prepare Custom Icons & Fonts (Optional)
 Drop your custom assets directly into your new theme folder.
 
-* **Custom Icons:** Must be `.png` files with a transparent background. Name them exactly as follows:
-  * `icon_now_playing.png` (Now Playing menu)
-  * `icon_music.png` (All Songs / Library menu)
-  * `icon_bluetooth.png` (Bluetooth setup)
-  * `icon_setting.png` (Settings menu)
-  * `icon_radio.png` (FM Radio)
-  * `icon_server.png` (Web Server menu)
+* **Custom Icons:** Must be `.png` files with a transparent background. A handful of fixed filenames are picked up automatically for the built-in player-screen shortcuts and the album art fallback, name these exactly as follows:
+  * `icon_now_playing.png` (Now Playing shortcut)
+  * `icon_music.png` (All Songs / Library shortcut)
+  * `icon_bluetooth.png` (Bluetooth shortcut)
+  * `icon_setting.png` (Settings shortcut)
+  * `icon_radio.png` (FM Radio shortcut)
+  * `icon_navidrome.png` (Navidrome shortcut)
   * `icon_default_album.png` (Fallback image for missing album art)
 * **Custom Font:** Drop a `.ttf` or `.otf` font file into the folder (e.g., `myfont.ttf`).
+
+  Everything else — the icons on the main scrollable menu (`btn_now`, `btn_music`,
+  etc.) — is **not** a fixed filename. Those come from the `icon_normal` /
+  `icon_focused` / `preview_image` fields on each button in `main_menu` below,
+  so you can name those files anything you like.
 
 ## 🛠️ Step 3: Create the `config.json` File
 This is the core of your theme. Create a text file named exactly `config.json` inside your theme folder and paste the following template:
 
+
+> ⚠️ **`main_menu` is required, not optional.** `ThemeManager` only populates
+> the menu list `if (json.has("main_menu"))` — leave it out and your theme
+> loads with **zero buttons** (a blank menu, nothing to click). The template
+> below includes a minimal working menu; the easiest way to get a full one is
+> to open an existing theme (e.g. `mint_mango.zip`) in
+> [`tools/theme-editor/index.html`](tools/theme-editor/index.html) via
+> **Import Theme**, then use that as your starting point instead of typing
+> `main_menu` out by hand.
 
 ```json
 {
@@ -412,7 +442,35 @@ This is the core of your theme. Create a text file named exactly `config.json` i
   "btnNormal": "#221E40AF",
   "btnFocused": "#DD3B82F6",
   "btnFocusedText": "#000000",
-  "button_radius": 30
+  "button_radius": 30,
+  "main_menu": [
+    {
+      "id": "main_scroll_list",
+      "type": "list_box",
+      "x": 10, "y": 15, "width": 220, "height": 290,
+      "gravity": "top|left"
+    },
+    {
+      "id": "btn_now",
+      "parent_id": "main_scroll_list",
+      "type": "button",
+      "x": 0, "y": 0, "width": -1, "height": 48,
+      "text_normal": "Now Playing",
+      "text_right": "〉",
+      "action": "OPEN_PLAYER",
+      "focus_index": 0
+    },
+    {
+      "id": "btn_music",
+      "parent_id": "main_scroll_list",
+      "type": "button",
+      "x": 0, "y": 8, "width": -1, "height": 48,
+      "text_normal": "Music",
+      "text_right": "〉",
+      "action": "OPEN_BROWSER",
+      "focus_index": 1
+    }
+  ]
 }
 ```
 
@@ -424,9 +482,11 @@ This is the core of your theme. Create a text file named exactly `config.json` i
 * `bgOverlay`: Background color for menus. The first two characters dictate transparency (e.g., `DD`).
 * `statusBarBg`: Background color for the top status bar. (Delete this line to default to `bgOverlay`).
 * `btnNormal`: Default background color of list buttons.
-* `btnFocused`: Highlight color when a button is selected (also applies to battery ring and volume bars).
+* `btnFocused`: Highlight color when a button is selected (also applies to battery ring and volume bars). Note this always fully overrides any per-button `bg_color` on focus — `bg_color` only affects the unfocused state.
 * `btnFocusedText`: Text color inside a highlighted button.
-* `button_radius`: Controls button roundness (`0` = sharp square, `10` = slightly rounded, `30+` = fully rounded pill).
+* `button_radius`: Controls button roundness (`0` = sharp square, `10` = slightly rounded, `30+` = fully rounded pill). Per-element `radius: -1` inherits this default.
+* `bg_image`: Optional filename of a full-screen background image.
+* `main_menu`: The array of buttons/widgets that make up the menu — see sections 3 and 4 above for the full list of element types and properties. **Required** (see warning above).
 
 > **💡 Quick Tip:** Always use **8-character Hex Codes** (e.g., `#DD0F172A`) for background colors if you want transparency. The first two characters (`DD`) control the opacity (`00` for invisible, `FF` for solid).
 
