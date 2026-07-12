@@ -82,72 +82,74 @@ public class Y1WebServer extends Thread {
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
                             "<title>Y1 File Manager</title><style>" +
                             // 🚀 [design tweak] Background color and default font (based on Material Dark Theme)
-                            "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
-                            "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:20px; border:none; outline:none; transition:0.2s;} " +
-                            "input[type=text]{width:calc(100% - 120px); background:#2A2A35; color:#E0E0E0; border-radius:12px; padding:12px;} " +
+                            "body{font-family:'Roboto', 'Segoe UI', sans-serif; background:#05100F; color:#EAF7F5; padding:20px; text-align:center; max-width:800px; margin:0 auto; padding-bottom:120px;} " +
+                            "input, select, button{font-size:14px; padding:10px 16px; margin:5px; border-radius:0; border:none; outline:none; transition:0.2s;} " +
+                            "input[type=text]{width:calc(100% - 120px); background:#0F1B1A; color:#EAF7F5; border-radius:0; padding:12px;} " +
+                            "input[type=password]{background:#0F1B1A; color:#EAF7F5; padding:12px;} " + // match the dark theme (was browser-default white)
+                            "input[type=text]:focus, input[type=password]:focus{outline:1px solid #00FFFF;} " +
 
                             // 🚀 [design tweak] Button colors (purple accent & modern tone)
-                            "button{background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " + // default button (light purple)
-                            "button:hover{background:#9575CD;} " +
-                            "button.danger{background:#424250; color:#E57373;} " + // delete/cancel button (dark gray background, red text)
+                            "button{background:#00FFFF; color:#001A19; font-weight:600; cursor:pointer;} " + // default button (light purple)
+                            "button:hover{background:#00CFCF;} " +
+                            "button.danger{background:#12201F; color:#E57373;} " + // delete/cancel button (dark gray background, red text)
                             "button.danger:hover{background:#EF5350; color:#fff;} " +
-                            "button.action{background:#383848; color:#B39DDB;} " + // sub-action button (dark background, purple text)
-                            "button.action:hover{background:#454555;} " +
+                            "button.action{background:#10201E; color:#00FFFF;} " + // sub-action button (dark background, purple text)
+                            "button.action:hover{background:#17302E;} " +
 
                             // 🚀 [design tweak] Boxes and list items
-                            ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
-                            ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #333340; cursor:pointer; transition:0.2s;} " +
+                            ".box{background:#0D1817; padding:20px; border-radius:0; margin:15px 0; text-align:left; box-shadow:0 4px 6px rgba(0,0,0,0.3);} " +
+                            ".item{display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #17302E; cursor:pointer; transition:0.2s;} " +
                             ".item:last-child{border-bottom:none;} " +
-                            ".item:hover{background:#2D2D3A; border-radius:8px;} " +
+                            ".item:hover{background:#12211F; border-radius:0;} " +
                             ".item-left{display:flex; align-items:center; flex-grow:1; overflow:hidden; gap:12px;} " +
                             ".item-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;} " +
-                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:8px; background:#1A1A20;} " +
-                            ".icon{font-size:22px; width:40px; text-align:center; color:#B39DDB;} " + // icons unified to the same light purple tone
+                            ".thumb{width:40px; height:40px; object-fit:cover; border-radius:0; background:#0B1413;} " +
+                            ".icon{font-size:22px; width:40px; text-align:center; color:#00FFFF;} " + // icons unified to the same light purple tone
                             ".btn-group{display:flex; gap:6px;} " +
 
                             // Audio player
-                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#252530; border-top:1px solid #454555; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
-                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:24px;} " +
+                            "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#0D1817; border-top:1px solid #17302E; padding:15px; display:none; z-index:100; box-shadow:0 -2px 10px rgba(0,0,0,0.5);} " +
+                            "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none; border-radius:0;} " +
 
                             // Drag & drop animation
-                            "#uploadBox{transition:0.3s; border:2px dashed #454555;} " +
-                            "#uploadBox.dragover{background:#2D2D3A; border:2px dashed #B39DDB;} " +
+                            "#uploadBox{transition:0.3s; border:2px dashed #17302E;} " +
+                            "#uploadBox.dragover{background:#12211F; border:2px dashed #00FFFF;} " +
 
                             // Text editor modal
                             "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(18,18,22,0.95); z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
-                            "#editorArea{width:100%; height:calc(100% - 120px); background:#1E1E24; color:#E0E0E0; font-family:'Courier New', monospace; font-size:15px; border:1px solid #454555; border-radius:12px; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
-                            "#editorTitle{color:#B39DDB; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
+                            "#editorArea{width:100%; height:calc(100% - 120px); background:#05100F; color:#EAF7F5; font-family:'Courier New', monospace; font-size:15px; border:1px solid #17302E; border-radius:0; padding:15px; resize:none; box-shadow:inset 0 2px 5px rgba(0,0,0,0.3);} " +
+                            "#editorTitle{color:#00FFFF; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
                             "</style></head><body>" +
 
-                            "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
+                            "<h2 style='color:#EAF7F5; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
 
                             // Upload / create-folder box
                             "<div class='box' id='uploadBox'>" +
-                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>📍 <span id='currentPathText'>/</span></div>" +
-                            "<div style='text-align:center; color:#9E9E9E; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #333340;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
+                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#00FFFF;'>📍 <span id='currentPathText'>/</span></div>" +
+                            "<div style='text-align:center; color:#888888; font-size:13px; margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #17302E;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
                             "<div style='display:flex; gap:8px; margin-bottom:15px;'>" +
                             "<input type='text' id='fName' placeholder='New folder name...'>" +
                             "<button onclick='createFolder()'>Create</button></div>" +
                             "<div style='display:flex; gap:8px; align-items:center;'>" +
-                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#9E9E9E;'>" +
+                            "<input type='file' id='fInput' multiple accept='*/*' style='flex-grow:1; color:#888888;'>" +
                             "<button onclick='uploadAll()' class='action'>Upload Here</button></div>" +
-                            "<div id='status' style='margin-top:12px; color:#81C784; font-weight:600; font-size:14px;'></div>" +
+                            "<div id='status' style='margin-top:12px; color:#00E6B8; font-weight:600; font-size:14px;'></div>" +
                             "</div>" +
 
                             // Navidrome music browser banner → dedicated download-manager page
                             "<a href='/music' style='text-decoration:none;'>" +
-                            "<div class='box' style='display:flex; align-items:center; gap:14px; background:linear-gradient(135deg,#3B2E5A,#252530); cursor:pointer;'>" +
+                            "<div class='box' style='display:flex; align-items:center; gap:14px; background:linear-gradient(135deg,#0A2624,#0D1817); cursor:pointer;'>" +
                             "<div style='font-size:30px;'>🎧</div>" +
                             "<div style='flex-grow:1;'>" +
-                            "<div style='font-size:16px; font-weight:600; color:#E0E0E0;'>Browse &amp; Download Music</div>" +
-                            "<div style='font-size:13px; color:#9E9E9E; margin-top:2px;'>Search Navidrome and queue albums to this device</div>" +
+                            "<div style='font-size:16px; font-weight:600; color:#EAF7F5;'>Browse &amp; Download Music</div>" +
+                            "<div style='font-size:13px; color:#888888; margin-top:2px;'>Search Navidrome and queue albums to this device</div>" +
                             "</div>" +
-                            "<div style='font-size:20px; color:#B39DDB;'>〉</div>" +
+                            "<div style='font-size:20px; color:#00FFFF;'>〉</div>" +
                             "</div></a>" +
 
                             // Navidrome settings box
                             "<div class='box'>" +
-                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#B39DDB;'>🎵 Navidrome Settings</div>" +
+                            "<div style='font-size:16px; margin-bottom:12px; font-weight:500; color:#00FFFF;'>🎵 Navidrome Settings</div>" +
                             "<div style='display:flex; flex-direction:column; gap:8px;'>" +
                             "<input type='text' id='navUrl' placeholder='Server URL  e.g. http://192.168.1.100:4533' style='width:100%; box-sizing:border-box;'>" +
                             "<input type='text' id='navUser' placeholder='Username'>" +
@@ -157,7 +159,7 @@ public class Y1WebServer extends Thread {
                             "<button onclick='saveNavSettings()' style='flex:1;'>💾 Save</button>" +
                             "<button class='action' onclick='loadNavSettings()' style='flex:1;'>📋 Load Current</button>" +
                             "</div>" +
-                            "<div id='navStatus' style='margin-top:8px; color:#81C784; font-size:13px;'></div>" +
+                            "<div id='navStatus' style='margin-top:8px; color:#00E6B8; font-size:13px;'></div>" +
                             "</div>" +
 
                             // File list box
@@ -165,7 +167,7 @@ public class Y1WebServer extends Thread {
 
                             // Floating audio player
                             "<div id='audioBox'>" +
-                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#B39DDB;'></div>" +
+                            "<div id='audioTitle' style='max-width:800px; margin:0 auto 12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#00FFFF;'></div>" +
                             "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
                             "</div>" +
 
@@ -174,7 +176,7 @@ public class Y1WebServer extends Thread {
                             "<h3 id='editorTitle'>📝 Edit File</h3>" +
                             "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
                             "<div style='display:flex; gap:12px; margin-top:15px;'>" +
-                            "<button class='action' style='flex:1; background:#B39DDB; color:#121212;' onclick='saveFile()'>💾 Save Settings</button>" +
+                            "<button class='action' style='flex:1; background:#00FFFF; color:#001A19;' onclick='saveFile()'>💾 Save Settings</button>" +
                             "<button class='danger' style='flex:1;' onclick='closeEditor()'>Cancel</button>" +
                             "</div></div>" +
 
@@ -184,7 +186,7 @@ public class Y1WebServer extends Thread {
                             "  fetch('/api/list?dir=' + encodeURIComponent(currentPath)).then(r=>r.json()).then(data => {" +
                             "    document.getElementById('currentPathText').innerText = '/' + currentPath;" +
                             "    let html = '';" +
-                            "    if(currentPath !== '') html += `<div class='item' onclick='goUp()'><div class='item-left'><div class='icon'>🔙</div><b style='color:#B39DDB;'>[Go Back]</b></div></div>`;" +
+                            "    if(currentPath !== '') html += `<div class='item' onclick='goUp()'><div class='item-left'><div class='icon'>🔙</div><b style='color:#00FFFF;'>[Go Back]</b></div></div>`;" +
                             "    data.forEach(f => {" +
                             "      let ext = f.name.split('.').pop().toLowerCase();" +
                             "      let isImg = ['jpg','jpeg','png','webp','gif'].includes(ext);" +
@@ -211,7 +213,7 @@ public class Y1WebServer extends Thread {
                             "              `<div class='btn-group'>${editBtn}${renameBtn}<button class='danger' onclick=\"deleteItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Delete</button></div>` +" +
                             "              `</div>`;" +
                             "    });" +
-                            "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:15px; color:#9E9E9E;\">No files found.</div>';" +
+                            "    if(data.length===0 && currentPath === '') html += '<div style=\"padding:15px; color:#888888;\">No files found.</div>';" +
                             "    document.getElementById('fileList').innerHTML = html;" +
                             "  });" +
                             "}" +

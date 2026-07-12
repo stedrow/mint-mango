@@ -5,10 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Y1 Music</title>
 <style>
+  /* Mint Mango theme — cyan (#00FFFF) accent on black, square corners (button_radius:0),
+     white primary / #888 secondary text, black text on cyan for focus/active. */
+  :root {
+    --bg: #05100F;
+    --bg-blur: rgba(5,16,15,0.9);
+    --panel: rgba(255,255,255,0.045);
+    --panel-solid: #0D1817;
+    --line: #17302E;
+    --btn: rgba(255,255,255,0.08);          /* btnNormal = #15FFFFFF */
+    --btn-hi: rgba(0,255,255,0.14);
+    --accent: #00FFFF;                        /* btnFocused = #FF00FFFF */
+    --accent-dim: #00CFCF;
+    --on-accent: #001A19;                     /* btnFocusedText ≈ black */
+    --text: #FFFFFF;                          /* textPrimary */
+    --text2: #888888;                         /* textSecondary */
+    --good: #00E6B8;                          /* mint — downloaded ✓ */
+  }
   * { box-sizing: border-box; }
   body {
     font-family: 'Roboto', 'Segoe UI', sans-serif;
-    background: #1E1E24; color: #E0E0E0; margin: 0;
+    background: var(--bg); color: var(--text); margin: 0;
     padding: 0 0 140px 0; -webkit-tap-highlight-color: transparent;
   }
   a { color: inherit; }
@@ -16,123 +33,130 @@
   /* Sticky header + search */
   header {
     position: sticky; top: 0; z-index: 50;
-    background: rgba(30,30,36,0.96); backdrop-filter: blur(8px);
-    border-bottom: 1px solid #2E2E38; padding: 14px 16px 10px;
+    background: var(--bg-blur); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line); padding: 14px 16px 10px;
   }
   .hrow { display: flex; align-items: center; gap: 12px; max-width: 1000px; margin: 0 auto; }
-  .back { font-size: 22px; color: #B39DDB; text-decoration: none; padding: 4px; }
-  h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: 0.3px; flex-grow: 1; }
+  .back { font-size: 24px; color: var(--accent); text-decoration: none; padding: 2px 6px; line-height: 1; }
+  h1 { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: 1px; flex-grow: 1; text-transform: uppercase; }
+  h1 .dot { color: var(--accent); }
   .searchwrap { max-width: 1000px; margin: 10px auto 0; position: relative; }
   #q {
-    width: 100%; font-size: 15px; padding: 12px 40px 12px 16px; border: none; outline: none;
-    border-radius: 24px; background: #2A2A35; color: #E0E0E0;
+    width: 100%; font-size: 15px; padding: 12px 40px 12px 14px; border: 1px solid var(--line); outline: none;
+    border-radius: 0; background: var(--btn); color: var(--text);
   }
-  #q::placeholder { color: #7A7A88; }
+  #q:focus { border-color: var(--accent); }
+  #q::placeholder { color: #667573; }
   .clearq {
     position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    color: #7A7A88; cursor: pointer; font-size: 18px; display: none;
+    color: #667573; cursor: pointer; font-size: 18px; display: none;
   }
 
   /* Filter chips */
   .chips { display: flex; gap: 8px; max-width: 1000px; margin: 12px auto 0; padding: 0 16px; flex-wrap: wrap; }
   .chip {
-    font-size: 13px; padding: 7px 14px; border-radius: 16px; background: #2A2A35;
-    color: #B0B0BE; cursor: pointer; border: 1px solid transparent; transition: 0.15s; user-select: none;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 14px; border-radius: 0;
+    background: var(--btn); color: var(--text2); cursor: pointer; border: 1px solid transparent; transition: 0.12s; user-select: none;
   }
-  .chip.active { background: #B39DDB; color: #191921; font-weight: 600; }
+  .chip:hover { color: var(--text); }
+  .chip.active { background: var(--accent); color: var(--on-accent); font-weight: 700; }
 
   main { max-width: 1000px; margin: 0 auto; padding: 18px 16px 0; }
-  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #8A8A98; margin: 18px 4px 12px; }
-  .hint { color: #8A8A98; text-align: center; padding: 40px 20px; font-size: 15px; }
+  .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin: 18px 4px 12px; font-weight: 600; }
+  .hint { color: var(--text2); text-align: center; padding: 40px 20px; font-size: 15px; }
 
   /* Album grid */
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
   .card { cursor: pointer; transition: transform 0.12s; }
   .card:active { transform: scale(0.97); }
   .cover {
-    width: 100%; aspect-ratio: 1/1; border-radius: 12px; object-fit: cover;
-    background: linear-gradient(135deg, #33333F, #26262F); display: block;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+    width: 100%; aspect-ratio: 1/1; border-radius: 0; object-fit: cover;
+    background: linear-gradient(135deg, #14201F, #0B1413); display: block;
+    border: 1px solid var(--line);
   }
-  .cover.ph { display: flex; align-items: center; justify-content: center; font-size: 34px; color: #4A4A58; }
+  .card:hover .cover { border-color: var(--accent); }
+  .cover.ph { display: flex; align-items: center; justify-content: center; font-size: 34px; color: #275451; }
   .cname { font-size: 14px; font-weight: 500; margin: 9px 2px 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cartist { font-size: 12px; color: #9090A0; margin: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cartist { font-size: 12px; color: var(--text2); margin: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Song rows (search results) */
   .songrow {
-    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
-    background: #24242E; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 0;
+    background: var(--panel); margin-bottom: 6px; border: 1px solid transparent; transition: 0.12s;
   }
-  .songrow .sart { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: #33333F; flex-shrink: 0; }
+  .songrow:hover { border-color: var(--line); }
+  .songrow .sart { width: 40px; height: 40px; border-radius: 0; object-fit: cover; background: #14201F; flex-shrink: 0; }
   .songmeta { flex-grow: 1; overflow: hidden; }
   .stitle { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ssub { font-size: 12px; color: #9090A0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ssub { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dlbtn {
-    flex-shrink: 0; background: #383848; color: #B39DDB; border: none; border-radius: 18px;
-    font-size: 13px; font-weight: 600; padding: 8px 14px; cursor: pointer; transition: 0.15s;
+    flex-shrink: 0; background: var(--btn); color: var(--accent); border: 1px solid var(--line); border-radius: 0;
+    font-size: 13px; font-weight: 700; padding: 8px 14px; cursor: pointer; transition: 0.12s;
   }
-  .dlbtn:hover { background: #454558; }
-  .dlbtn.done { background: transparent; color: #81C784; cursor: default; }
+  .dlbtn:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .dlbtn.done { background: transparent; color: var(--good); border-color: transparent; cursor: default; }
+  .dlbtn.done:hover { background: transparent; color: var(--good); }
   .dlbtn:disabled { opacity: 0.5; cursor: default; }
 
   /* Album detail overlay */
   #detail {
-    position: fixed; inset: 0; z-index: 200; background: #1E1E24; overflow-y: auto;
+    position: fixed; inset: 0; z-index: 200; background: var(--bg); overflow-y: auto;
     display: none; padding-bottom: 140px;
   }
   .dhead { position: relative; padding: 20px 16px; display: flex; gap: 18px; align-items: flex-end;
-    background: linear-gradient(180deg, #2C2540, #1E1E24); }
-  .dclose { position: absolute; top: 14px; left: 14px; font-size: 26px; color: #E0E0E0; cursor: pointer; }
-  .dcover { width: 150px; height: 150px; border-radius: 14px; object-fit: cover; flex-shrink: 0;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.5); background: #33333F; }
+    background: linear-gradient(180deg, #0A2624, var(--bg)); }
+  .dclose { position: absolute; top: 12px; left: 12px; font-size: 26px; color: var(--accent); cursor: pointer; line-height: 1; }
+  .dcover { width: 150px; height: 150px; border-radius: 0; object-fit: cover; flex-shrink: 0;
+    border: 1px solid var(--line); background: #14201F; }
   .dtitle { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
-  .dsub { font-size: 14px; color: #B0B0BE; }
+  .dsub { font-size: 14px; color: var(--text2); }
   .dactions { max-width: 1000px; margin: 0 auto; padding: 16px; }
   .dlall {
-    width: 100%; background: #B39DDB; color: #191921; border: none; border-radius: 24px;
-    font-size: 16px; font-weight: 700; padding: 14px; cursor: pointer; margin-bottom: 8px;
+    width: 100%; background: var(--accent); color: var(--on-accent); border: none; border-radius: 0;
+    font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 14px; cursor: pointer; margin-bottom: 8px;
   }
-  .dlall:active { background: #9575CD; }
+  .dlall:hover { background: var(--accent-dim); }
+  .dlall:active { transform: scale(0.99); }
   .dsongs { max-width: 1000px; margin: 0 auto; padding: 0 16px; }
-  .trow { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid #2A2A34; }
-  .tnum { width: 26px; text-align: center; color: #7A7A88; font-size: 13px; flex-shrink: 0; }
+  .trow { display: flex; align-items: center; gap: 12px; padding: 12px 8px; border-bottom: 1px solid var(--line); transition: 0.1s; }
+  .trow:hover { background: var(--btn-hi); }
+  .tnum { width: 26px; text-align: center; color: var(--text2); font-size: 13px; flex-shrink: 0; }
   .tmeta { flex-grow: 1; overflow: hidden; }
-  .tdur { color: #7A7A88; font-size: 12px; flex-shrink: 0; }
+  .tdur { color: var(--text2); font-size: 12px; flex-shrink: 0; }
 
-  /* Bottom download-manager bar */
+  /* Bottom download-manager dock */
   #dock {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 300;
-    background: #252530; border-top: 1px solid #3A3A46; box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
+    background: var(--bg-blur); backdrop-filter: blur(10px); border-top: 1px solid var(--accent);
   }
   .dockbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; max-width: 1000px; margin: 0 auto; }
-  .qtoggle { display: flex; background: #1E1E24; border-radius: 16px; padding: 3px; flex-shrink: 0; }
+  .qtoggle { display: flex; background: var(--btn); border: 1px solid var(--line); border-radius: 0; padding: 2px; flex-shrink: 0; }
   .qtoggle span {
-    font-size: 12px; padding: 6px 11px; border-radius: 13px; cursor: pointer; color: #9090A0; user-select: none;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px; border-radius: 0; cursor: pointer; color: var(--text2); user-select: none;
   }
-  .qtoggle span.on { background: #B39DDB; color: #191921; font-weight: 600; }
+  .qtoggle span.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
   .dockinfo { flex-grow: 1; overflow: hidden; }
   .dockmain { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .docksub { font-size: 12px; color: #9090A0; }
-  .bar { height: 4px; background: #1E1E24; border-radius: 2px; margin-top: 6px; overflow: hidden; }
-  .bar > div { height: 100%; background: #B39DDB; width: 0%; transition: width 0.3s; border-radius: 2px; }
+  .docksub { font-size: 12px; color: var(--text2); }
+  .bar { height: 3px; background: var(--line); margin-top: 6px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; box-shadow: 0 0 6px var(--accent); }
   .bar.indet > div { width: 35%; animation: slide 1.2s infinite ease-in-out; }
   @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
-  .chev { color: #9090A0; cursor: pointer; font-size: 18px; flex-shrink: 0; padding: 4px; }
+  .chev { color: var(--text2); cursor: pointer; font-size: 18px; flex-shrink: 0; padding: 4px; }
   #pending { max-height: 0; overflow: hidden; transition: max-height 0.25s; max-width: 1000px; margin: 0 auto; }
   #pending.open { max-height: 240px; overflow-y: auto; }
   #pendingList { padding: 4px 16px 12px; }
-  .prow { font-size: 13px; color: #B0B0BE; padding: 6px 0; border-top: 1px solid #2E2E38; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .clearbtn { background: #3A2A2E; color: #E57373; border: none; border-radius: 14px; font-size: 12px; padding: 6px 12px; cursor: pointer; }
+  .prow { font-size: 13px; color: var(--text2); padding: 6px 0; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clearbtn { background: transparent; color: var(--accent); border: 1px solid var(--line); border-radius: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 12px; cursor: pointer; }
+  .clearbtn:hover { border-color: var(--accent); }
 
   /* toast */
   #toast {
     position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
-    background: #383848; color: #E0E0E0; padding: 12px 20px; border-radius: 22px; font-size: 14px;
+    background: var(--panel-solid); color: var(--text); padding: 12px 20px; border: 1px solid var(--accent); border-radius: 0; font-size: 14px;
     z-index: 400; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 90%;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
   }
   #toast.show { opacity: 1; }
-  .spin { display: inline-block; width: 40px; text-align: center; }
 </style>
 </head>
 <body>
@@ -140,7 +164,7 @@
 <header>
   <div class="hrow">
     <a class="back" href="/" title="File Manager">‹</a>
-    <h1>Music</h1>
+    <h1>Music<span class="dot">.</span></h1>
   </div>
   <div class="searchwrap">
     <input id="q" type="text" placeholder="Search albums, songs, artists…" autocomplete="off">
@@ -255,7 +279,7 @@
 
   function gridHtml(albums){
     var h = '<div class="grid">';
-    albums.forEach(function(al, i){
+    albums.forEach(function(al){
       albumCache[al.id] = al;
       var sub = esc(al.artist || '') + (al.year ? ' · ' + al.year : '');
       h += '<div class="card" onclick="openAlbum(\'' + esc(al.id).replace(/'/g,"\\'") + '\')">' +
@@ -376,7 +400,7 @@
       dockmain.textContent = 'No downloads';
       docksub.textContent = 'Queue is empty';
       bar.classList.remove('indet'); barfill.style.width = '0%';
-      pendingList.innerHTML = '<div class="prow" style="border:none;color:#7A7A88">Nothing queued.</div>';
+      pendingList.innerHTML = '<div class="prow" style="border:none;color:var(--text2)">Nothing queued.</div>';
       return 8000;
     }
     dockmain.textContent = '⬇ ' + (d.current || 'Downloading…');
@@ -385,9 +409,9 @@
     if(d.percent >= 0){ bar.classList.remove('indet'); barfill.style.width = d.percent + '%'; }
     else { bar.classList.add('indet'); }
     var ph = '<div class="prow" style="border:none;display:flex;align-items:center;gap:8px">' +
-             '<b style="color:#B39DDB">Queue</b> <span style="flex-grow:1"></span>' +
+             '<b style="color:var(--accent);text-transform:uppercase;letter-spacing:1px;font-size:11px">Queue</b> <span style="flex-grow:1"></span>' +
              '<button class="clearbtn" onclick="clearQueue()">Clear pending</button></div>';
-    if(remaining === 0) ph += '<div class="prow" style="color:#7A7A88">Last track downloading…</div>';
+    if(remaining === 0) ph += '<div class="prow" style="color:var(--text2)">Last track downloading…</div>';
     else pending.forEach(function(t){ ph += '<div class="prow">• ' + esc(t) + '</div>'; });
     pendingList.innerHTML = ph;
     return 2000;
@@ -441,7 +465,7 @@
     span.classList.add('on');
   });
 
-  // Close detail with browser back-ish (Escape) for desktop testing
+  // Close detail with Escape (desktop)
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
 
   loadBrowse();
