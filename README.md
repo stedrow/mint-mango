@@ -97,6 +97,8 @@ keyboard and a big screen instead of the wheel:
 - An **On Device** tab lists what's already downloaded (grouped straight from the
   boot-scan library cache, so it works even with Navidrome offline), with per-track
   play/delete and a whole-album delete
+- Albums already on the device show a **✓ badge** in the browse/search grid
+  (matched against the local library, and refreshed when a download finishes)
 - Open an album to see its tracks, then **Download Album** or grab individual
   tracks; tracks already on the device show a ✓ (and a 🗑 to delete the download)
 - An **Original / MP3** quality toggle (Original keeps FLAC/ALAC/etc. as-is; MP3
