@@ -88,11 +88,18 @@ public class Y1WebServer extends Thread {
     private final java.security.SecureRandom rng = new java.security.SecureRandom();
     private int failedLogins = 0;
     private long lockUntilMs = 0L;
+    // Whether the PIN is enforced. User-toggleable on the Web Server screen; when off, the
+    // server behaves like before (open on the LAN) for people who trust their home network.
+    private volatile boolean pinRequired = true;
 
     public String getPin() { return pin; }
+    public boolean isPinRequired() { return pinRequired; }
+    public void setPinRequired(boolean required) { pinRequired = required; }
 
     public Y1WebServer(Context context) {
         this.context = context;
+        this.pinRequired = context.getSharedPreferences("Y1Prefs", Context.MODE_PRIVATE)
+                .getBoolean("webserver_pin_required", true);
     }
 
     public void run() {
@@ -516,7 +523,7 @@ public class Y1WebServer extends Thread {
                     || path.equals("/app.css")
                     || path.equals("/favicon.ico")
                     || (method.equals("POST") && path.equals("/api/login"));
-            if (!isPublic && !isAuthed(cookie)) {
+            if (pinRequired && !isPublic && !isAuthed(cookie)) {
                 if (streamsBody && contentLength > 0) drainBody(is, contentLength);
                 if (path.startsWith("/api/")) {
                     sendResponse(os, 401, "Unauthorized", "application/json; charset=UTF-8",
