@@ -83,19 +83,10 @@ The launcher includes a built-in Subsonic API client so you can browse and strea
 ### Browse & Download from your browser (Web Server)
 
 The built-in Web Server (main menu → **Web Server**, then open the shown
-`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) is a small,
-PIN-protected web app themed to match the launcher (cyan on black). It has two
-pages: a **Files** manager and a **Music** download manager.
-
-**Sign in with a PIN.** When you start the server the Y1 shows a 6-digit PIN
-under the address. Enter it once in the browser to unlock — this stops any other
-device on the Wi-Fi from browsing/deleting your files or reading your stored
-Navidrome login. A new PIN is generated each time the server starts, and five
-wrong tries locks logins for 30 seconds. The PIN is **on by default** but can be
-turned off with the **Require PIN** button on the Web Server screen if you trust
-your network (e.g. home Wi-Fi) and want the old cable-free-upload flow with no
-sign-in. Note the connection is plain HTTP, so the PIN guards against casual
-access on the LAN, not a determined attacker sniffing the same network.
+`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) is a small web
+app themed to match the launcher (cyan on black), with two pages: a **Files**
+manager and a **Music** download manager. It's open on your LAN, like the
+original wireless-upload server — no sign-in.
 
 **Music page** — a download manager for pulling albums onto the Y1 from a real
 keyboard and a big screen instead of the wheel:

@@ -79,27 +79,8 @@ public class Y1WebServer extends Thread {
     // idle gap (browsers open several); the threads are almost always blocked on a socket read,
     // so they're cheap. Paired with a short idle SO_TIMEOUT so they free quickly.
     private final ExecutorService connectionPool = Executors.newFixedThreadPool(16);
-    // Auth: a per-run 6-digit PIN shown on the Y1's Web Server screen. All pages and
-    // /api/* (except the login page/assets) require a session cookie obtained by POSTing
-    // this PIN to /api/login, so a random device on the same Wi-Fi can't browse/delete
-    // files or read the stored Navidrome credentials.
-    private final String pin = String.format(Locale.US, "%06d", new java.security.SecureRandom().nextInt(1000000));
-    private final java.util.Set<String> sessions = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
-    private final java.security.SecureRandom rng = new java.security.SecureRandom();
-    private int failedLogins = 0;
-    private long lockUntilMs = 0L;
-    // Whether the PIN is enforced. User-toggleable on the Web Server screen; when off, the
-    // server behaves like before (open on the LAN) for people who trust their home network.
-    private volatile boolean pinRequired = true;
-
-    public String getPin() { return pin; }
-    public boolean isPinRequired() { return pinRequired; }
-    public void setPinRequired(boolean required) { pinRequired = required; }
-
     public Y1WebServer(Context context) {
         this.context = context;
-        this.pinRequired = context.getSharedPreferences("Y1Prefs", Context.MODE_PRIVATE)
-                .getBoolean("webserver_pin_required", true);
     }
 
     public void run() {
@@ -253,9 +234,6 @@ public class Y1WebServer extends Thread {
     private void sendText(OutputStream os, int status, String statusText, String text, boolean keepAlive) throws java.io.IOException {
         sendResponse(os, status, statusText, "text/plain; charset=UTF-8", text.getBytes("UTF-8"), keepAlive, null);
     }
-    private void sendRedirect(OutputStream os, String location, boolean keepAlive) throws java.io.IOException {
-        sendResponse(os, 302, "Found", null, new byte[0], keepAlive, "Location: " + location + "\r\n");
-    }
 
     /** Read exactly contentLength bytes of a request body as a UTF-8 string (small API bodies). */
     private static String readRequestBody(InputStream is, int contentLength) throws java.io.IOException {
@@ -300,47 +278,6 @@ public class Y1WebServer extends Thread {
     private static int parseIntSafe(String s, int def) {
         if (s == null) return def;
         try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
-    }
-
-    // ── Auth (PIN + session cookie) ──────────────────────────────────────────────
-    private boolean isAuthed(String cookieHeader) {
-        if (cookieHeader == null) return false;
-        for (String c : cookieHeader.split(";")) {
-            c = c.trim();
-            if (c.startsWith("y1auth=")) return sessions.contains(c.substring(7));
-        }
-        return false;
-    }
-    private String newSessionToken() {
-        byte[] b = new byte[24];
-        rng.nextBytes(b);
-        StringBuilder sb = new StringBuilder(48);
-        for (byte x : b) sb.append(String.format(Locale.US, "%02x", x));
-        return sb.toString();
-    }
-    private static boolean constantTimeEquals(String a, String b) {
-        if (a == null || b == null || a.length() != b.length()) return false;
-        int r = 0;
-        for (int i = 0; i < a.length(); i++) r |= a.charAt(i) ^ b.charAt(i);
-        return r == 0;
-    }
-    private void handleLogin(OutputStream os, String body, boolean keepAlive) throws java.io.IOException {
-        long now = System.currentTimeMillis();
-        if (now < lockUntilMs) { sendJsonError(os, "Too many attempts — wait a moment and try again.", keepAlive); return; }
-        String given = "";
-        try { given = new JSONObject(body).optString("pin", "").trim(); } catch (Exception e) { Log.d(TAG, "login parse failed", e); }
-        if (!given.isEmpty() && constantTimeEquals(given, pin)) {
-            String token = newSessionToken();
-            sessions.add(token);
-            failedLogins = 0;
-            sendResponse(os, 200, "OK", "application/json; charset=UTF-8", "{\"ok\":true}".getBytes("UTF-8"),
-                    keepAlive, "Set-Cookie: y1auth=" + token + "; Path=/; HttpOnly; SameSite=Strict\r\n");
-        } else {
-            failedLogins++;
-            // Throttle brute force: after 5 wrong tries, freeze all logins for 30s.
-            if (failedLogins >= 5) { lockUntilMs = now + 30000; failedLogins = 0; }
-            sendJsonError(os, "Incorrect PIN", keepAlive);
-        }
     }
 
     /**
@@ -488,7 +425,7 @@ public class Y1WebServer extends Thread {
             String path = parts[1];
 
             int contentLength = 0;
-            String rangeHeader = null, cookie = null;
+            String rangeHeader = null;
             boolean clientClose = false;
             String line;
             int headerCount = 0;
@@ -500,8 +437,6 @@ public class Y1WebServer extends Thread {
                     catch (NumberFormatException nfe) { contentLength = 0; }
                 } else if (lower.startsWith("range:")) {
                     rangeHeader = line.substring(6).trim();
-                } else if (lower.startsWith("cookie:")) {
-                    cookie = line.substring(7).trim();
                 } else if (lower.startsWith("connection:")) {
                     if (lower.contains("close")) clientClose = true;
                 }
@@ -518,25 +453,7 @@ public class Y1WebServer extends Thread {
                 body = readRequestBody(is, contentLength);
             }
 
-            // ── Auth gate: everything except the login page/assets needs a session cookie ──
-            boolean isPublic = path.equals("/login") || path.startsWith("/login?")
-                    || path.equals("/app.css")
-                    || path.equals("/favicon.ico")
-                    || (method.equals("POST") && path.equals("/api/login"));
-            if (pinRequired && !isPublic && !isAuthed(cookie)) {
-                if (streamsBody && contentLength > 0) drainBody(is, contentLength);
-                if (path.startsWith("/api/")) {
-                    sendResponse(os, 401, "Unauthorized", "application/json; charset=UTF-8",
-                            "{\"ok\":false,\"error\":\"unauthorized\"}".getBytes("UTF-8"), keepAlive, null);
-                } else {
-                    sendRedirect(os, "/login?next=" + java.net.URLEncoder.encode(path, "UTF-8"), keepAlive);
-                }
-                return keepAlive;
-            }
-
-            // ── Public routes ──
-            if (method.equals("POST") && path.equals("/api/login")) { handleLogin(os, body, keepAlive); return keepAlive; }
-            if (method.equals("GET") && (path.equals("/login") || path.startsWith("/login?"))) { serveAsset(os, "webui/login.html", "text/html; charset=UTF-8", keepAlive); return keepAlive; }
+            // ── Shared stylesheet + favicon ──
             if (method.equals("GET") && path.equals("/app.css")) { serveAsset(os, "webui/app.css", "text/css; charset=UTF-8", keepAlive); return keepAlive; }
             if (method.equals("GET") && path.equals("/favicon.ico")) { sendText(os, 404, "Not Found", "", keepAlive); return keepAlive; }
 

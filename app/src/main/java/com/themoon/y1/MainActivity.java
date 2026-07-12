@@ -335,8 +335,8 @@ public class MainActivity extends Activity {
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [Fix] Removed the manual APP_VERSION variable and only kept the server folder address.
     public boolean is24HourFormat = false;
-    private TextView tvServerStatus, tvServerIp, tvServerPin;
-    private Button btnServerToggle, btnPinToggle;
+    private TextView tvServerStatus, tvServerIp;
+    private Button btnServerToggle;
     // 🚀 [Added] Advanced loading indicator overlay that covers the whole screen
     public LinearLayout layoutLoadingOverlay;
     public ImageView ivMenuPreview, ivAlbumArt, ivPlayerBgBlur, ivPauseOverlay;
@@ -1391,9 +1391,7 @@ public class MainActivity extends Activity {
         layoutWebServerMode = findViewById(R.id.layout_webserver_mode);
         tvServerStatus = findViewById(R.id.tv_server_status);
         tvServerIp = findViewById(R.id.tv_server_ip);
-        tvServerPin = findViewById(R.id.tv_server_pin);
         btnServerToggle = findViewById(R.id.btn_server_toggle);
-        btnPinToggle = findViewById(R.id.btn_pin_toggle);
 
         layoutNavidromeMode = findViewById(R.id.layout_navidrome_mode);
         containerNavidromeItems = findViewById(R.id.container_navidrome_items);
@@ -1480,33 +1478,6 @@ public class MainActivity extends Activity {
                 updateWebServerUI();
             }
         });
-
-        btnPinToggle.setBackgroundColor(0x15FFFFFF);
-        btnPinToggle.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View v, boolean hasFocus) {
-                if (hasFocus) {
-                    btnPinToggle.setBackgroundColor(0xDDFFFFFF);
-                    btnPinToggle.setTextColor(0xFF000000);
-                    btnPinToggle.setTypeface(null, android.graphics.Typeface.BOLD);
-                } else {
-                    btnPinToggle.setBackgroundColor(0x15FFFFFF);
-                    btnPinToggle.setTextColor(0xFFFFFFFF);
-                    btnPinToggle.setTypeface(null, android.graphics.Typeface.NORMAL);
-                }
-            }
-        });
-        btnPinToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clickFeedback();
-                boolean newVal = !getSharedPreferences("Y1Prefs", MODE_PRIVATE).getBoolean("webserver_pin_required", true);
-                getSharedPreferences("Y1Prefs", MODE_PRIVATE).edit().putBoolean("webserver_pin_required", newVal).apply();
-                if (webServer != null) webServer.setPinRequired(newVal);
-                updateWebServerUI();
-            }
-        });
-        updateWebServerUI();
 
         tvStatusClock = findViewById(R.id.tv_status_clock);
         tvStatusBattery = findViewById(R.id.tv_status_battery);
@@ -2095,21 +2066,12 @@ public class MainActivity extends Activity {
     }
 
     private void updateWebServerUI() {
-        boolean pinRequired = getSharedPreferences("Y1Prefs", MODE_PRIVATE).getBoolean("webserver_pin_required", true);
-        if (btnPinToggle != null) btnPinToggle.setText(t("Require PIN") + ": " + (pinRequired ? t("ON") : t("OFF")));
         if (isServerRunning) {
             // 💡 Apple style: drop the emoji, use a clean white!
             tvServerStatus.setText(t("SERVER RUNNING"));
             tvServerStatus.setTextColor(0xFFFFFFFF);
             tvServerIp.setText("http://" + webServer.getLocalIpAddress() + ":8080");
             tvServerIp.setTextColor(0xFFFFFFFF);
-            if (pinRequired) {
-                tvServerPin.setText(t("PIN") + "  " + webServer.getPin());
-                tvServerPin.setTextColor(0xFF00FFFF);
-            } else {
-                tvServerPin.setText(t("No PIN — open on this network"));
-                tvServerPin.setTextColor(0xFF888888);
-            }
             btnServerToggle.setText(t("STOP SERVER"));
         } else {
             // 💡 Apple style: a subtle, understated gray!
@@ -2117,7 +2079,6 @@ public class MainActivity extends Activity {
             tvServerStatus.setTextColor(0xFF888888);
             tvServerIp.setText("http://---.---.---.---:8080");
             tvServerIp.setTextColor(0xFF888888);
-            tvServerPin.setText("");
             btnServerToggle.setText(t("START SERVER"));
         }
     }
