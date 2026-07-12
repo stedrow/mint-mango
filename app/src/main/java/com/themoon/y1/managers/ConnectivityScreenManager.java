@@ -379,7 +379,7 @@ public class ConnectivityScreenManager {
                     a.changeScreen(a.STATE_WEBSERVER);
                 }
             });
-            a.containerWifiItems.addView(a.btnWifiWebServer, 0);
+            if (isOn) a.containerWifiItems.addView(a.btnWifiWebServer, 0);
 
             if (a.btnScanWifi.getParent() != null) {
                 ((android.view.ViewGroup) a.btnScanWifi.getParent()).removeView(a.btnScanWifi);
@@ -399,11 +399,12 @@ public class ConnectivityScreenManager {
             }
             for (int i = a.containerWifiItems.getChildCount() - 1; i >= 0; i--) {
                 View v = a.containerWifiItems.getChildAt(i);
-                if (v != a.btnScanWifi && v != a.btnWifiWebServer && v.getId() != 999992) {
+                boolean keepWebServer = v == a.btnWifiWebServer && isOn;
+                if (v != a.btnScanWifi && !keepWebServer && v.getId() != 999992) {
                     a.containerWifiItems.removeViewAt(i);
                 }
             }
-            if (a.btnWifiWebServer.getParent() == null) {
+            if (isOn && a.btnWifiWebServer.getParent() == null) {
                 a.containerWifiItems.addView(a.btnWifiWebServer, 0);
             }
         }

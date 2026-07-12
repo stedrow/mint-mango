@@ -60,6 +60,10 @@ public final class CastDiscovery {
     private Callback callback;
 
     private final Map<String, CastDevice> devices = new LinkedHashMap<>();
+    // Instance names whose real friendly name (fetchEurekaName) has come back -- devices not yet
+    // in here are still sitting on friendlyFallback()'s raw-hostname guess and are hidden from
+    // emit() until they resolve, rather than shown as a garbled truncated hostname.
+    private final java.util.Set<String> namesResolved = new java.util.HashSet<>();
     // Partial records waiting to be paired up into a CastDevice, keyed by mDNS instance name.
     private final Map<String, String> pendingTarget = new LinkedHashMap<>(); // instance -> SRV target host
     private final Map<String, Integer> pendingPort = new LinkedHashMap<>();  // instance -> SRV port
@@ -86,6 +90,7 @@ public final class CastDiscovery {
             return;
         }
         devices.clear();
+        namesResolved.clear();
         pendingTarget.clear();
         pendingPort.clear();
         resolvedIp.clear();
@@ -313,7 +318,9 @@ public final class CastDiscovery {
                 main.post(new Runnable() {
                     @Override public void run() {
                         CastDevice existing = devices.get(id);
-                        if (existing == null || finalName.equals(existing.friendlyName)) return;
+                        if (existing == null) return;
+                        boolean newlyResolved = namesResolved.add(id); // true only the first time this id resolves
+                        if (finalName.equals(existing.friendlyName) && !newlyResolved) return;
                         devices.put(id, new CastDevice(id, finalName, existing.host, existing.port));
                         emit();
                     }
@@ -323,7 +330,15 @@ public final class CastDiscovery {
     }
 
     private void emit() {
-        final List<CastDevice> snapshot = new ArrayList<>(devices.values());
+        final List<CastDevice> snapshot = new ArrayList<>();
+        for (Map.Entry<String, CastDevice> e : devices.entrySet()) {
+            // Devices whose /setup/eureka_info friendly-name lookup (fetchEurekaName) hasn't come
+            // back yet are still sitting on friendlyFallback()'s raw-hostname guess (a garbled,
+            // truncated mDNS domain) -- hide those rather than show that, they reappear once a
+            // real name resolves and a later emit() picks them back up.
+            if (!namesResolved.contains(e.getKey())) continue;
+            snapshot.add(e.getValue());
+        }
         final Callback cb = callback;
         if (cb == null) return;
         main.post(new Runnable() {

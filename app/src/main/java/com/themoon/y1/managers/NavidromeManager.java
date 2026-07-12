@@ -229,34 +229,8 @@ public class NavidromeManager {
     }
 
     private void showNavidromeWifiOffMessage(MainActivity a) {
-        showNavidromeMessage(a, "WI-FI OFF", "Connect to Wi-Fi to browse Navidrome.");
-
-        LinearLayout btnTurnOnWifi = a.createSettingRow("Turn On Wi-Fi", "");
-        btnTurnOnWifi.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                a.clickFeedback();
-                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
-                        a.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                if (wm != null) {
-                    Toast.makeText(a, a.t("Turning Wi-Fi ON..."), Toast.LENGTH_SHORT).show();
-                    wm.setWifiEnabled(true);
-                }
-            }
-        });
-        a.containerNavidromeItems.addView(btnTurnOnWifi);
-
-        LinearLayout btnGoToWifi = a.createSettingRow("Go to Wi-Fi Settings", "");
-        btnGoToWifi.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                a.clickFeedback();
-                a.changeScreen(MainActivity.STATE_WIFI);
-            }
-        });
-        a.containerNavidromeItems.addView(btnGoToWifi);
-
-        btnTurnOnWifi.requestFocus();
+        a.containerNavidromeItems.removeAllViews();
+        SongContextMenuManager.getInstance().showWifiOffDialog(a, a.t("Navidrome requires a Wi-Fi connection"));
     }
 
     public void showNavidromeMessage(MainActivity a, String title, String body) {
