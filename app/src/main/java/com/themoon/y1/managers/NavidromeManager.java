@@ -513,6 +513,7 @@ public class NavidromeManager {
         am.navidromeIndex = startIndex;
 
         if (com.themoon.y1.cast.CastManager.getInstance().isCasting()) {
+            am.markNavidromeModeForCast();
             com.themoon.y1.cast.CastManager.getInstance().reloadCurrentTrack(true);
         } else {
             com.themoon.y1.subsonic.SubsonicSong song = songs.get(startIndex);

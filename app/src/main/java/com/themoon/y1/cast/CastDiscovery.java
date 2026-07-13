@@ -260,12 +260,21 @@ public final class CastDiscovery {
             String ip = resolvedIp.get(target);
             if (ip == null) continue;
 
-            CastDevice dev = new CastDevice(instance, friendlyFallback(instance), ip, port);
+            // A device that already resolved its real name keeps it here — the requery timer
+            // re-announces (and thus re-reconciles) every ~3s, and rebuilding with
+            // friendlyFallback() unconditionally would clobber the resolved name right back to
+            // the raw "device.local"-style guess on every one of those cycles, even though
+            // namesResolved still (correctly) says this instance is resolved and emit() would
+            // then show that clobbered fallback name as if it were final.
+            CastDevice existing = devices.get(instance);
+            boolean alreadyResolved = existing != null && namesResolved.contains(instance);
+            String name = alreadyResolved ? existing.friendlyName : friendlyFallback(instance);
+            CastDevice dev = new CastDevice(instance, name, ip, port);
             CastDevice prev = devices.put(instance, dev);
             resolvedInstances.add(instance);
             if (prev == null || !prev.equals(dev)) {
                 changed = true;
-                fetchEurekaName(instance, ip, port);
+                if (!alreadyResolved) fetchEurekaName(instance, ip, port);
             }
         }
         for (String instance : resolvedInstances) {
@@ -331,13 +340,20 @@ public final class CastDiscovery {
 
     private void emit() {
         final List<CastDevice> snapshot = new ArrayList<>();
+        // Some Cast receivers announce the same physical device under more than one mDNS
+        // instance name (e.g. one per network interface) -- those land as separate `devices`
+        // entries but resolve to the same eureka_info friendly name, so dedupe on that once
+        // resolved rather than showing the same speaker twice in the picker.
+        final java.util.Set<String> seenNames = new java.util.HashSet<>();
         for (Map.Entry<String, CastDevice> e : devices.entrySet()) {
             // Devices whose /setup/eureka_info friendly-name lookup (fetchEurekaName) hasn't come
             // back yet are still sitting on friendlyFallback()'s raw-hostname guess (a garbled,
             // truncated mDNS domain) -- hide those rather than show that, they reappear once a
             // real name resolves and a later emit() picks them back up.
             if (!namesResolved.contains(e.getKey())) continue;
-            snapshot.add(e.getValue());
+            CastDevice dev = e.getValue();
+            if (!seenNames.add(dev.friendlyName)) continue;
+            snapshot.add(dev);
         }
         final Callback cb = callback;
         if (cb == null) return;
