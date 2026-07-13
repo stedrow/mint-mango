@@ -206,7 +206,8 @@ public class Y1WebServer extends Thread {
                 .append(",\"artist\":\"").append(jsonEsc(al.artistName)).append("\"")
                 .append(",\"year\":").append(al.year)
                 .append(",\"songCount\":").append(al.songCount)
-                .append(",\"coverArt\":\"").append(jsonEsc(al.coverArtId)).append("\"}");
+                .append(",\"coverArt\":\"").append(jsonEsc(al.coverArtId)).append("\"")
+                .append(",\"releaseType\":\"").append(jsonEsc(al.releaseType)).append("\"}");
     }
 
     /** Full song JSON. include the downloaded flag only in album detail (a cheap stat()

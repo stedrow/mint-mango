@@ -553,6 +553,9 @@ public class SubsonicClient {
         al.year = a.optInt("year", 0);
         al.songCount = a.optInt("songCount", 0);
         al.coverArtId = a.optString("coverArt", null);
+        // OpenSubsonic's releaseTypes is an array (e.g. ["single"]) — use the first entry.
+        JSONArray releaseTypes = a.optJSONArray("releaseTypes");
+        al.releaseType = (releaseTypes != null && releaseTypes.length() > 0) ? releaseTypes.optString(0, null) : null;
         return al;
     }
 
