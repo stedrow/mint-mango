@@ -304,6 +304,10 @@ public class AudioPlayerManager {
         }
 
         main.isPausedByHand = false; // 🚀 Flip the switch ahead of time!
+        if (CastManager.getInstance().isCasting()) {
+            CastManager.getInstance().reloadCurrentTrack(false);
+            return;
+        }
         prepareMusicTrack(main.currentIndex);
         main.updatePlayerUI(); // 🚀 Start the timer immediately!
     }

@@ -233,6 +233,22 @@ public final class CastManager {
         });
     }
 
+    /** Pushes a freshly-selected playlist/track (the user picked a new album and hit play)
+     *  into the already-open cast connection instead of falling through to local playback.
+     *  Called by AudioPlayerManager.playTrackList / NavidromeManager.playNavidromeAlbum when
+     *  isCasting() is true. {@code navidromeMode} matches whichever queue (local file list or
+     *  Navidrome playlist) the caller just populated on MainActivity/AudioPlayerManager. */
+    public void reloadCurrentTrack(boolean navidromeMode) {
+        if (connection == null) return;
+        navidromeCast = navidromeMode;
+        if (!navidromeMode) CastMediaServer.getInstance().ensureStarted();
+        resetPlaybackState();
+        final String host = localIpAddress();
+        netExecutor.execute(new Runnable() {
+            @Override public void run() { loadCurrentIndexInternal(host); }
+        });
+    }
+
     public void seekRelative(int offsetMs) {
         long target = getPositionMs() + offsetMs;
         long dur = getDurationMs();
@@ -309,6 +325,7 @@ public final class CastManager {
                 artist = song.artist;
                 if (song.coverArtId != null) cover = sc.getCoverArtUrl(song.coverArtId, 500);
                 durationMs = song.durationSecs * 1000L;
+                updateTrackCountUi(idx, am.navidromePlaylist.size());
             } else {
                 if (main.currentPlaylist.isEmpty()) return;
                 int idx = clamp(main.currentIndex, main.currentPlaylist.size());
@@ -334,6 +351,7 @@ public final class CastManager {
                     if (artTok != null) cover = server.artUrlFor(host, artTok);
                 }
                 updateLocalNowPlayingUi(meta);
+                updateTrackCountUi(idx, main.currentPlaylist.size());
             }
             anchorPosition(0, "BUFFERING");
             lastDurationMs = durationMs;
@@ -476,6 +494,24 @@ public final class CastManager {
                     }
                 } catch (Exception e) {
                     Log.d(TAG, "updateLocalNowPlayingUi failed", e);
+                }
+            }
+        });
+    }
+
+    /** Mirrors the "NN / NN" track-count label the local-playback path normally maintains
+     *  (AudioPlayerManager.prepareMusicTrack / playNavidromeSong) — that path never runs while
+     *  casting, so next()/prev() would otherwise leave the label frozen at the pre-cast track. */
+    private void updateTrackCountUi(final int index, final int total) {
+        final MainActivity a = MainActivity.instance;
+        if (a == null || a.tvPlayerTrackCount == null) return;
+        main.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    a.tvPlayerTrackCount.setText(String.format(java.util.Locale.US, "%02d", index + 1)
+                            + " / " + String.format(java.util.Locale.US, "%02d", total));
+                } catch (Exception e) {
+                    Log.d(TAG, "updateTrackCountUi failed", e);
                 }
             }
         });
