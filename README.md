@@ -1,6 +1,6 @@
 # Mint Mango Launcher
 
-A fork of [JJ Launcher (MO-ON Launcher)](https://github.com/ismileblue/y1_launcher) for the Innioasis Y1, adding Navidrome/Subsonic streaming, full AirPods Pro 2/3 support, per-theme background images, and additional themes.
+A fork of [JJ Launcher (MO-ON Launcher)](https://github.com/ismileblue/y1_launcher) for the Innioasis Y1, adding Navidrome/Subsonic streaming, Google Cast support, a browser-based music download manager for pulling albums from your Navidrome/Subsonic instance, full AirPods Pro 2/3 support, per-theme background images, and additional themes.
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/Status-Beta-Orange?style=flat-square" alt="Status">
@@ -46,6 +46,8 @@ If you find any bugs or have suggestions, please **open an Issue** in this repos
     * Real audio (not just pairing), ear-detection auto-pause/resume, and squeeze controls that keep working with the screen off. See [below](#-airpods-support-pro-2--pro-3) for details.
 12. **Pocket-Press Protection**
     * A wheel-rotation unlock gesture (with an animated ring) prevents the wheel from accidentally controlling playback while the device is in your pocket.
+13. **Cast to Speaker (Google Cast)**
+    * Cast the current track to any Chromecast-compatible speaker on the same Wi-Fi, for both local files and Navidrome streams. See [below](#-cast-to-speaker) for details.
 
 ---
 
@@ -115,6 +117,28 @@ below **20% battery while unplugged** first asks for confirmation, since the
 download could outlast the battery. Album art is fetched once, cached on the device
 and in the browser, and served small; responses use keep-alive to keep the Y1's
 per-request overhead low.
+
+---
+
+## 📡 Cast to Speaker
+
+On the Now Playing screen, double-tap the center wheel button to open the
+quick menu, then choose **Cast** → **Cast to Speaker**, which discovers
+Chromecast-compatible speakers on the same Wi-Fi (via mDNS) and lets you pick
+one. This talks the
+real Google Cast protocol directly — no phone or Google Home app involved —
+using the same "Default Media Receiver" any Cast device understands.
+
+- Works for both local files (served to the speaker over the LAN by a small
+  built-in HTTP server) and Navidrome streams (the speaker fetches the
+  transcoded-MP3 URL directly)
+- Once casting starts, the **speaker becomes the source of truth for
+  playback** — play/pause, seek, next/prev, wheel volume, and the Now Playing
+  progress bar all control and reflect the speaker, not the device's local
+  output
+- Double-tap the center wheel button again → **Stop Casting** to return to local playback
+- A cast icon in the status icon bar shows when a cast session is active
+- Requires Wi-Fi; casting won't start (and shows a prompt) if Wi-Fi is off
 
 ---
 
@@ -301,6 +325,15 @@ found in the Settings menu unless noted:
 - **Lock Wheel on Wake** — after the screen wakes, the wheel is locked until
   you rotate it far enough to intentionally unlock (shown as an animated
   ring), preventing accidental playback/volume changes from pocket presses.
+- **Reboot** button in System settings — reboot the device without pulling
+  the battery or using ADB.
+- **Reorder the Music menu** — long-press any row in the Music root menu
+  (Cover Flow, Navidrome, Playlists, Folders, Artists, Albums, Years, Genres,
+  All Songs, My Favorites, Switch to Audiobooks) to pick it up, rotate the
+  wheel to move it, then press Back to drop it. The custom order persists
+  across restarts.
+- **Battery percentage overlay** — optional toggle to show the numeric
+  battery percentage on top of the status-bar battery icon.
 - **Disable Built-in Speaker** — force audio to Bluetooth/output-only setups
   by disabling the device's own speaker.
 - **Screen-Off Control** — governs whether the device's own physical
