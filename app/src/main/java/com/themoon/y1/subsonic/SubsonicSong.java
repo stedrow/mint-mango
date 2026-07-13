@@ -50,4 +50,25 @@ public class SubsonicSong {
     public boolean isDownloaded() {
         return getExistingLocalPath() != null;
     }
+
+    /** Rebuild a song from the metadata the browser already holds (from a search/album
+     *  response) so the Web Server download manager can enqueue it without a second
+     *  round-trip to the server just to re-fetch fields it already had. */
+    public static SubsonicSong fromWebJson(org.json.JSONObject o) {
+        SubsonicSong s = new SubsonicSong();
+        s.id = o.optString("id");
+        s.title = o.optString("title", "Unknown");
+        s.artist = o.optString("artist", "Unknown");
+        s.album = o.optString("album", "");
+        s.albumId = o.optString("albumId", null);
+        s.track = o.optInt("track", 0);
+        s.durationSecs = o.optInt("duration", 0);
+        s.sizeBytes = o.optLong("size", 0);
+        s.suffix = o.optString("suffix", "mp3");
+        s.coverArtId = o.optString("coverArt", null);
+        s.year = o.optInt("year", 0);
+        s.genre = o.optString("genre", null);
+        s.albumArtist = o.optString("albumArtist", "");
+        return s;
+    }
 }

@@ -80,6 +80,42 @@ The launcher includes a built-in Subsonic API client so you can browse and strea
   - Long-press a song title to download that track only
 - Back button navigates up: Songs → Albums → Artists → Main Menu
 
+### Browse & Download from your browser (Web Server)
+
+The built-in Web Server (main menu → **Web Server**, then open the shown
+`http://<device-ip>:8080` on a computer/phone on the same Wi-Fi) is a small web
+app themed to match the launcher (cyan on black), with two pages: a **Files**
+manager and a **Music** download manager. It's open on your LAN, like the
+original wireless-upload server — no sign-in.
+
+**Music page** — a download manager for pulling albums onto the Y1 from a real
+keyboard and a big screen instead of the wheel:
+
+- **Browse & Download Music** button on the Files page opens `/music`
+- Browse **Newest / Most Played / Random / A–Z**, or **search** albums, songs
+  and artists — all shown as an album-art grid
+- An **On Device** tab lists what's already downloaded (grouped straight from the
+  boot-scan library cache, so it works even with Navidrome offline), with per-track
+  play/delete and a whole-album delete
+- Albums already on the device show a **✓ badge** in the browse/search grid
+  (matched against the local library, and refreshed when a download finishes)
+- Open an album to see its tracks, then **Download Album** or grab individual
+  tracks; tracks already on the device show a ✓ (and a 🗑 to delete the download)
+- An **Original / MP3** quality toggle (Original keeps FLAC/ALAC/etc. as-is; MP3
+  transcodes to 192 kbps for a smaller download)
+- A live **download dock** shows the current transfer's progress, the queue, any
+  failed tracks, and a **Clear pending** button; free space is shown in the header
+
+Downloads run through the **same one-at-a-time queue as on-device downloads**
+(the ~190 kbps link can't share), so queueing from the browser behaves exactly
+like queueing on the Y1 — wake/Wi-Fi locks, retries, library registration and
+cover-art caching all included. The wake locks keep a transfer alive with the
+screen off, so the device won't doze mid-download; queuing an album (4+ tracks)
+below **20% battery while unplugged** first asks for confirmation, since the
+download could outlast the battery. Album art is fetched once, cached on the device
+and in the browser, and served small; responses use keep-alive to keep the Y1's
+per-request overhead low.
+
 ---
 
 ## 🛠️ Building from Source

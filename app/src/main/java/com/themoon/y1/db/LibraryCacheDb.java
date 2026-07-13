@@ -231,6 +231,88 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
         }
     }
 
+    /** One row per on-device album, grouped from the scanned song cache. */
+    public static class LocalAlbum {
+        public final String artist;
+        public final String album;
+        public final String year;
+        public final int trackCount;
+        public final String artPath; // absolute cover path, or null
+        public LocalAlbum(String artist, String album, String year, int trackCount, String artPath) {
+            this.artist = artist;
+            this.album = album;
+            this.year = year;
+            this.trackCount = trackCount;
+            this.artPath = artPath;
+        }
+    }
+
+    /** Lists what's on the device by grouping the scanned song cache into albums — cheap
+     *  (one GROUP BY), so the Web Server can show downloaded/on-device albums without any
+     *  file walking. Excludes audiobooks. Cover comes from any track's saved album art. */
+    public List<LocalAlbum> loadLocalAlbums() {
+        List<LocalAlbum> out = new ArrayList<>();
+        try {
+            SQLiteDatabase db = getReadableDatabase();
+            Cursor c = db.rawQuery(
+                    "SELECT s.artist, s.album, COUNT(*) AS cnt, MIN(s.year) AS yr, MIN(st.album_art_path) AS art " +
+                    "FROM " + TABLE + " s LEFT JOIN " + STATE_TABLE + " st ON st.path = s.path " +
+                    "WHERE s.is_audiobook = 0 " +
+                    "GROUP BY s.artist, s.album " +
+                    "ORDER BY s.artist COLLATE NOCASE, s.album COLLATE NOCASE", null);
+            try {
+                while (c.moveToNext()) {
+                    out.add(new LocalAlbum(c.getString(0), c.getString(1), c.getString(3), c.getInt(2), c.getString(4)));
+                }
+            } finally {
+                c.close();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "loadLocalAlbums failed", e);
+        }
+        return out;
+    }
+
+    /** The tracks of one on-device album, ordered by track number then title. */
+    public List<CachedSong> loadLocalAlbumTracks(String artist, String album) {
+        List<CachedSong> out = new ArrayList<>();
+        try {
+            Cursor c = getReadableDatabase().query(TABLE, null,
+                    "artist=? AND album=? AND is_audiobook=0", new String[]{artist, album},
+                    null, null, "track_number ASC, title ASC");
+            try {
+                while (c.moveToNext()) {
+                    out.add(new CachedSong(
+                            c.getString(c.getColumnIndexOrThrow("path")),
+                            c.getLong(c.getColumnIndexOrThrow("mtime")),
+                            c.getLong(c.getColumnIndexOrThrow("size")),
+                            c.getString(c.getColumnIndexOrThrow("title")),
+                            c.getString(c.getColumnIndexOrThrow("artist")),
+                            c.getString(c.getColumnIndexOrThrow("album")),
+                            c.getString(c.getColumnIndexOrThrow("year")),
+                            c.getString(c.getColumnIndexOrThrow("genre")),
+                            c.getInt(c.getColumnIndexOrThrow("track_number")),
+                            c.getInt(c.getColumnIndexOrThrow("is_audiobook")) != 0));
+                }
+            } finally {
+                c.close();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "loadLocalAlbumTracks failed", e);
+        }
+        return out;
+    }
+
+    /** Removes a single cached song row (e.g. right after its file is deleted), so an
+     *  on-device listing built from this cache doesn't show a phantom until the next scan. */
+    public void deleteSong(String path) {
+        try {
+            getWritableDatabase().delete(TABLE, "path=?", new String[]{path});
+        } catch (Exception e) {
+            Log.w(TAG, "deleteSong failed", e);
+        }
+    }
+
     /** Wipes the cache so the next scan re-extracts tags for every file. */
     public void clear() {
         try {

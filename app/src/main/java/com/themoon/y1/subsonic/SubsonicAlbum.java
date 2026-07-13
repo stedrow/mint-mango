@@ -8,4 +8,5 @@ public class SubsonicAlbum {
     public int year;
     public int songCount;
     public String coverArtId;
+    public String releaseType;
 }

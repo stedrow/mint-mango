@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Y1 · Music</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+  body { padding-bottom: 150px; }
+
+  /* Album detail overlay */
+  #detail { position: fixed; inset: 0; z-index: 200; background: var(--bg); overflow-y: auto; display: none; padding-bottom: 150px; }
+  .dtopbar { position: sticky; top: 0; z-index: 2; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .dhead { position: relative; padding: 22px 16px; display: flex; gap: 18px; align-items: flex-end; background: linear-gradient(180deg, #0A2624, var(--bg)); }
+  .dclose { display: inline-flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 700; color: var(--accent); cursor: pointer; padding: 8px 12px; border: 1px solid var(--line); }
+  .dclose:hover { border-color: var(--accent); background: var(--btn-hi); }
+  .dcover { width: 150px; height: 150px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--line); background: #12211F; box-shadow: var(--shadow); }
+  .dtitle { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+  .dsub { font-size: 13px; color: var(--text-2); }
+  .dactions { padding: 16px; }
+  #dlall.del { background: var(--danger); color: #220505; }
+  #dlall.del:hover { background: #ff8a8a; }
+  .plbtn { flex-shrink: 0; background: var(--btn); color: var(--accent); border: 1px solid var(--line); font-size: 13px; font-weight: 700; padding: 7px 12px; cursor: pointer; }
+  .plbtn:hover { background: var(--accent); color: var(--on-accent); }
+  /* "already downloaded" badge on Navidrome album covers */
+  .cw { position: relative; }
+  .dlbadge { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    background: var(--good); color: #04140F; font-size: 13px; font-weight: 800; box-shadow: 0 1px 5px rgba(0,0,0,0.55); }
+  .trackcount { position: absolute; bottom: 6px; left: 6px; padding: 2px 6px; background: rgba(0,0,0,0.65); color: #fff; font-size: 11px; font-weight: 700; box-shadow: 0 1px 5px rgba(0,0,0,0.5); }
+  .tnum { width: 26px; text-align: center; color: var(--text-2); font-size: 13px; flex-shrink: 0; }
+  .tdur { color: var(--text-2); font-size: 12px; flex-shrink: 0; }
+
+  /* Download dock */
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: rgba(5,11,11,0.9); backdrop-filter: blur(14px); border-top: 1px solid var(--accent); }
+  .dockbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .qtoggle { display: flex; background: var(--btn); border: 1px solid var(--line); padding: 2px; flex-shrink: 0; }
+  .qtoggle span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px; cursor: pointer; color: var(--text-2); user-select: none; }
+  .qtoggle span.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+  .dockinfo { flex-grow: 1; overflow: hidden; }
+  .dockmain { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .docksub { font-size: 12px; color: var(--text-2); }
+  .docksub .fail { color: var(--danger); }
+  .chev { color: var(--text-2); cursor: pointer; font-size: 18px; flex-shrink: 0; padding: 4px; }
+  #pending { max-height: 0; overflow: hidden; transition: max-height 0.25s; }
+  #pending.open { max-height: 240px; overflow-y: auto; }
+  #pendingList { padding: 4px 16px 12px; }
+  .prow { font-size: 13px; color: var(--text-2); padding: 6px 0; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div class="offline" id="offline">⚠ Device unreachable — is the Web Server still running?</div>
+
+<header class="hdr">
+  <div class="wrap">
+    <div class="hdr-row">
+      <a class="back" href="/" title="Files">‹</a>
+      <div class="title">Music<span class="dot">.</span></div>
+      <div class="hdr-meta"><span id="disk"></span></div>
+    </div>
+    <div class="searchwrap">
+      <input id="q" class="search" type="text" placeholder="Search albums, songs, artists…" autocomplete="off">
+      <span class="search-clear" id="clearq">✕</span>
+    </div>
+    <div class="chips" id="chips">
+      <div class="chip active" data-type="newest">Newest</div>
+      <div class="chip" data-type="frequent">Most Played</div>
+      <div class="chip" data-type="random">Random</div>
+      <div class="chip" data-type="alphabeticalByName">A–Z</div>
+      <div class="chip" data-type="__local__">⬇ On Device</div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="main"><div class="hint">Loading…</div></main>
+
+<!-- Album detail overlay -->
+<div id="detail">
+  <div class="dtopbar"><span class="dclose" onclick="closeDetail()">‹ Back</span></div>
+  <div class="dhead">
+    <img class="dcover" id="dcover" alt="">
+    <div>
+      <div class="dtitle" id="dtitle"></div>
+      <div class="dsub" id="dsub"></div>
+    </div>
+  </div>
+  <div class="dactions wrap"><button class="btn-cta" id="dlall">⬇ Download Album</button></div>
+  <div class="wrap" id="dsongs"></div>
+</div>
+
+<!-- Download manager dock -->
+<div id="dock">
+  <div class="wrap">
+    <div id="pending"><div id="pendingList"></div></div>
+    <div class="dockbar">
+      <div class="qtoggle" id="qtoggle" title="Download quality">
+        <span data-q="orig">Original</span>
+        <span data-q="mp3" class="on">MP3</span>
+      </div>
+      <div class="dockinfo">
+        <div class="dockmain" id="dockmain">No downloads</div>
+        <div class="docksub" id="docksub">Queue is empty</div>
+        <div class="bar" id="bar"><div id="barfill"></div></div>
+      </div>
+      <span class="chev" id="chev" onclick="togglePending()">⌃</span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var main = document.getElementById('main');
+  var q = document.getElementById('q');
+  var clearq = document.getElementById('clearq');
+  var quality = 'mp3';
+  var browseType = 'newest';
+  var localMode = false;         // "On Device" tab active
+  var currentAlbum = null;       // Navidrome album open in the detail view
+  var currentLocal = null;       // {artist, album, cover} local album open in the detail view
+  var searchTimer = null, pollTimer = null;
+  var albumCache = {};
+
+  function coverUrl(id, size){ return id ? '/api/navidrome/cover?id=' + encodeURIComponent(id) + '&size=' + size : ''; }
+  function fileUrl(relPath){ return relPath ? '/api/file?path=' + encodeURIComponent(relPath) : ''; }
+  function esc(s){ return (s==null?'':(''+s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtDur(sec){ if(!sec) return ''; var m=Math.floor(sec/60), s=sec%60; return m+':'+(s<10?'0':'')+s; }
+  function fmtSize(b){ if(b==null) return ''; var u=['B','KB','MB','GB','TB'],i=0; while(b>=1024&&i<u.length-1){b/=1024;i++;} return (i?b.toFixed(1):b)+' '+u[i]; }
+
+  var toastEl = document.getElementById('toast'), toastT = null;
+  function toast(msg){ toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(function(){ toastEl.classList.remove('show'); }, 2600); }
+  var offEl = document.getElementById('offline');
+  function online(ok){ offEl.classList.toggle('show', !ok); }
+
+  function coverImg(id, size, cls){
+    if(!id) return '<div class="'+cls+' ph">♪</div>';
+    return '<img class="'+cls+'" loading="lazy" src="'+coverUrl(id,size)+'" onerror="this.outerHTML=\'<div class=&quot;'+cls+' ph&quot;>♪</div>\'">';
+  }
+
+  // Set of "artist album" (normalized) already on the device, for the ✓ badge.
+  var downloadedSet = null;
+  function norm(s){ return (s==null?'':(''+s)).trim().toLowerCase(); }
+  function albumKey(artist, album){ return norm(artist) + ' ' + norm(album); }
+  function refreshDownloadedSet(cb){
+    fetch('/api/local/albums')
+      .then(function(r){ return r.json(); })
+      .then(function(d){ var s = {}; (d.albums||[]).forEach(function(a){ s[albumKey(a.artist, a.album)] = 1; }); downloadedSet = s; if(cb) cb(); })
+      .catch(function(){ if(cb) cb(); });
+  }
+  function isDownloaded(artist, album){ return downloadedSet ? !!downloadedSet[albumKey(artist, album)] : false; }
+  // Guards against rendering a grid before the first refreshDownloadedSet() call has resolved.
+  function withDownloadedSet(cb){ if(downloadedSet) cb(); else refreshDownloadedSet(cb); }
+  // Re-render whichever view is currently showing, so ✓ badges reflect the latest downloads.
+  function reloadCurrentView(){
+    refreshDownloadedSet(function(){
+      if(localMode) loadLocal();
+      else if(q.value.trim()) doSearch(q.value.trim());
+      else loadBrowse();
+    });
+  }
+
+  // ── Browse / search ───────────────────────────────────────────────
+  function loadBrowse(){
+    main.innerHTML = '<div class="hint">Loading…</div>';
+    fetch('/api/navidrome/albums?type=' + encodeURIComponent(browseType) + '&size=40')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        online(true);
+        if(d.error){ main.innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; }
+        withDownloadedSet(function(){ renderAlbums(d.albums); });
+      })
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Could not reach the server.</div>'; });
+  }
+  function doSearch(query){
+    main.innerHTML = '<div class="hint">Searching…</div>';
+    fetch('/api/navidrome/search?q=' + encodeURIComponent(query))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        online(true);
+        if(d.error){ main.innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; }
+        var albums = d.albums || [];
+        if(albums.length === 0){ main.innerHTML = '<div class="hint">No results for “' + esc(query) + '”.</div>'; return; }
+        withDownloadedSet(function(){ main.innerHTML = groupedGridHtml(albums); });
+      })
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Search failed.</div>'; });
+  }
+  function renderAlbums(albums){
+    if(!albums || !albums.length){ main.innerHTML = '<div class="hint">No albums found.</div>'; return; }
+    main.innerHTML = groupedGridHtml(albums);
+  }
+  function artistLink(artist){
+    if(!artist) return '';
+    return '<span class="artist-link" onclick="event.stopPropagation();searchArtist(\'' + esc(artist).replace(/'/g,"\\'") + '\')">' + esc(artist) + '</span>';
+  }
+  window.searchArtist = function(artist){
+    if(!artist) return;
+    document.getElementById('detail').style.display = 'none'; currentAlbum = null; currentLocal = null;
+    q.value = artist; clearq.style.display = 'block';
+    document.getElementById('chips').style.display = 'none';
+    doSearch(artist);
+  };
+  function gridHtml(albums){
+    var h = '<div class="grid">';
+    albums.forEach(function(al){
+      albumCache[al.id] = al;
+      var sub = artistLink(al.artist) + (al.year ? ' · ' + al.year : '');
+      var badge = isDownloaded(al.artist, al.name) ? '<span class="dlbadge" title="On this device">✓</span>' : '';
+      var count = al.songCount>0 ? '<span class="trackcount">' + al.songCount + '</span>' : '';
+      h += '<div class="card" onclick="openAlbum(\'' + esc(al.id).replace(/'/g,"\\'") + '\')">' +
+           '<div class="cw">' + coverImg(al.coverArt, 300, 'cover') + badge + count + '</div>' +
+           '<div class="cname">' + esc(al.name) + '</div><div class="csub">' + sub + '</div></div>';
+    });
+    return h + '</div>';
+  }
+  // Group strictly by Navidrome's releaseType tag; untagged releases default to Albums.
+  function releaseType(al){
+    var t = (al.releaseType||'').trim().toLowerCase();
+    if(t === 'single') return 'Singles';
+    if(t === 'ep') return 'EPs';
+    return 'Albums';
+  }
+  function groupedGridHtml(albums){
+    var groups = { Albums: [], EPs: [], Singles: [] };
+    albums.forEach(function(al){ groups[releaseType(al)].push(al); });
+    var h = '';
+    ['Albums', 'EPs', 'Singles'].forEach(function(name){
+      if(groups[name].length) h += '<div class="section-title">' + name + '</div>' + gridHtml(groups[name]);
+    });
+    return h;
+  }
+
+  // ── Album detail ──────────────────────────────────────────────────
+  window.openAlbum = function(id){
+    var al = albumCache[id]; if(!al) return;
+    currentAlbum = al; currentLocal = null;
+    document.getElementById('dcover').src = coverUrl(al.coverArt, 400);
+    document.getElementById('dtitle').textContent = al.name;
+    document.getElementById('dsub').innerHTML = artistLink(al.artist) + (al.year? ' · '+al.year : '') + (al.songCount? ' · '+al.songCount+' songs':'');
+    document.getElementById('dsongs').innerHTML = '<div class="hint">Loading tracks…</div>';
+    var dlall = document.getElementById('dlall');
+    dlall.disabled = false; dlall.textContent = '⬇ Download Album'; dlall.classList.remove('del'); dlall.onclick = downloadCurrentAlbum;
+    document.getElementById('detail').style.display = 'block'; window.scrollTo(0,0);
+    loadTracks(id);
+  };
+  function loadTracks(id){
+    fetch('/api/navidrome/album?id=' + encodeURIComponent(id))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d.error){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ ' + esc(d.error) + '</div>'; return; } renderTracks(d.songs || []); })
+      .catch(function(){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ Could not load tracks.</div>'; });
+  }
+  function renderTracks(songs){
+    if(!songs.length){ document.getElementById('dsongs').innerHTML = '<div class="hint">No tracks.</div>'; return; }
+    var h = '';
+    songs.forEach(function(s){
+      var idj = esc(s.id).replace(/'/g,"\\'");
+      var btn = s.downloaded
+        ? '<button class="iconbtn done">✓</button><button class="iconbtn" style="color:var(--danger);" onclick="deleteTrack(\'' + idj + '\')">🗑</button>'
+        : '<button class="iconbtn" onclick="downloadTrack(this, \'' + idj + '\')">⬇</button>';
+      h += '<div class="row"><div class="tnum">' + (s.track||'') + '</div>' +
+           '<div class="row-main"><div class="row-title">' + esc(s.title) + '</div><div class="row-sub">' + esc(s.artist) + '</div></div>' +
+           '<div class="tdur">' + fmtDur(s.duration) + '</div><div class="row-actions">' + btn + '</div></div>';
+    });
+    document.getElementById('dsongs').innerHTML = h;
+  }
+  window.closeDetail = function(){ document.getElementById('detail').style.display = 'none'; currentAlbum = null; currentLocal = null; reloadCurrentView(); };
+
+  // ── On Device (local library from the scanned song cache) ─────────
+  function localCoverImg(rel, cls){
+    if(!rel) return '<div class="'+cls+' ph">♪</div>';
+    return '<img class="'+cls+'" loading="lazy" src="'+fileUrl(rel)+'" onerror="this.outerHTML=\'<div class=&quot;'+cls+' ph&quot;>♪</div>\'">';
+  }
+  function loadLocal(){
+    main.innerHTML = '<div class="hint">Loading…</div>';
+    fetch('/api/local/albums')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        online(true);
+        var albums = d.albums || [];
+        // Refresh the ✓-badge set from the same response (also covers just-deleted albums).
+        var s = {}; albums.forEach(function(a){ s[albumKey(a.artist, a.album)] = 1; }); downloadedSet = s;
+        if(!albums.length){ main.innerHTML = '<div class="hint">Nothing downloaded to this device yet.</div>'; return; }
+        var h = '<div class="grid">';
+        albums.forEach(function(al){
+          var sub = artistLink(al.artist) + (al.year && al.year!=='0' ? ' · ' + esc(al.year) : '') + ' · ' + al.trackCount + (al.trackCount===1?' track':' tracks');
+          var count = al.trackCount>0 ? '<span class="trackcount">' + al.trackCount + '</span>' : '';
+          h += '<div class="card localcard" data-artist="' + esc(al.artist||'') + '" data-album="' + esc(al.album||'') + '" data-cover="' + esc(al.cover||'') + '">' +
+               '<div class="cw">' + localCoverImg(al.cover, 'cover') + count + '</div>' +
+               '<div class="cname">' + esc(al.album||'Unknown') + '</div><div class="csub">' + sub + '</div></div>';
+        });
+        main.innerHTML = h + '</div>';
+      })
+      .catch(function(){ online(false); main.innerHTML = '<div class="hint">⚠️ Could not read the device library.</div>'; });
+  }
+  // Delegated: local album cards carry names in data-* (never inline JS), so quotes are safe.
+  main.addEventListener('click', function(e){
+    var c = e.target.closest('.localcard'); if(!c) return;
+    openLocalAlbum(c.getAttribute('data-artist'), c.getAttribute('data-album'), c.getAttribute('data-cover'));
+  });
+  window.openLocalAlbum = function(artist, album, cover){
+    currentLocal = { artist: artist, album: album, cover: cover }; currentAlbum = null;
+    document.getElementById('dcover').src = cover ? fileUrl(cover) : '';
+    document.getElementById('dtitle').textContent = album || 'Unknown';
+    document.getElementById('dsub').innerHTML = artistLink(artist);
+    document.getElementById('dsongs').innerHTML = '<div class="hint">Loading tracks…</div>';
+    var dlall = document.getElementById('dlall');
+    dlall.disabled = false; dlall.textContent = '🗑 Delete Album'; dlall.classList.add('del'); dlall.onclick = deleteLocalAlbum;
+    document.getElementById('detail').style.display = 'block'; window.scrollTo(0,0);
+    loadLocalTracks();
+  };
+  function loadLocalTracks(){
+    fetch('/api/local/album?artist=' + encodeURIComponent(currentLocal.artist) + '&album=' + encodeURIComponent(currentLocal.album))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ renderLocalTracks(d.tracks || []); })
+      .catch(function(){ document.getElementById('dsongs').innerHTML = '<div class="hint">⚠️ Could not load tracks.</div>'; });
+  }
+  function renderLocalTracks(tracks){
+    if(!tracks.length){ document.getElementById('dsongs').innerHTML = '<div class="hint">No tracks.</div>'; return; }
+    var h = '';
+    tracks.forEach(function(t){
+      var pj = encodeURIComponent(t.path);
+      h += '<div class="row"><div class="tnum">' + (t.track||'') + '</div>' +
+           '<div class="row-main"><div class="row-title">' + esc(t.title) + '</div><div class="row-sub">' + esc(t.artist) + '</div></div>' +
+           '<div class="row-actions">' +
+           '<button class="plbtn" onclick="playLocal(\'' + pj + '\')">▶</button>' +
+           '<button class="iconbtn" style="color:var(--danger);" onclick="deleteLocal([\'' + pj + '\'])">🗑</button></div></div>';
+    });
+    document.getElementById('dsongs').innerHTML = h;
+  }
+  window.playLocal = function(pj){ window.open(fileUrl(decodeURIComponent(pj)), '_blank'); };
+  window.deleteLocal = function(encPaths){
+    var paths = encPaths.map(function(p){ return decodeURIComponent(p); });
+    fetch('/api/local/delete', { method:'POST', body: JSON.stringify({ paths: paths }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.ok){ toast('🗑 Deleted ' + (d.deleted||0)); disk(); if(currentLocal) loadLocalTracks(); }
+        else toast('⚠️ ' + (d.error||'Delete failed'));
+      })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
+  window.deleteLocalAlbum = function(){
+    if(!currentLocal) return;
+    if(!confirm('Delete the whole album “' + currentLocal.album + '” from the device?')) return;
+    fetch('/api/local/album?artist=' + encodeURIComponent(currentLocal.artist) + '&album=' + encodeURIComponent(currentLocal.album))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var paths = (d.tracks||[]).map(function(t){ return t.path; });
+        if(!paths.length){ closeDetail(); return; }
+        return fetch('/api/local/delete', { method:'POST', body: JSON.stringify({ paths: paths }) })
+          .then(function(r){ return r.json(); })
+          .then(function(res){ toast('🗑 Deleted album (' + (res.deleted||0) + ')'); closeDetail(); loadLocal(); disk(); });
+      })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
+
+  // ── Downloads ─────────────────────────────────────────────────────
+  function postDownload(body, onOk){
+    body.transcoded = (quality === 'mp3');
+    fetch('/api/navidrome/download', { method:'POST', body: JSON.stringify(body) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.ok){
+          if(d.queued > 0) toast('⬇ Queued ' + d.queued + (d.queued===1?' track':' tracks'));
+          else if(d.alreadyHave > 0) toast('✓ Already downloaded');
+          pollQueue(); if(onOk) onOk(d);
+        } else if(d.lowBattery){
+          if(confirm('⚠ Battery at ' + d.batteryPercent + '% and not charging.\nDownloading ' + d.pendingCount + ' track' + (d.pendingCount===1?'':'s') + ' may not finish before the device dies.\n\nDownload anyway?')){
+            body.force = true; postDownload(body, onOk);   // re-send bypassing the guard
+          } else { if(onOk) onOk(d); }
+        } else {
+          toast('⚠️ ' + (d.error || 'Download failed')); if(onOk) onOk(d);
+        }
+      })
+      .catch(function(){ online(false); toast('⚠️ Request failed'); if(onOk) onOk({}); });
+  }
+  window.downloadCurrentAlbum = function(){
+    if(!currentAlbum) return;
+    var btn = document.getElementById('dlall'); btn.disabled = true; btn.textContent = '⏳ Queueing…';
+    postDownload({ albumId: currentAlbum.id }, function(){ btn.textContent = '⬇ Download Album'; btn.disabled = false; });
+  };
+  window.downloadTrack = function(btn, songId){
+    if(!currentAlbum) return;
+    btn.disabled = true; btn.textContent = '⏳';
+    postDownload({ albumId: currentAlbum.id, songIds: [songId] }, function(){ btn.textContent = '⬇'; btn.disabled = false; });
+  };
+  window.deleteTrack = function(songId){
+    if(!currentAlbum) return;
+    if(!confirm('Delete this downloaded track from the device?')) return;
+    fetch('/api/navidrome/delete', { method:'POST', body: JSON.stringify({ albumId: currentAlbum.id, songIds: [songId] }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if(d.ok){ toast('🗑 Deleted ' + (d.deleted||0)); loadTracks(currentAlbum.id); disk(); } else toast('⚠️ ' + (d.error||'Delete failed')); })
+      .catch(function(){ toast('⚠️ Request failed'); });
+  };
+
+  // ── Dock / queue ──────────────────────────────────────────────────
+  var dockmain = document.getElementById('dockmain'), docksub = document.getElementById('docksub');
+  var bar = document.getElementById('bar'), barfill = document.getElementById('barfill'), pendingList = document.getElementById('pendingList');
+
+  var wasActive = false;
+  function renderQueue(d){
+    online(true);
+    var active = d.active, total = d.total||0, done = d.done||0, pending = d.pending||[], failed = d.failed||0;
+    // When a download batch finishes, refresh the ✓ badges (a new album may now be on-device).
+    if(wasActive && !active){ reloadCurrentView(); }
+    wasActive = active;
+    var failTxt = failed>0 ? ' · <span class="fail">⚠ '+failed+' failed</span>' : '';
+    if(!active && pending.length === 0){
+      dockmain.textContent = 'No downloads';
+      docksub.innerHTML = 'Queue is empty' + failTxt;
+      bar.classList.remove('indet'); barfill.style.width = '0%';
+      pendingList.innerHTML = '<div class="prow" style="border:none;">Nothing queued.</div>';
+      return 8000;
+    }
+    dockmain.textContent = '⬇ ' + (d.current || 'Downloading…');
+    docksub.innerHTML = (done + (active?1:0)) + ' / ' + total + ' · ' + pending.length + ' waiting' + failTxt;
+    if(d.percent >= 0){ bar.classList.remove('indet'); barfill.style.width = d.percent + '%'; } else { bar.classList.add('indet'); }
+    var ph = '<div class="prow" style="border:none;display:flex;align-items:center;gap:8px">' +
+             '<b style="color:var(--accent);text-transform:uppercase;letter-spacing:1px;font-size:11px">Queue</b><span style="flex-grow:1"></span>' +
+             '<button class="btn btn-danger btn-sm" onclick="clearQueue()">Clear pending</button></div>';
+    if(pending.length === 0) ph += '<div class="prow">Last track downloading…</div>';
+    else pending.forEach(function(t){ ph += '<div class="prow">• ' + esc(t) + '</div>'; });
+    pendingList.innerHTML = ph;
+    return 2000;
+  }
+  function pollQueue(){
+    if(pollTimer){ clearTimeout(pollTimer); pollTimer = null; }
+    fetch('/api/navidrome/queue')
+      .then(function(r){ return r.json(); })
+      .then(function(d){ pollTimer = setTimeout(pollQueue, renderQueue(d)); })
+      .catch(function(){ online(false); pollTimer = setTimeout(pollQueue, 8000); });
+  }
+  window.clearQueue = function(){
+    fetch('/api/navidrome/cancel', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(d){ if(d.removed>0) toast('Cleared ' + d.removed + ' from queue'); pollQueue(); })
+      .catch(function(){ toast('⚠️ Could not clear'); });
+  };
+  window.togglePending = function(){
+    var p = document.getElementById('pending'); p.classList.toggle('open');
+    document.getElementById('chev').textContent = p.classList.contains('open') ? '⌄' : '⌃';
+  };
+
+  function disk(){
+    fetch('/api/diskinfo').then(function(r){return r.json();}).then(function(d){
+      if(d.freeBytes!=null) document.getElementById('disk').innerHTML = '💾 ' + fmtSize(d.freeBytes) + ' free';
+    }).catch(function(){});
+  }
+
+  // ── Wiring ────────────────────────────────────────────────────────
+  function refreshActive(){ if(localMode) loadLocal(); else loadBrowse(); }
+  q.addEventListener('input', function(){
+    clearq.style.display = q.value ? 'block' : 'none';
+    clearTimeout(searchTimer);
+    var val = q.value.trim();
+    document.getElementById('chips').style.display = val ? 'none' : 'flex';
+    if(!val){ refreshActive(); return; }
+    searchTimer = setTimeout(function(){ doSearch(val); }, 350);   // search always hits Navidrome
+  });
+  clearq.addEventListener('click', function(){ q.value=''; clearq.style.display='none'; document.getElementById('chips').style.display='flex'; refreshActive(); q.focus(); });
+  document.getElementById('chips').addEventListener('click', function(e){
+    var chip = e.target.closest('.chip'); if(!chip) return;
+    var type = chip.getAttribute('data-type');
+    Array.prototype.forEach.call(this.querySelectorAll('.chip'), function(c){ c.classList.remove('active'); });
+    chip.classList.add('active');
+    localMode = (type === '__local__');
+    if(!localMode) browseType = type;
+    refreshActive();
+  });
+  document.getElementById('qtoggle').addEventListener('click', function(e){
+    var span = e.target.closest('span'); if(!span) return;
+    quality = span.getAttribute('data-q');
+    Array.prototype.forEach.call(this.querySelectorAll('span'), function(s){ s.classList.remove('on'); });
+    span.classList.add('on');
+  });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
+
+  refreshDownloadedSet(loadBrowse); pollQueue(); disk();
+})();
+</script>
+</body>
+</html>
