@@ -304,6 +304,14 @@ public class AudioPlayerManager {
         }
 
         main.isPausedByHand = false; // 🚀 Flip the switch ahead of time!
+        if (CastManager.getInstance().isCasting()) {
+            // prepareMusicTrack (below) is the only place that consumes/resets this — since we're
+            // not calling it, clear it here instead of leaving it armed to seek a later, unrelated
+            // local track once casting stops. Casting doesn't support resuming from this offset yet.
+            oneShotResumeOffsetMs = 0;
+            CastManager.getInstance().reloadCurrentTrack(false);
+            return;
+        }
         prepareMusicTrack(main.currentIndex);
         main.updatePlayerUI(); // 🚀 Start the timer immediately!
     }
@@ -528,6 +536,11 @@ public class AudioPlayerManager {
     // guards against a stale background result overwriting a newer track's UI when the
     // user skips rapidly. Called from the UI thread exactly as before.
     public void prepareMusicTrack(int index) {
+        // Backstop, not the primary guard: callers that start playback (playTrackList,
+        // nextTrack, prevTrack, ...) already check CastManager.isCasting() before reaching here.
+        // If a future caller forgets that check and calls this directly while casting, redirect
+        // instead of starting local playback on top of (or instead of) the open cast session.
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().reloadCurrentTrack(false); return; }
         final MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
 
@@ -1065,6 +1078,16 @@ public class AudioPlayerManager {
      * every play/pause/stop transition so the radio stays awake exactly when a live stream
      * needs it (screen off included) and is let go the moment playback pauses or ends.
      */
+    /** Marks a Navidrome queue as active without starting local playback — used when the queue
+     *  is being handed off to an already-open cast session instead of playNavidromeSong (the
+     *  only other place that flips isNavidromeMode), so every isNavidromeMode-branched lookup
+     *  (favorites, lyrics/quality info, next/prev after casting stops) targets the right queue. */
+    public void markNavidromeModeForCast() {
+        isNavidromeMode = true;
+        isNavidromeStreaming = false; // casting streams via the receiver, not this device's player
+        updateNavidromeStreamLock(); // release any stale local-stream WiFi lock
+    }
+
     private void updateNavidromeStreamLock() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
@@ -1086,6 +1109,16 @@ public class AudioPlayerManager {
     }
 
     public void playNavidromeSong(Context context, com.themoon.y1.subsonic.SubsonicSong song, String streamUrl) {
+        // Backstop, not the primary guard: playNavidromeAlbum already checks
+        // CastManager.isCasting() before reaching here (and sets isNavidromeMode itself, since
+        // this method's own flip below never runs in that case). If a future caller forgets that
+        // check and calls this directly while casting, redirect instead of starting local
+        // playback on top of (or instead of) the open cast session.
+        if (CastManager.getInstance().isCasting()) {
+            markNavidromeModeForCast();
+            CastManager.getInstance().reloadCurrentTrack(true);
+            return;
+        }
         saveAudiobookBookmarkIfNeeded();
         isNavidromeMode = true;
         isUsingLegacyPlayer = false;

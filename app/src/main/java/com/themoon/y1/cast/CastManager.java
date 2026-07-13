@@ -64,6 +64,16 @@ public final class CastManager {
     // end-of-track (the spontaneous end-of-media plus the reply to an in-flight polled
     // GET_STATUS). One-shot per loaded track; reset when the next track is loaded.
     private volatile boolean finishHandled = false;
+    // Wall-clock of the last loadMedia() call, so a stale FINISHED frame for the track just
+    // replaced (arriving on the connection's reader thread right after a fresh load resets
+    // finishHandled) doesn't get misread as the new track already finishing.
+    private volatile long lastLoadWallClock = 0;
+    // Bumped on every "load this index" intent (cast start, next/prev, album switch, repeat-one).
+    // loadCurrentIndexInternal captures the value at dispatch time and bails if a newer intent
+    // has since superseded it — avoids acting on stale state when requests queue up on
+    // netExecutor faster than they can complete (e.g. next() immediately followed by switching
+    // to a different album while casting).
+    private final java.util.concurrent.atomic.AtomicInteger loadSeq = new java.util.concurrent.atomic.AtomicInteger(0);
 
     private final Runnable pollRunnable = new Runnable() {
         @Override public void run() {
@@ -141,6 +151,7 @@ public final class CastManager {
 
         Toast.makeText(a, a.t("Casting to") + " " + device.friendlyName + "…", Toast.LENGTH_SHORT).show();
 
+        final int seq = loadSeq.incrementAndGet();
         netExecutor.execute(new Runnable() {
             @Override public void run() {
                 if (connection != null) {
@@ -149,7 +160,7 @@ public final class CastManager {
                 activeDevice = device;
                 connection = new CastConnection(device, new StatusListener(device));
                 connection.connect();
-                loadCurrentIndexInternal(host); // queued until the session is ready
+                loadCurrentIndexInternal(host, seq); // queued until the session is ready
             }
         });
 
@@ -216,20 +227,39 @@ public final class CastManager {
     }
 
     public void next() {
+        final int seq = loadSeq.incrementAndGet();
         netExecutor.execute(new Runnable() {
             @Override public void run() {
                 if (!advanceIndex(+1)) return;
-                loadCurrentIndexInternal(localIpAddress());
+                loadCurrentIndexInternal(localIpAddress(), seq);
             }
         });
     }
 
     public void prev() {
+        final int seq = loadSeq.incrementAndGet();
         netExecutor.execute(new Runnable() {
             @Override public void run() {
                 if (!advanceIndex(-1)) return;
-                loadCurrentIndexInternal(localIpAddress());
+                loadCurrentIndexInternal(localIpAddress(), seq);
             }
+        });
+    }
+
+    /** Pushes a freshly-selected playlist/track (the user picked a new album and hit play)
+     *  into the already-open cast connection instead of falling through to local playback.
+     *  Called by AudioPlayerManager.playTrackList / NavidromeManager.playNavidromeAlbum when
+     *  isCasting() is true. {@code navidromeMode} matches whichever queue (local file list or
+     *  Navidrome playlist) the caller just populated on MainActivity/AudioPlayerManager. */
+    public void reloadCurrentTrack(boolean navidromeMode) {
+        if (connection == null) return;
+        navidromeCast = navidromeMode;
+        if (!navidromeMode) CastMediaServer.getInstance().ensureStarted();
+        resetPlaybackState();
+        final int seq = loadSeq.incrementAndGet();
+        final String host = localIpAddress();
+        netExecutor.execute(new Runnable() {
+            @Override public void run() { loadCurrentIndexInternal(host, seq); }
         });
     }
 
@@ -288,11 +318,15 @@ public final class CastManager {
     // ── internals ───────────────────────────────────────────────────────────────
 
     /** Builds the media URL + metadata for the current index and hands it to the connection.
-     *  Runs on the network executor (it issues a socket write). */
-    private void loadCurrentIndexInternal(String host) {
+     *  Runs on the network executor (it issues a socket write). {@code seq} is the loadSeq
+     *  value captured when this call was dispatched — if a newer load has been requested since
+     *  (e.g. the user switched albums right after a next()/prev()), this bails out immediately
+     *  rather than acting on a queue/index that's already been superseded. */
+    private void loadCurrentIndexInternal(String host, int seq) {
         MainActivity main = MainActivity.instance;
         CastConnection c = connection;
         if (main == null || c == null) return;
+        if (seq != loadSeq.get()) return;
         try {
             String url, contentType, title, artist = null, cover = null;
             long durationMs = 0;
@@ -302,17 +336,38 @@ public final class CastManager {
                 int idx = clamp(am.navidromeIndex, am.navidromePlaylist.size());
                 am.navidromeIndex = idx;
                 SubsonicSong song = am.navidromePlaylist.get(idx);
-                SubsonicClient sc = SubsonicClient.getInstance();
-                url = sc.getStreamUrl(song.id);
-                contentType = "audio/mpeg"; // Navidrome transcodes to MP3 for us
+                updateTrackCountUi(idx, am.navidromePlaylist.size());
+                updateNavidromeNowPlayingUi(song);
+
+                // Already downloaded? Serve the local copy instead of re-streaming from
+                // Navidrome — same "zero bandwidth, works offline" shortcut playNavidromeSong
+                // takes for on-device playback, which the cast path would otherwise bypass.
+                String existingPath = song.getExistingLocalPath();
+                File localFile = existingPath != null ? new File(existingPath) : null;
+                if (localFile != null && localFile.exists()) {
+                    if (host == null) { toast(main.t("Not connected to Wi-Fi")); return; }
+                    CastMediaServer server = CastMediaServer.getInstance();
+                    server.ensureStarted();
+                    String token = server.serve(localFile);
+                    url = server.urlFor(host, token);
+                    contentType = CastMediaServer.mimeFor(localFile.getName());
+                } else {
+                    SubsonicClient sc = SubsonicClient.getInstance();
+                    url = sc.getStreamUrl(song.id);
+                    contentType = "audio/mpeg"; // Navidrome transcodes to MP3 for us
+                }
                 title = song.title;
                 artist = song.artist;
-                if (song.coverArtId != null) cover = sc.getCoverArtUrl(song.coverArtId, 500);
+                if (song.coverArtId != null) cover = SubsonicClient.getInstance().getCoverArtUrl(song.coverArtId, 500);
                 durationMs = song.durationSecs * 1000L;
             } else {
                 if (main.currentPlaylist.isEmpty()) return;
                 int idx = clamp(main.currentIndex, main.currentPlaylist.size());
                 main.currentIndex = idx;
+                // Update the label before the file/Wi-Fi checks below can return early — the
+                // index has already moved either way, so the label shouldn't stay stuck on the
+                // previous track just because this particular load then fails.
+                updateTrackCountUi(idx, main.currentPlaylist.size());
                 File file = main.currentPlaylist.get(idx);
                 if (!file.exists()) {
                     toast(main.t("Track file not found"));
@@ -338,6 +393,7 @@ public final class CastManager {
             anchorPosition(0, "BUFFERING");
             lastDurationMs = durationMs;
             finishHandled = false; // a fresh track can finish again
+            lastLoadWallClock = System.currentTimeMillis();
             c.loadMedia(url, contentType, title, artist, cover);
             refreshNowPlaying();
         } catch (Exception e) {
@@ -376,13 +432,19 @@ public final class CastManager {
     /** End-of-track handler mirroring AudioPlayerManager.handleTrackCompletion's repeat logic. */
     private void onTrackFinished() {
         if (finishHandled) return; // ignore the duplicate FINISHED frame(s) for this track
+        // A FINISHED frame for the track just replaced can still be in flight from the receiver
+        // when a fresh load starts (e.g. switching albums right as the old track was ending) —
+        // finishHandled has already been reset to false for the new track by then, so without
+        // this debounce the stale frame would be misread as the new track finishing instantly.
+        if (System.currentTimeMillis() - lastLoadWallClock < 1000) return;
         finishHandled = true;
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         int repeatMode = main.prefs.getInt("repeat_mode", 0);
         if (repeatMode == 1) {              // repeat one
+            final int seq = loadSeq.incrementAndGet();
             netExecutor.execute(new Runnable() {
-                @Override public void run() { loadCurrentIndexInternal(localIpAddress()); }
+                @Override public void run() { loadCurrentIndexInternal(localIpAddress(), seq); }
             });
             return;
         }
@@ -476,6 +538,44 @@ public final class CastManager {
                     }
                 } catch (Exception e) {
                     Log.d(TAG, "updateLocalNowPlayingUi failed", e);
+                }
+            }
+        });
+    }
+
+    /** Keeps the Y1's own Now Playing screen in sync with a Navidrome track being cast — mirrors
+     *  the UI block in AudioPlayerManager.playNavidromeSong (title/artist/cover art), which never
+     *  runs while casting. Lyrics/quality info are handled separately by updatePlayerUI once
+     *  isNavidromeMode is set correctly (see NavidromeManager.playNavidromeAlbum). */
+    private void updateNavidromeNowPlayingUi(final SubsonicSong song) {
+        final MainActivity a = MainActivity.instance;
+        if (a == null) return;
+        main.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    a.tvPlayerTitle.setText(song.title != null ? song.title : a.t("Unknown"));
+                    a.tvPlayerArtist.setText(song.artist != null ? song.artist : a.t("Unknown Artist"));
+                    a.loadNavidromeCoverArt(song);
+                } catch (Exception e) {
+                    Log.d(TAG, "updateNavidromeNowPlayingUi failed", e);
+                }
+            }
+        });
+    }
+
+    /** Mirrors the "NN / NN" track-count label the local-playback path normally maintains
+     *  (AudioPlayerManager.prepareMusicTrack / playNavidromeSong) — that path never runs while
+     *  casting, so next()/prev() would otherwise leave the label frozen at the pre-cast track. */
+    private void updateTrackCountUi(final int index, final int total) {
+        final MainActivity a = MainActivity.instance;
+        if (a == null || a.tvPlayerTrackCount == null) return;
+        main.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    a.tvPlayerTrackCount.setText(String.format(java.util.Locale.US, "%02d", index + 1)
+                            + " / " + String.format(java.util.Locale.US, "%02d", total));
+                } catch (Exception e) {
+                    Log.d(TAG, "updateTrackCountUi failed", e);
                 }
             }
         });

@@ -512,9 +512,14 @@ public class NavidromeManager {
         am.navidromePlaylist.addAll(songs);
         am.navidromeIndex = startIndex;
 
-        com.themoon.y1.subsonic.SubsonicSong song = songs.get(startIndex);
-        String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
-        am.playNavidromeSong(a, song, url);
+        if (com.themoon.y1.cast.CastManager.getInstance().isCasting()) {
+            am.markNavidromeModeForCast();
+            com.themoon.y1.cast.CastManager.getInstance().reloadCurrentTrack(true);
+        } else {
+            com.themoon.y1.subsonic.SubsonicSong song = songs.get(startIndex);
+            String url = com.themoon.y1.subsonic.SubsonicClient.getInstance().getStreamUrl(song.id);
+            am.playNavidromeSong(a, song, url);
+        }
         a.changeScreen(a.STATE_PLAYER);
         a.progressHandler.removeCallbacks(a.updateProgressTask);
         a.progressHandler.post(a.updateProgressTask);
