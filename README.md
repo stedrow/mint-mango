@@ -432,6 +432,14 @@ These are the components (elements) you can place on the screen. Click **[Add Ne
 * A crucial setting exclusively for standard buttons (`Type: button`)!
 * It explicitly dictates **the exact order in which the focus moves when spinning the physical wheel** on the Android device. Start from `0` and assign numbers sequentially (`1, 2, 3...`).
 
+### 📌 Other Per-Element Properties
+* `icon_normal` / `icon_focused` / `preview_image`: icon filenames for a button's unfocused/focused state, and the fallback preview image a Dynamic Focus Image widget shows for it.
+* `text_focused` / `text_right_color` / `text_right_focused_color`: text overrides for the focused state and the right-aligned text.
+* `text_position` / `text_size` / `text_secondary_size`: text placement and font sizes, in addition to `Text Align`.
+* `padding`: inner spacing for the element.
+* `focus_offset_x` / `focus_offset_y` / `focus_scale`: nudge or scale an element specifically while it's focused.
+* `live_widget` / `visible_on_focus`: ties a widget instance to a specific button's focus state (used by Dynamic Focus Image and similar widgets).
+
 ### 📌 Action
 The direct shortcut command executed on the device when a button is clicked.
 Full list (`MainMenuManager.java`'s click-handling switch is the source of truth):
