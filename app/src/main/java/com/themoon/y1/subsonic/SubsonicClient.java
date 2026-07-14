@@ -204,7 +204,7 @@ public class SubsonicClient {
         });
     }
 
-    private static List<SubsonicArtist> parseArtists(JSONObject root) throws Exception {
+    static List<SubsonicArtist> parseArtists(JSONObject root) throws Exception {
         JSONObject sr = root.getJSONObject("subsonic-response");
         if (!"ok".equals(sr.getString("status"))) throw new Exception("status not ok");
         List<SubsonicArtist> artists = new ArrayList<>();
@@ -228,7 +228,7 @@ public class SubsonicClient {
         return artists;
     }
 
-    private boolean artistListsEqual(List<SubsonicArtist> a, List<SubsonicArtist> b) {
+    static boolean artistListsEqual(List<SubsonicArtist> a, List<SubsonicArtist> b) {
         if (a.size() != b.size()) return false;
         for (int i = 0; i < a.size(); i++) {
             SubsonicArtist x = a.get(i), y = b.get(i);
@@ -544,7 +544,7 @@ public class SubsonicClient {
         }
     }
 
-    private static SubsonicAlbum parseAlbumSummary(JSONObject a) {
+    static SubsonicAlbum parseAlbumSummary(JSONObject a) {
         SubsonicAlbum al = new SubsonicAlbum();
         al.id = a.optString("id");
         al.name = a.optString("name", a.optString("album", "Unknown"));
@@ -559,7 +559,7 @@ public class SubsonicClient {
         return al;
     }
 
-    private static SubsonicSong parseSong(JSONObject s, String albumNameFallback, String albumArtistFallback) {
+    static SubsonicSong parseSong(JSONObject s, String albumNameFallback, String albumArtistFallback) {
         SubsonicSong song = new SubsonicSong();
         song.id = s.optString("id");
         song.title = s.optString("title", "Unknown");
@@ -771,7 +771,7 @@ public class SubsonicClient {
         }
     }
 
-    private String extractError(JSONObject root) {
+    static String extractError(JSONObject root) {
         try {
             JSONObject sr = root.getJSONObject("subsonic-response");
             if (sr.has("error")) return sr.getJSONObject("error").optString("message", "Server error");
