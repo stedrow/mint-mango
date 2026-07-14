@@ -41,6 +41,9 @@ jobs:
       - name: Verify release build (minifyEnabled/R8) still compiles
         run: ./gradlew assembleRelease
 
+      - name: Run unit tests
+        run: ./gradlew test
+
       - name: Build ROM images
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
