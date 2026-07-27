@@ -191,6 +191,17 @@ that cannot legitimately be refused:
 | `0x0003` | RFCOMM | `msg->result:02` |
 | `0x1001` | AAP | `msg->result:02` |
 
+Caveat on how far this was verified: every one of these probes ran against
+the AirPods, plus one unpaired device that may simply have been unreachable.
+The evidence is still strong — the AirPods had an active ACL link (A2DP was
+streaming at the time) and SDP is mandatory on every BR/EDR device, so PSM
+`0x0001` had no legitimate reason to refuse — but it was never confirmed
+against a second *bonded*, known-reachable peer. If you pick this up and have
+one paired, that is the cheapest way to make the conclusion airtight. (Note
+that pairing a phone to a Y2 makes the launcher's audio-reconnect watchdog
+retry A2DP against it forever, since it treats any bonded device as an audio
+sink.)
+
 **SDP failing identically proves the AirPods are not refusing anything** —
 Y2's raw L2CAP *client* path is non-functional for every PSM. So
 `msg->result:02` is an internal MTK status, not the L2CAP spec's
