@@ -1,7 +1,68 @@
 # AAP on Y2 — investigation notes (in-ear detection / stem control)
 
-**Status: not working, root cause not found.** This documents how far the
-trace got, so the next attempt doesn't repeat the same dead ends.
+**Status: in-ear detection works — but not over L2CAP.** The raw L2CAP AAP
+channel is still dead on Y2 and its root cause is still unfound (everything
+below the "Symptom" heading remains accurate and worth reading before
+attempting it again). It was sidestepped entirely: ear state and battery now
+come from Apple's proximity-pairing BLE advertisement, which needs no
+connection at all. See "The BLE advertisement route" below.
+
+Verified on-device with AirPods Pro 3: pulling either bud pauses playback
+~2s later, reinserting it resumes.
+
+## The BLE advertisement route (what actually works)
+
+AirPods continuously broadcast an Apple "proximity pairing" BLE
+advertisement — manufacturer data, company `0x004C`, message type `0x07`,
+27 bytes — whose first 11 bytes are plaintext (the remaining 16 are
+encrypted and rotate every few seconds). Ear state and battery live in the
+plaintext head, so no AAP connection, no vendor patch, and no root is
+needed. `BluetoothAdapter.startLeScan()` exists since API 18, so Y2's API 19
+is fine, and the Y2 reports `android.hardware.bluetooth_le`.
+
+`AapService` scans for it and parses it in `applyAdvert()`. The L2CAP path is
+still attempted first (it works on Y1, where the `ps_type` patch applies) and
+simply loses the race on Y2; the service no longer stops itself when L2CAP
+gives up, since the BLE scan needs it alive.
+
+### Byte layout, derived on-device
+
+Captured by logging raw adverts through a known sequence of pod positions
+(both in ears → left out → both out → into the case). Payload indices are
+from the `0x07` type byte:
+
+| index | meaning |
+|---|---|
+| 0–1 | `07 19` — message type and length |
+| 3–4 | device model (`27 20` on AirPods Pro 3) |
+| 5 | status: ear/primary bits |
+| 6 | battery, one nibble per bud, tens of percent, `0xF` = unreported |
+| 7 | high nibble charging flags, low nibble case battery |
+| 11–26 | encrypted, rotates constantly — ignored |
+
+Status byte (index 5) observed across the sequence:
+
+| pod position | status |
+|---|---|
+| both in ears | `0x2b` |
+| left (primary) out | `0x29` — bit `0x02` cleared |
+| both out | `0x21` — bit `0x08` cleared |
+| into the case | `0x71`/`0x11`, charge nibble `0x8`→`0x9`→`0xa` |
+
+So bit `0x02` = primary bud in ear, `0x08` = secondary in ear, `0x20` =
+primary is the left bud. Which bud counts as "primary" **flips** when one is
+stowed, which is why in-case detection reads the charging flags (both buds
+charging = both seated) rather than a status bit.
+
+Known rough edge: in-case detection is imprecise during the transition while
+only one bud is seated — it reports that bud as merely out-of-ear. Harmless
+for auto-pause, which only cares about "not in an ear"; worth tightening only
+if `isLikelyStowed()` starts misbehaving.
+
+## Historical: the L2CAP dead end
+
+Everything below documents the L2CAP channel that is still broken, kept so a
+future attempt doesn't repeat the same dead ends.
 
 ## Symptom
 
@@ -20,6 +81,11 @@ to the AirPods, though not fully conclusive.
 
 Bluetooth *audio* (A2DP/AVRCP) to the same AirPods works fine over the same
 link — this is specifically the raw L2CAP AAP channel failing.
+
+(Audio working depends on `scripts/airpods-rtpfix/` being installed. If the
+Y2 goes silent while A2DP still streams — `[A2DP] a2dp_write count:10240`
+repeating in logcat with no `BTRTPFIX` lines — the RTP proxy has been
+reverted, which is unrelated to anything in this document.)
 
 ## Ruled out
 

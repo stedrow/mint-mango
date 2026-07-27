@@ -127,6 +127,14 @@ public class AapService extends Service {
         ctx.stopService(new Intent(ctx, AapService.class));
     }
 
+    private static final int BLE_RSSI_FLOOR = -70;
+    private static final int PROXIMITY_MSG_LEN = 27;
+    private static final int STATUS_PRIMARY_IN_EAR = 0x02;
+    private static final int STATUS_SECONDARY_IN_EAR = 0x08;
+    private static final int STATUS_PRIMARY_IS_LEFT = 0x20;
+
+    private BluetoothAdapter.LeScanCallback leScan;
+    private int lastAdvertKey = -1;
     private volatile boolean shouldRun = false;
     private volatile BluetoothSocket activeSocket = null;
     private Thread worker;
@@ -153,6 +161,7 @@ public class AapService extends Service {
         }
         targetMac = mac;
         shouldRun = true;
+        startBleScan();
         if (worker == null || !worker.isAlive()) {
             worker = new Thread(new Runnable() {
                 @Override
@@ -165,9 +174,122 @@ public class AapService extends Service {
         return START_STICKY;
     }
 
+    /**
+     * Y2's Bluetooth stack never completes the raw L2CAP AAP connect (see
+     * scripts/airpods-aap/Y2_INVESTIGATION.md), so ear/battery state is read
+     * from Apple's proximity-pairing BLE advertisement instead -- the same
+     * broadcast the Apple Continuity protocol uses, no connection needed.
+     */
+    @SuppressLint("MissingPermission")
+    private void startBleScan() {
+        if (leScan != null) return;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return;
+        leScan = new BluetoothAdapter.LeScanCallback() {
+            @Override
+            public void onLeScan(BluetoothDevice device, int rssi, byte[] record) {
+                byte[] p = appleProximityPayload(record);
+                // ponytail: RSSI gate instead of identity checks -- AirPods use rotating
+                // random addresses, and anyone else's pods in the room are far weaker.
+                if (p == null || rssi < BLE_RSSI_FLOOR) return;
+                applyAdvert(p);
+            }
+        };
+        if (!adapter.startLeScan(leScan)) {
+            Log.w(TAG, "startLeScan refused by the stack");
+            leScan = null;
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private void stopBleScan() {
+        if (leScan == null) return;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter != null) adapter.stopLeScan(leScan);
+        leScan = null;
+    }
+
+    /**
+     * Decodes the plaintext head of a proximity-pairing message into the same
+     * state the L2CAP path publishes. Bit meanings were derived on-device by
+     * logging raw adverts through a known sequence of pod positions -- see
+     * scripts/airpods-aap/Y2_INVESTIGATION.md for the capture.
+     */
+    private void applyAdvert(byte[] p) {
+        int status = p[5] & 0xFF;
+        int battery = p[6] & 0xFF;
+        int charge = p[7] & 0xFF;
+
+        int key = (status << 16) | (battery << 8) | charge;
+        if (key == lastAdvertKey) return; // adverts repeat every ~2s; only act on changes
+        lastAdvertKey = key;
+        Log.d(TAG, "AAP-BLE status=" + Integer.toHexString(status)
+                + " battery=" + Integer.toHexString(battery)
+                + " charge=" + Integer.toHexString(charge));
+
+        boolean primaryLeft = (status & STATUS_PRIMARY_IS_LEFT) != 0;
+        int primaryEar = (status & STATUS_PRIMARY_IN_EAR) != 0 ? EAR_IN_EAR : EAR_OUT_OF_EAR;
+        int secondaryEar = (status & STATUS_SECONDARY_IN_EAR) != 0 ? EAR_IN_EAR : EAR_OUT_OF_EAR;
+
+        int podCharge = (charge >> 4) & 0x0F;
+        // Both buds charging means both are seated in the case. Read from the charge
+        // flags rather than a status bit because it holds regardless of which bud the
+        // adverts currently call "primary" (that flips when one is stowed).
+        if ((podCharge & 0x03) == 0x03) {
+            primaryEar = EAR_IN_CASE;
+            secondaryEar = EAR_IN_CASE;
+        }
+
+        AapState s = lastState.copy();
+        s.earLeft = primaryLeft ? primaryEar : secondaryEar;
+        s.earRight = primaryLeft ? secondaryEar : primaryEar;
+        s.batteryLeft = batteryPercent(primaryLeft ? battery >> 4 : battery);
+        s.batteryRight = batteryPercent(primaryLeft ? battery : battery >> 4);
+        s.batteryCase = batteryPercent(charge);
+        s.chargingLeft = (podCharge & (primaryLeft ? 0x01 : 0x02)) != 0;
+        s.chargingRight = (podCharge & (primaryLeft ? 0x02 : 0x01)) != 0;
+        s.chargingCase = (podCharge & 0x04) != 0;
+        publishState(s);
+        handleEarDetectionForAutoPause(s);
+    }
+
+    /** Battery levels ride in a nibble as tens of percent, with 0xF meaning "not reported". */
+    static int batteryPercent(int nibble) {
+        nibble &= 0x0F;
+        return nibble == 0x0F ? BATTERY_UNKNOWN : Math.min(100, nibble * 10);
+    }
+
+    /**
+     * Returns the 27-byte Apple proximity-pairing message (starting at its
+     * 0x07 type byte) from a raw advertisement, or null if this advert isn't
+     * one. Adverts are a sequence of (length, type, data...) structures.
+     */
+    static byte[] appleProximityPayload(byte[] record) {
+        if (record == null) return null;
+        int i = 0;
+        while (i < record.length) {
+            int len = record[i] & 0xFF;
+            if (len == 0 || i + len + 1 > record.length) return null;
+            int type = record[i + 1] & 0xFF;
+            int dataAt = i + 2;
+            int dataLen = len - 1;
+            if (type == 0xFF && dataLen >= 4
+                    && (record[dataAt] & 0xFF) == 0x4C && (record[dataAt + 1] & 0xFF) == 0x00
+                    && (record[dataAt + 2] & 0xFF) == 0x07) {
+                if (dataLen - 2 != PROXIMITY_MSG_LEN) return null; // short form, no state in it
+                byte[] out = new byte[PROXIMITY_MSG_LEN];
+                System.arraycopy(record, dataAt + 2, out, 0, out.length);
+                return out;
+            }
+            i += len + 1;
+        }
+        return null;
+    }
+
     @Override
     public void onDestroy() {
         shouldRun = false;
+        stopBleScan();
         BluetoothSocket s = activeSocket;
         if (s != null) {
             try {
@@ -227,8 +349,13 @@ public class AapService extends Service {
             if (shouldRun) sleepQuiet(2000);
         }
 
-        shouldRun = false;
-        stopSelf();
+        // On Y2 the L2CAP path never connects and the BLE advert scan is the only
+        // source of ear/battery state -- it needs the service to stay alive, so only
+        // shut down when there's no scan running to keep it useful.
+        if (leScan == null) {
+            shouldRun = false;
+            stopSelf();
+        }
     }
 
     @SuppressLint("MissingPermission") // connect() failure (incl. SecurityException) is caught below
