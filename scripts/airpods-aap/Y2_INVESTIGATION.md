@@ -180,6 +180,48 @@ AapService.tryConnect()  [Java, reflection into hidden BluetoothSocket ctor]
 where the trace currently stops. The actual accept/reject decision is
 **below** this vendor HAL, in whatever processes command type `0xd`.
 
+## The failure is not AirPods-specific: every PSM is refused
+
+Measured directly by making the probe PSM settable and pointing it at PSMs
+that cannot legitimately be refused:
+
+| PSM | what it is | result |
+|---|---|---|
+| `0x0001` | SDP — every Bluetooth device answers this | `msg->result:02` |
+| `0x0003` | RFCOMM | `msg->result:02` |
+| `0x1001` | AAP | `msg->result:02` |
+
+**SDP failing identically proves the AirPods are not refusing anything** —
+Y2's raw L2CAP *client* path is non-functional for every PSM. So
+`msg->result:02` is an internal MTK status, not the L2CAP spec's
+"connection refused - PSM not supported" (`0x0002`), and chasing this as an
+Apple/AAP compatibility problem is a dead end. Whatever is broken is broken
+for all raw L2CAP client connects on this stack.
+
+Two corrections to the original notes above, both from watching a live
+attempt with full logcat rather than the `AapService` tag alone:
+
+```
+[JSR82][JBT] JBT jbt_session_connect_req
+[BTSOCK]btsock_connect ret[1], fd[87]              <- socket layer ACCEPTS
+[JSR82][JBT] bt_handle_session_connect_req_cnf parms.ps_type:02
+[JSR82][JBT] bt_handle_session_connect_req_cnf msg->result:02   <- refused here
+```
+
+- `btsock_connect` returns **1 (success)**; nothing rejects us locally, and
+  the refusal arrives later as a *confirmation message*. The reject code does
+  surface in logcat — it is not buried below the HAL unreachably.
+- The gap between request and confirmation is **~28ms**, not the ~66ms the
+  "Symptom" section measures between the two *attempts*. 28ms is a plausible
+  round trip on an active ACL link, so the original inference that this looks
+  like a synchronous local rejection is not supported.
+
+Also worth ruling out for whoever picks this up: Y2's Bluedroid **does** ship
+an L2CAP socket layer (`bt-l2cap`, `btsock_l2cap`, `BTA_JvL2capConnect` all
+present in `/system/lib/hw/bluetooth.default.so`), unlike stock AOSP 4.4
+where `btsock_connect` implements RFCOMM only. So "Android 4.4 has no L2CAP
+sockets" is *not* the explanation here either.
+
 ## Where the trace stops, and why
 
 `/system/lib/libbluetooth_jni.so` (60KB, the JNI bridge `com.android.bluetooth`
