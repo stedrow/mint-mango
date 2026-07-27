@@ -102,9 +102,13 @@ public final class Y1UsbFocusHelper {
             if (!polling) return;
             boolean hadFocus = activity.hasWindowFocus();
             int delay;
-            if (hadFocus) {
+            if (hadFocus || !isUsbTakeoverOnTop()) {
+                // Something else holds focus, but it isn't the USB takeover -- a pairing dialog,
+                // a permission prompt, anything the user actually needs to answer. Leave it alone
+                // and keep polling; stealing focus back here dismissed those dialogs before the
+                // user could touch them.
                 consecutiveFailures = 0;
-                delay = POLL_INTERVAL_STABLE_MS;
+                delay = hadFocus ? POLL_INTERVAL_STABLE_MS : POLL_INTERVAL_MS;
             } else {
                 bringToFrontAsync();
                 consecutiveFailures++;
@@ -137,6 +141,30 @@ public final class Y1UsbFocusHelper {
      * the main thread blocked long enough to trigger an ANR). Run them off the main thread so
      * a slow system_server can never freeze the UI here.
      */
+    /**
+     * True when the activity currently on top is the USB-storage takeover this helper exists to
+     * fight. Anything else holding focus -- a Bluetooth pairing dialog, a system prompt -- is a
+     * window the user needs, so reclaiming focus from it is a bug, not the feature.
+     */
+    private boolean isUsbTakeoverOnTop() {
+        try {
+            ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return false;
+            java.util.List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(1);
+            if (tasks == null || tasks.isEmpty()) return false;
+            android.content.ComponentName top = tasks.get(0).topActivity;
+            if (top == null) return false;
+            if (activity.getPackageName().equals(top.getPackageName())) return false;
+            return top.getClassName().contains("UsbStorage")
+                    || "com.android.systemui".equals(top.getPackageName());
+        } catch (Exception e) {
+            // Without a reliable read of what's on top, stay passive rather than risk
+            // dismissing a dialog the user is trying to answer.
+            Log.d(TAG, "getRunningTasks failed", e);
+            return false;
+        }
+    }
+
     private void bringToFrontAsync() {
         new Thread(this::bringToFront, "Y1UsbFocusReclaim").start();
     }
