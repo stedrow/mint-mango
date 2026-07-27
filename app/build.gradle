@@ -34,12 +34,22 @@ android {
         // no store distribution requires strict minSdk compatibility for the icon format itself.
         disable 'WebpUnsupported'
     }
+    testOptions {
+        unitTests {
+            // Lets plain JVM unit tests hit android.util.Log etc. without throwing
+            // "not mocked" — those calls just no-op instead of needing Robolectric.
+            returnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
     implementation 'com.google.android.exoplayer:exoplayer-core:2.13.3'
 
     testImplementation libs.junit
+    // Real org.json impl for JVM unit tests — android.jar's org.json stubs throw
+    // "not mocked" when hit outside instrumentation.
+    testImplementation 'org.json:json:20231013'
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core
 }
