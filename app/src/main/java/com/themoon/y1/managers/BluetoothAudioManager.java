@@ -237,14 +237,50 @@ public class BluetoothAudioManager {
         }
     }
 
+    /** A2DP Sink service class -- what a device advertises if it can actually play our audio. */
+    private static final java.util.UUID A2DP_SINK_UUID =
+            java.util.UUID.fromString("0000110B-0000-1000-8000-00805F9B34FB");
+
+    /**
+     * Whether it's worth trying to send audio to this device. Deliberately permissive: SDP may
+     * not have completed yet (AirPods report no UUIDs until it has), so this only rejects on
+     * positive evidence that the device is a source rather than a sink. Getting this wrong in
+     * the strict direction would stop headphones connecting, which is far worse than the retry
+     * storm it's here to prevent.
+     */
+    static boolean canSinkAudio(BluetoothDevice device) {
+        java.util.List<java.util.UUID> uuids = new java.util.ArrayList<java.util.UUID>();
+        try {
+            android.os.ParcelUuid[] parcelled = device.getUuids();
+            if (parcelled != null) {
+                for (android.os.ParcelUuid u : parcelled) {
+                    if (u != null) uuids.add(u.getUuid());
+                }
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "getUuids failed", t);
+        }
+        android.bluetooth.BluetoothClass cls = device.getBluetoothClass();
+        return canSinkAudio(uuids, cls == null ? MAJOR_CLASS_UNKNOWN : cls.getMajorDeviceClass());
+    }
+
+    /** Unknown major device class, e.g. when the stack hasn't reported one yet. */
+    static final int MAJOR_CLASS_UNKNOWN = -1;
+
+    /** The decision itself, split out from the framework types so it can be tested directly. */
+    static boolean canSinkAudio(java.util.List<java.util.UUID> uuids, int majorClass) {
+        if (uuids != null && uuids.contains(A2DP_SINK_UUID)) return true;
+        if (majorClass == MAJOR_CLASS_UNKNOWN) return true; // nothing to judge on -- let it through
+        if (majorClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO) return true;
+        // Phones and computers are audio sources; latching onto one is the retry storm.
+        return majorClass != android.bluetooth.BluetoothClass.Device.Major.PHONE
+                && majorClass != android.bluetooth.BluetoothClass.Device.Major.COMPUTER;
+    }
+
     // --- target device / connecting-state bookkeeping -------------------------------------
 
     public BluetoothDevice getTargetDeviceForAudio() {
         return targetDeviceForAudio;
-    }
-
-    public void setTargetDeviceForAudio(BluetoothDevice device) {
-        targetDeviceForAudio = device;
     }
 
     public boolean isBtConnectingState() {
@@ -359,6 +395,20 @@ public class BluetoothAudioManager {
             } catch (Exception e) {
                 Log.d(TAG, "connectBluetoothAudio failed", e);
             }
+            return;
+        }
+
+        // Bonded now, so UUIDs and device class are known and this is the first point where we
+        // can reliably tell a sink from a source. Pairing above is deliberately left open to
+        // anything the user taps -- it's only sending audio that has to be gated. A phone is an
+        // audio source and will never accept the connection, so latching the reconnect watchdog
+        // onto one produced endless failed retries.
+        if (!canSinkAudio(targetDevice)) {
+            Log.i(TAG, "paired " + targetDevice.getAddress()
+                    + " but not connecting audio -- not an audio sink");
+            forgetTargetIfMatches(targetDevice);
+            // No A2DP broadcast will arrive to clear this, since we never attempt the connect.
+            setBtConnectingState(false);
             return;
         }
 
