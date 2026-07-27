@@ -82,10 +82,21 @@ to the AirPods, though not fully conclusive.
 Bluetooth *audio* (A2DP/AVRCP) to the same AirPods works fine over the same
 link — this is specifically the raw L2CAP AAP channel failing.
 
-(Audio working depends on `scripts/airpods-rtpfix/` being installed. If the
-Y2 goes silent while A2DP still streams — `[A2DP] a2dp_write count:10240`
-repeating in logcat with no `BTRTPFIX` lines — the RTP proxy has been
-reverted, which is unrelated to anything in this document.)
+**The Y1 RTP fix does nothing on Y2 — don't install it here.** Tried it: the
+proxy loads and `libbluetoothdrv_real.so` maps, but `mtk_bt_write` is never
+called once while A2DP actively streams, so not a single `BTRTPFIX` line
+appears. Y2's media path doesn't go through `libbluetoothdrv.so` at all; the
+SBC packetizer lives in `/system/vendor/lib/hw/audio.a2dp.blueangel.so`,
+inside `mediaserver`. Y1's hook point simply doesn't exist in this stack.
+(Note `libbluetoothdrv.so` *is* mapped by zygote on Y2 via
+`libaudio.primary.default.so`, which imports `mtk_bt_op` — so a bad proxy
+here is a boot risk, unlike on Y1 where only `mtkbt` loads it.)
+
+Also: if the Y2 goes silent while `[A2DP] a2dp_write count:10240` keeps
+repeating in logcat, **check the volume on the AirPods stem first.** AVRCP
+absolute volume at zero is indistinguishable from a broken stack at every
+layer the device can see — audio routes correctly, bytes flow, wired output
+is fine. It cost an afternoon once already.
 
 ## Ruled out
 
