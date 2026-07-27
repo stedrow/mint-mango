@@ -9,7 +9,7 @@
 # The proxy is linked against the device's OWN crt objects + libraries (pulled
 # via adb) so the ABI matches the Y1's Android 4.2.2 / bionic exactly, rather
 # than against a newer NDK sysroot. This is why the Y1 must be connected the
-# first time you build (to fetch the link inputs into ./devlibs).
+# first time you build (to fetch the link inputs into ./devlibs-<device>).
 #
 # Requirements (macOS / Homebrew):
 #   brew install --cask android-ndk      # NDK r29+ (clang)
@@ -31,8 +31,18 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/src/libbluetoothdrv_proxy.c"
 OUT_DIR="$HERE/build"
-DEVLIBS="$HERE/devlibs"
 OUT="$OUT_DIR/libbluetoothdrv.so"
+
+# Link inputs are cached per device model. Y1 (4.2.2) and Y2 (4.4.2) ship
+# different bionic ABIs, and a shared cache silently links the wrong one into
+# whichever device you built for second -- the resulting .so loads and then
+# misbehaves, which is a miserable thing to debug.
+# DEVICE can be set explicitly (build-rom.sh names it per base image); otherwise
+# ask the connected device. Only the adb path needs a device plugged in.
+if [ -z "${DEVICE:-}" ]; then
+  DEVICE="$(adb shell getprop ro.product.device 2>/dev/null | tr -d '\r\n')"
+fi
+DEVLIBS="$HERE/devlibs-${DEVICE:-unknown}"
 
 # --- build-time feature flags -------------------------------------------------
 RTP_FIX=1

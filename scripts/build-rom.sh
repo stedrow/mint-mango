@@ -42,8 +42,8 @@ for TYPE in a b; do
   sudo mount -t ext4 -o loop "$IMG" "$MNT"
 
   echo "==> [$TYPE] Building AirPods RTP fix against this image's stock libs"
-  rm -rf "$RTPFIX_DIR/devlibs" "$RTPFIX_DIR/build"
-  DEVLIBS_SRC="$MNT/lib" "$RTPFIX_DIR/build.sh"
+  rm -rf "$RTPFIX_DIR"/devlibs-* "$RTPFIX_DIR/build"
+  DEVICE="type-$TYPE" DEVLIBS_SRC="$MNT/lib" "$RTPFIX_DIR/build.sh"
 
   echo "==> [$TYPE] Building AAP in-ear-detection patch against this image's stock lib"
   rm -rf "$AAP_DIR/build"
