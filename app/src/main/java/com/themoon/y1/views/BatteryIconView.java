@@ -100,10 +100,17 @@ public class BatteryIconView extends View {
             canvas.drawRoundRect(rectFill, 2f, 2f, paintFill);
         }
 
-        // Percentage number centered in the shell, solid white.
+        // Percentage number centered in the shell, solid white. Sized to fit the shell width so
+        // 3-digit values ("100") don't spill past the terminal nub -- shrink-to-fit instead of a
+        // fixed h*0.6f that only ever measured against 1-2 digit values.
         if (showPercent) {
             String text = String.valueOf(level);
             paintText.setTextSize(h * 0.6f);
+            float maxTextWidth = shellWidth - (padding * 2f);
+            float measuredWidth = paintText.measureText(text);
+            if (measuredWidth > maxTextWidth) {
+                paintText.setTextSize(paintText.getTextSize() * (maxTextWidth / measuredWidth));
+            }
             paintText.setColor(Color.WHITE);
             paintText.getTextBounds(text, 0, text.length(), textBounds);
             float cx = shellWidth / 2f;

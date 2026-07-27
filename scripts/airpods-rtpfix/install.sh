@@ -21,7 +21,7 @@ BACKUP="/system/lib/libbluetoothdrv_real.so"
 [ -f "$PROXY" ] || { echo ">> No build found, running build.sh"; "$HERE/build.sh"; }
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-[ "$(adb shell 'id -u' | tr -d '\r')" = "0" ] || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
+adb shell 'id' | tr -d '\r' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root on this device." >&2; exit 1; }
 
 echo ">> Remounting /system read-write"
 adb shell 'mount -o remount,rw /system'

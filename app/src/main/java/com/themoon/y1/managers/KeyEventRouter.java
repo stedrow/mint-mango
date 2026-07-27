@@ -40,7 +40,7 @@ public class KeyEventRouter {
     }
 
     public boolean dispatchKeyEvent(MainActivity a, KeyEvent event) {
-        // 🚀 [Wheel lock] Nothing gets through except turning the wheel (21/22) — whatever button
+        // 🚀 [Wheel lock] Nothing gets through except turning the wheel (DPAD_UP/DOWN) — whatever button
         // gets pressed and however it happens inside a pocket, it's all absorbed here.
         if (WheelLockManager.getInstance().isActive()) {
             return WheelLockManager.getInstance().handleKeyEvent(event);
@@ -57,12 +57,12 @@ public class KeyEventRouter {
 
                 // 🚀 [Screen-off control integration] While in virtual-blackout state, pressing left/right changes the frequency without waking the screen, keeping it off!
                 if (a.isScreenOffControlEnabled && a.activePlayer == 1) {
-                    if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                    if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                         a.tuneToNextSavedRadioChannel(true);
                         a.clickFeedback();
                         return true; // 💡 Break the signal here so it doesn't fall through to the screen-wake routine.
                     }
-                    if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                    if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                         a.tuneToNextSavedRadioChannel(false);
                         a.clickFeedback();
                         return true;
@@ -139,12 +139,12 @@ public class KeyEventRouter {
 
             // 🚀 [Screen-off control radio interceptor inserted]
             if (a.isScreenOffControlEnabled && a.activePlayer == 1) {
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                     a.tuneToNextSavedRadioChannel(true);
                     a.clickFeedback();
                     return true;
                 }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                     a.tuneToNextSavedRadioChannel(false);
                     a.clickFeedback();
                     return true;
@@ -152,7 +152,7 @@ public class KeyEventRouter {
             }
 
             if (a.isScreenOffControlEnabled && a.currentScreenState == MainActivity.STATE_PLAYER) {
-                if (keyCode == 21) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
                     // 🚀 Guard: block volume adjustments for 0.3 seconds (300ms) right after a track skip!
                     if (System.currentTimeMillis() - a.lastTrackChangeTime > 300) {
                         a.adjustVolume(false);
@@ -160,23 +160,37 @@ public class KeyEventRouter {
                     }
                     return true;
                 }
-                if (keyCode == 22) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                     if (System.currentTimeMillis() - a.lastTrackChangeTime > 300) {
                         a.adjustVolume(true);
                         a.clickFeedback();
                     }
                     return true;
                 }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                     return a.handleMediaSeekKeyRepeat(event, -10000);
                 }
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                     return a.handleMediaSeekKeyRepeat(event, 10000);
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
                     return true;
                 }
             }
+            return true;
+        }
+
+        // 🚀 Hardware volume buttons always show mint-mango's own themed overlay instead of
+        // falling through to the system's default volume dialog, on every screen (not just the
+        // player screen -- the wheel is player-screen-only, but these are real dedicated buttons).
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            a.adjustVolume(true);
+            a.clickFeedback();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            a.adjustVolume(false);
+            a.clickFeedback();
             return true;
         }
 
@@ -192,22 +206,22 @@ public class KeyEventRouter {
             return true;
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             return a.handleMediaSeekKeyRepeat(event, 10000);
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             return a.handleMediaSeekKeyRepeat(event, -10000);
         }
 
         if (a.currentScreenState == MainActivity.STATE_WIFI_KEYBOARD) {
-            if (keyCode == 21) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 a.keyboardIndex = (a.keyboardIndex - 1 + a.KEYBOARD_CHARS.length) % a.KEYBOARD_CHARS.length;
                 a.updateKeyboardUI();
                 a.clickFeedback();
                 return true;
             }
-            if (keyCode == 22) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 a.keyboardIndex = (a.keyboardIndex + 1) % a.KEYBOARD_CHARS.length;
                 a.updateKeyboardUI();
                 a.clickFeedback();
@@ -222,19 +236,20 @@ public class KeyEventRouter {
         }
 
         if (a.currentScreenState == MainActivity.STATE_PLAYER) {
-            if (keyCode == 21) {
-                a.adjustVolume(false);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                NowPlayingUiManager.getInstance().scrubStep(a, -NowPlayingUiManager.SCRUB_STEP_MS);
                 a.clickFeedback();
                 return true;
             }
-            if (keyCode == 22) {
-                a.adjustVolume(true);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                NowPlayingUiManager.getInstance().scrubStep(a, NowPlayingUiManager.SCRUB_STEP_MS);
                 a.clickFeedback();
                 return true;
             }
 
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 // 🚀 [Return-path specified] Always go back precisely to the screen we came from, not the browser!
+                NowPlayingUiManager.getInstance().cancelScrub(a);
                 a.changeScreen(a.backTargetForPlayer);
                 a.clickFeedback();
                 return true;
@@ -243,13 +258,13 @@ public class KeyEventRouter {
         }
 
         if (a.currentScreenState == MainActivity.STATE_BRIGHTNESS) {
-            if (keyCode == 21) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 a.currentSystemBrightness = Math.max(10, a.currentSystemBrightness - 15);
                 a.updateBrightness(a.currentSystemBrightness);
                 a.clickFeedback();
                 return true;
             }
-            if (keyCode == 22) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 a.currentSystemBrightness = Math.min(255, a.currentSystemBrightness + 15);
                 a.updateBrightness(a.currentSystemBrightness);
                 a.clickFeedback();
@@ -275,7 +290,7 @@ public class KeyEventRouter {
         }
 
         if (a.currentScreenState == MainActivity.STATE_NAVIDROME) {
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
                 a.clickFeedback();
                 if (a.navidromeBrowseDepth == MainActivity.NAV_SONGS) {
                     a.navidromeBrowseDepth = MainActivity.NAV_ALBUMS;
@@ -329,7 +344,7 @@ public class KeyEventRouter {
 
             // 🚀 [Reorder mode] Back also just drops the held row (saving its new position)
             // instead of navigating away and leaving reorder mode stuck on.
-            if (a.isReorderingMusicMenu && (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19)) {
+            if (a.isReorderingMusicMenu && (keyCode == KeyEvent.KEYCODE_BACK)) {
                 a.clickFeedback();
                 MusicBrowserManager.getInstance().finishReorderingMusicMenu(a);
                 return true;
@@ -337,12 +352,12 @@ public class KeyEventRouter {
 
             // 🚀 [Stock cover-flow wheel control fully overhauled]
             if (a.currentScreenState == MainActivity.STATE_BROWSER && a.currentBrowserMode == MainActivity.BROWSER_COVER_FLOW) {
-                if (keyCode == 21) { // turning the wheel up (left)
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) { // turning the wheel up (left)
                     a.scrollCoverFlow(false);
                     a.clickFeedback();
                     return true;
                 }
-                if (keyCode == 22) { // turning the wheel down (right)
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { // turning the wheel down (right)
                     a.scrollCoverFlow(true);
                     a.clickFeedback();
                     return true;
@@ -350,7 +365,7 @@ public class KeyEventRouter {
             }
 
             // (existing code unchanged) 🚀 In addition to the existing BACK key, pressing the top button (19) always goes back one step...
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 19) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
                 a.clickFeedback();
                 if (a.currentScreenState == MainActivity.STATE_BROWSER) {
                     if (a.isPickingBackground) {
@@ -531,14 +546,14 @@ public class KeyEventRouter {
                     char currentChar = a.getInitialChar(a.currentScrollIndexList.get(currentPos));
                     int targetPos = currentPos;
 
-                    if (keyCode == 22) { // wheel flicked down (find the next letter)
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { // wheel flicked down (find the next letter)
                         for (int i = currentPos + 1; i < a.currentScrollIndexList.size(); i++) {
                             if (a.getInitialChar(a.currentScrollIndexList.get(i)) != currentChar) {
                                 targetPos = i;
                                 break;
                             }
                         }
-                    } else if (keyCode == 21) { // wheel flicked up (find the start of the previous letter)
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) { // wheel flicked up (find the start of the previous letter)
                         char targetChar = currentChar;
                         boolean foundPrevChar = false;
                         for (int i = currentPos - 1; i >= 0; i--) {
@@ -560,7 +575,7 @@ public class KeyEventRouter {
                     return true;
                 } else {
                     // 🐢🐢 [Normal-drive mode] Move slowly and precisely one track at a time, as usual!
-                    if (keyCode == 21) {
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                         int currentPos = a.listVirtualSongs.getSelectedItemPosition();
                         if (currentPos <= 0) {
                             // 🚀 [Loop-scroll condition control] Only jump instantly to the very last track when looping is enabled.
@@ -584,7 +599,7 @@ public class KeyEventRouter {
                         a.clickFeedback();
                         return true;
                     }
-                    if (keyCode == 22) {
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                         int currentPos = a.listVirtualSongs.getSelectedItemPosition();
                         if (currentPos == a.listVirtualSongs.getCount() - 1) {
                             // 🚀 [Loop-scroll condition control] Only jump back instantly to the very first track when looping is enabled.
@@ -609,14 +624,14 @@ public class KeyEventRouter {
             }
             // 🚀 [Reorder mode] While a Music-menu row is held, the wheel moves the row itself
             // (swapping it with its neighbor) instead of moving focus between rows.
-            if (a.isReorderingMusicMenu && (keyCode == 21 || keyCode == 22)) {
-                MusicBrowserManager.getInstance().moveHeldMusicMenuItem(a, keyCode == 21);
+            if (a.isReorderingMusicMenu && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                MusicBrowserManager.getInstance().moveHeldMusicMenuItem(a, keyCode == KeyEvent.KEYCODE_DPAD_UP);
                 a.clickFeedback();
                 return true;
             }
             View c = a.getCurrentFocus();
             if (c != null) {
-                if (keyCode == 21) { // wheel turned up (UP)
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) { // wheel turned up (UP)
 
                     // 🚀 [Radio wheel control] Flicker fully eliminated version
                     if (a.currentScreenState == MainActivity.STATE_SETTINGS && a.isRadioUIShowing) {
@@ -684,7 +699,7 @@ public class KeyEventRouter {
                     a.clickFeedback();
                     return true;
                 }
-                if (keyCode == 22) { // wheel turned down (DOWN)
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { // wheel turned down (DOWN)
 
                     // 🚀 [Radio wheel control] Flicker fully eliminated version
                     if (a.currentScreenState == MainActivity.STATE_SETTINGS && a.isRadioUIShowing) {
@@ -755,7 +770,7 @@ public class KeyEventRouter {
             } else {
                 // 🚀 [Focus-jump bug fully resolved] Right after first entering the screen, focus is temporarily absent (null),
                 // and this completely blocks the system from ambiguously warping to some bottom button the moment the user first clicks the wheel.
-                if (keyCode == 21 || keyCode == 22) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                     View firstBtn = a.findViewById(10000); // Target the unique ID of button 0 (Now Playing)
                     if (firstBtn != null) {
                         firstBtn.requestFocus(); // Force it back to button 0!
@@ -789,8 +804,14 @@ public class KeyEventRouter {
             return true;
         }
 
-        // 💡 [Key blocking zone] On 'release' of a wheel action (21, 22) or back (BACK)
-        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == 21 || keyCode == 22) {
+        // 💡 [Key blocking zone] On 'release' of a wheel action (DPAD_UP/DOWN) or back (BACK). On the
+        // player screen, volume-button release is blocked too, matching onKeyDown handling them there
+        // as the wheel-volume equivalent instead of letting the system's default handling see them.
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            return true;
+        }
+        if (a.currentScreenState == MainActivity.STATE_PLAYER
+                && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
             return true;
         }
 
@@ -805,6 +826,15 @@ public class KeyEventRouter {
             // center press while reordering is swallowed. Only Back drops (see the guard near the
             // top of onKeyDown).
             if (a.isReorderingMusicMenu) {
+                a.clickFeedback();
+                return true;
+            }
+
+            // 🚀 [Ghost scrub] A pending wheel-scrub commits on this center press instead of
+            // toggling play/pause or opening the quick menu -- and doesn't count toward the
+            // double-click-for-quick-menu timing below.
+            if (a.isScrubbing) {
+                NowPlayingUiManager.getInstance().commitScrub(a);
                 a.clickFeedback();
                 return true;
             }
@@ -881,7 +911,7 @@ public class KeyEventRouter {
             return true;
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             if (!a.isSeekPerformed) {
                 if (a.activePlayer == 1) {
                     a.tuneToNextSavedRadioChannel(true); // 🚀 Just cleanly call the engine!
@@ -893,7 +923,7 @@ public class KeyEventRouter {
             return true;
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             if (!a.isSeekPerformed) {
                 if (a.activePlayer == 1) {
                     a.tuneToNextSavedRadioChannel(false); // 🚀 Just cleanly call the engine!
@@ -918,6 +948,9 @@ public class KeyEventRouter {
                     || a.currentScreenState == MainActivity.STATE_BLUETOOTH || a.currentScreenState == MainActivity.STATE_WIFI || a.currentScreenState == MainActivity.STATE_BRIGHTNESS
                     || a.currentScreenState == MainActivity.STATE_STORAGE || a.currentScreenState == MainActivity.STATE_WEBSERVER) {
 
+                // A pending scrub shouldn't sit stale across a screen-off/on cycle and get
+                // committed by a later, unrelated center press -- drop it instead.
+                NowPlayingUiManager.getInstance().cancelScrub(a);
                 a.turnOffScreen();
                 return true;
             }

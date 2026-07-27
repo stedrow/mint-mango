@@ -440,6 +440,49 @@ public class NowPlayingUiManager {
         return b.toString();
     }
 
+    public static final int SCRUB_STEP_MS = 5000;
+
+    /** Wheel turn on the player screen: moves the ghost scrub target without seeking yet. */
+    public void scrubStep(MainActivity a, int deltaMs) {
+        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+        long duration = am.getDuration();
+        if (!a.isScrubbing) {
+            a.isScrubbing = true;
+            a.scrubTargetMs = am.getCurrentPosition();
+        }
+        a.scrubTargetMs += deltaMs;
+        if (a.scrubTargetMs < 0) a.scrubTargetMs = 0;
+        if (duration > 0 && a.scrubTargetMs > duration) a.scrubTargetMs = duration;
+
+        float fraction = duration > 0 ? (float) a.scrubTargetMs / duration : 0f;
+        // secondaryProgress only paints ahead of the primary fill, so it's invisible when
+        // scrubbing backward (the fill itself covers that region) -- a real marker view on top
+        // of the bar shows up either direction instead.
+        a.playerScrubMarker.setVisibility(View.VISIBLE);
+        int barWidth = a.playerProgress.getWidth();
+        if (barWidth > 0) {
+            a.playerScrubMarker.setTranslationX(fraction * barWidth);
+        }
+        a.tvPlayerTimeCurrent.setText(formatTime((int) a.scrubTargetMs));
+    }
+
+    /** Center-button press with a pending scrub: jumps there instead of toggling play/pause. */
+    public void commitScrub(MainActivity a) {
+        if (!a.isScrubbing) return;
+        long target = a.scrubTargetMs;
+        a.isScrubbing = false;
+        a.playerScrubMarker.setVisibility(View.GONE);
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().seekAbsolute(target);
+    }
+
+    /** Back/leaving the player screen with a pending scrub: drop it, don't seek. */
+    public void cancelScrub(MainActivity a) {
+        if (!a.isScrubbing) return;
+        a.isScrubbing = false;
+        a.playerScrubMarker.setVisibility(View.GONE);
+        a.playerProgress.setSecondaryProgress(0);
+    }
+
     // Shared by both the screen-off-control path and the normal player path in onKeyDown:
     // first press starts long-press tracking, repeats seek by seekMs at most every 300ms.
     public boolean handleMediaSeekKeyRepeat(MainActivity a, KeyEvent event, int seekMs) {

@@ -11,7 +11,7 @@ TARGET="/system/lib/libbluetoothdrv.so"
 BACKUP="/system/lib/libbluetoothdrv_real.so"
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y1." >&2; exit 1; }
-[ "$(adb shell 'id -u' | tr -d '\r')" = "0" ] || { echo "ERROR: adb shell is not root." >&2; exit 1; }
+adb shell 'id' | tr -d '\r' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root." >&2; exit 1; }
 
 if [ "$(adb shell "[ -f $BACKUP ] && echo yes" | tr -d '\r')" != "yes" ]; then
   echo "Nothing to revert: no $BACKUP on device (proxy was never installed)."

@@ -97,13 +97,13 @@ public class WheelLockManager {
 
     /**
      * Call from MainActivity.dispatchKeyEvent() while active, before any other key handling.
-     * Absorbs every key; only wheel-turn codes (21/22) count toward unlocking. Always returns
-     * true (consumed) since the caller's gate is "if (isActive()) return handleKeyEvent(...)".
+     * Absorbs every key; only wheel-turn codes (DPAD_UP/DOWN) count toward unlocking. Always
+     * returns true (consumed) since the caller's gate is "if (isActive()) return handleKeyEvent(...)".
      */
     public boolean handleKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
-            if (keyCode == 21 || keyCode == 22) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 // Reversing direction invalidates prior progress -- restart the count in the new direction
                 if (lastWheelDirection != 0 && lastWheelDirection != keyCode) {
                     unlockProgress = 0;

@@ -241,11 +241,21 @@ public class AapService extends Service {
                         BluetoothDevice.class, int.class, ParcelUuid.class);
                 ctor.setAccessible(true);
                 BluetoothSocket socket = ctor.newInstance(3 /* TYPE_L2CAP */, -1, v[0], v[1], device, AAP_PSM, null);
+                Log.i(TAG, "AAP connect: calling connect() auth=" + v[0] + " encrypt=" + v[1]
+                        + " bondState=" + device.getBondState());
                 socket.connect();
                 Log.i(TAG, "AAP L2CAP connected to " + device.getAddress());
                 return socket;
             } catch (Throwable t) {
-                Log.d(TAG, "AAP connect attempt failed (auth=" + v[0] + "): " + t);
+                // Full stack trace + cause chain -- the previous toString()-only log hid whether
+                // this fails locally (stack rejects the connect synchronously) or after a round
+                // trip to the remote device.
+                Log.w(TAG, "AAP connect attempt failed (auth=" + v[0] + ")", t);
+                Throwable cause = t.getCause();
+                while (cause != null) {
+                    Log.w(TAG, "  caused by: " + cause);
+                    cause = cause.getCause();
+                }
             }
             if (!shouldRun) return null;
         }

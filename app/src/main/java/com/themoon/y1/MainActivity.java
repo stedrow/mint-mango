@@ -159,6 +159,11 @@ public class MainActivity extends Activity {
     public boolean isLongPressConsumed = false; // 🚀 Added long-press guard variable
     public boolean isSeekPerformed = false;
     public long lastSeekTime = 0;
+    // Ghost scrub (player-screen wheel): while true, the wheel is previewing a seek target
+    // (scrubTargetMs, shown via playerProgress's secondary-progress band) without actually
+    // seeking -- committed on the next center-button press, or dropped on Back/leaving the screen.
+    public boolean isScrubbing = false;
+    public long scrubTargetMs = 0;
     // 🚀 [New] Global audio effect variables and profile state management
     public android.media.audiofx.BassBoost bassBoost;
     public android.media.audiofx.Virtualizer virtualizer;
@@ -330,6 +335,7 @@ public class MainActivity extends Activity {
     public TextView tvPlayerTrackCount;
     public ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 Changed from TextView to ImageView!
     public ProgressBar playerProgress;
+    public View playerScrubMarker;
     public ProgressBar volumeProgress;
     private ProgressBar pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
@@ -615,10 +621,14 @@ public class MainActivity extends Activity {
                     playerProgress.setProgress(progress);
                     // Only push text when it actually changed (time is second-granular but the
                     // tick fires every 500ms), avoiding a redundant TextView relayout each tick.
-                    String curStr = formatTime(current);
-                    if (!curStr.equals(lastCurrentTimeText)) {
-                        lastCurrentTimeText = curStr;
-                        tvPlayerTimeCurrent.setText(curStr);
+                    // While a ghost scrub is pending, the time label shows the scrub target
+                    // instead (set by NowPlayingUiManager.scrubStep()) -- don't stomp it here.
+                    if (!isScrubbing) {
+                        String curStr = formatTime(current);
+                        if (!curStr.equals(lastCurrentTimeText)) {
+                            lastCurrentTimeText = curStr;
+                            tvPlayerTimeCurrent.setText(curStr);
+                        }
                     }
                     String totStr = formatTime(duration);
                     if (!totStr.equals(lastTotalTimeText)) {
@@ -751,6 +761,13 @@ public class MainActivity extends Activity {
                 }
                 if (customCircularBatteryView != null) {
                     customCircularBatteryView.setBatteryLevel(batteryPct, isCharging);
+                }
+            } else if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(action)) {
+                // Wired headphones unplugged or the active Bluetooth route dropped -- the system
+                // is about to fall back to the built-in speaker. Pause instead of blasting out.
+                if (activePlayer == 0) {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().pauseForRouteLoss();
+                    updateGlobalStatusPlayIcon();
                 }
             } else if (Intent.ACTION_HEADSET_PLUG.equals(action)) {
                 int state = intent.getIntExtra("state", -1);
@@ -1025,6 +1042,7 @@ public class MainActivity extends Activity {
         });
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        applyImmersiveMode();
         setContentView(R.layout.activity_main);
 
         // 🚀 [Fix complete] Overwrite the existing loading overlay code entirely with the content below!
@@ -1540,6 +1558,7 @@ public class MainActivity extends Activity {
         ivPlayerBgBlur = findViewById(R.id.iv_player_bg_blur);
         ivPauseOverlay = findViewById(R.id.iv_pause_overlay);
         playerProgress = findViewById(R.id.player_progress); // 💖 Ensures the progress bar stays fully visible
+        playerScrubMarker = findViewById(R.id.player_scrub_marker);
         tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
 
         ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
@@ -1812,6 +1831,7 @@ public class MainActivity extends Activity {
         filter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
+        filter.addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
         registerSystemStatusReceiver(filter);
 
         try {
@@ -2301,12 +2321,31 @@ public class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            // The system status bar steals focus back (e.g. after a dialog/toast) and reappears
+            // on top of our own custom status row -- FLAG_FULLSCREEN alone doesn't keep it hidden
+            // on this firmware's SystemUI, so re-apply the immersive flags every time we regain focus.
+            applyImmersiveMode();
+        }
         if (hasFocus && currentScreenState == STATE_MENU) {
             View cur = getCurrentFocus();
             if (cur == null || cur.getVisibility() != View.VISIBLE) {
                 focusFirstMainMenuButton();
             }
         }
+    }
+
+    /** Hides the system status bar so it can't render its own icons over our custom status row. */
+    private void applyImmersiveMode() {
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN;
+        if (android.os.Build.VERSION.SDK_INT >= 19) {
+            flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
     }
 
     public void changeScreen(int state) {
@@ -3285,7 +3324,7 @@ public class MainActivity extends Activity {
                     int keyCode = event.getKeyCode();
 
                     // ⏮ Previous track button
-                    if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                    if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                         // 🚀 [Screen-off control integration] If the radio is on, move to the saved previous channel!
                         if (MainActivity.instance.activePlayer == 1) {
                             MainActivity.instance.tuneToNextSavedRadioChannel(false);
@@ -3295,7 +3334,7 @@ public class MainActivity extends Activity {
                         MainActivity.instance.clickFeedback();
                     }
                     // ⏭ Next track button
-                    else if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                    else if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                         // 🚀 [Screen-off control integration] If the radio is on, move to the saved next channel!
                         if (MainActivity.instance.activePlayer == 1) {
                             MainActivity.instance.tuneToNextSavedRadioChannel(true);
@@ -3319,11 +3358,11 @@ public class MainActivity extends Activity {
                             MainActivity.instance.clickFeedback();
                         }
                     }
-                    // 🔊 Defensive code in case the device sends wheel actions (21, 22) as media signals
-                    else if (keyCode == 21) {
+                    // 🔊 Defensive code in case the device sends wheel actions (DPAD_UP/DOWN) as media signals
+                    else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                         MainActivity.instance.adjustVolume(false);
                         MainActivity.instance.clickFeedback();
-                    } else if (keyCode == 22) {
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                         MainActivity.instance.adjustVolume(true);
                         MainActivity.instance.clickFeedback();
                     }

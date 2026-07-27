@@ -422,6 +422,26 @@ public class AudioPlayerManager {
         if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
     }
 
+    /**
+     * Auto-pause when the active audio route disappears (wired headphones unplugged, or a
+     * Bluetooth speaker/headset drops) so playback doesn't suddenly blast out of the built-in
+     * speaker. Unlike {@link #pauseForAirpods()}, this never auto-resumes -- reconnecting the
+     * route requires an explicit user Play action.
+     */
+    public void pauseForRouteLoss() {
+        if (!isPlaying()) return;
+        saveAudiobookBookmarkIfNeeded();
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.pause();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(false);
+        }
+        if (MainActivity.instance != null) {
+            MainActivity.instance.isPausedByHand = true;
+            MainActivity.instance.updatePlayerUI();
+        }
+    }
+
     /** Resumes only if {@link #pauseForAirpods()} was the one that paused (never fights a user pause). */
     public void resumeForAirpods() {
         if (!pausedByAirpods) return;
@@ -516,10 +536,15 @@ public class AudioPlayerManager {
     }
 
     public void seekRelative(int offsetMs) {
-        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().seekRelative(offsetMs); return; }
         long currentPos = getCurrentPosition();
+        seekAbsolute(currentPos + offsetMs);
+    }
+
+    /** Seeks straight to an absolute position, clamped to [0, duration]. */
+    public void seekAbsolute(long targetMs) {
+        if (CastManager.getInstance().isCasting()) { CastManager.getInstance().seekRelative((int) (targetMs - getCurrentPosition())); return; }
         long duration = getDuration();
-        long targetPos = currentPos + offsetMs;
+        long targetPos = targetMs;
         if (targetPos < 0) targetPos = 0;
         if (targetPos > duration && duration > 0) targetPos = duration;
 
