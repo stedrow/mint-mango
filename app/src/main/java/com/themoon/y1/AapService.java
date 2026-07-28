@@ -315,6 +315,9 @@ public class AapService extends Service {
     private volatile OutputStream activeOut = null;
     private final Object writeLock = new Object();
     private volatile boolean sentFollowUp = false;
+    /** When the pods last said anything, for the diagnostic snapshot below. */
+    private volatile long lastRxAtMs = 0;
+    private volatile boolean diagRunning = false;
     private Thread worker;
     private String targetMac;
 
@@ -596,6 +599,8 @@ public class AapService extends Service {
         OutputStream out = socket.getOutputStream();
 
         activeOut = out;
+        lastRxAtMs = android.os.SystemClock.elapsedRealtime();
+        startDiagnostics();
         startHandshake(out);
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -607,6 +612,7 @@ public class AapService extends Service {
                 return;
             }
             if (n == 0) continue;
+            lastRxAtMs = android.os.SystemClock.elapsedRealtime();
             Log.d(TAG, "AAP rx " + n + " bytes: " + hexPrefix(readBuf, n));
             if (!sentFollowUp && startsWith(readBuf, n, AAP_HANDSHAKE_ACK)) {
                 sentFollowUp = true;
@@ -697,6 +703,56 @@ public class AapService extends Service {
             }
         });
         return true;
+    }
+
+    /**
+     * Periodic one-line snapshot, tagged {@code AapDiag} so it can be filtered on
+     * its own: {@code adb logcat -s AapDiag}.
+     *
+     * Exists for the silent-mute failure -- the AirPods stop producing sound while
+     * everything else looks healthy: still connected, still "playing", position
+     * still advancing. There is nothing to detect in software at the moment it
+     * happens, so the point is to have a timeline afterwards. Given a rough time
+     * of day, these lines say whether the player kept advancing (pods muted
+     * themselves), whether the pods went quiet on the AAP channel (link trouble),
+     * and what the ear state claimed at the time.
+     *
+     * Only ticks while a session is up, and only logs when something is playing or
+     * the ear state isn't plain both-in, so an idle device stays quiet.
+     */
+    private void startDiagnostics() {
+        if (diagRunning) return;
+        diagRunning = true;
+        ioHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!shouldRun || activeSocket == null) {
+                    diagRunning = false;
+                    return;
+                }
+                try {
+                    AapState st = lastState;
+                    boolean playing = com.themoon.y1.managers.AudioPlayerManager
+                            .getInstance().isPlaying();
+                    long pos = com.themoon.y1.managers.AudioPlayerManager
+                            .getInstance().getCurrentPosition();
+                    boolean bothIn = st.earLeft == EAR_IN_EAR && st.earRight == EAR_IN_EAR;
+                    if (playing || !bothIn) {
+                        long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
+                        Log.i("AapDiag", "playing=" + playing
+                                + " pos=" + pos
+                                + " ear=" + st.earLeft + "/" + st.earRight
+                                + " batt=" + st.batteryLeft + "/" + st.batteryRight
+                                + " noise=" + st.noiseMode
+                                + " links=" + st.connectedDevices
+                                + " quietMs=" + quietMs);
+                    }
+                } catch (Throwable t) {
+                    Log.d("AapDiag", "snapshot failed", t);
+                }
+                ioHandler.postDelayed(this, 10000);
+            }
+        }, 10000);
     }
 
     /** Feature flags then the notification request; safe to repeat. */

@@ -112,11 +112,23 @@ public class BluetoothAudioManager {
 
     private void onEarsReinserted() {
         BluetoothDevice target = targetDeviceForAudio;
-        if (target == null || !isA2dpConnectedTo(target)) return;
+        // Logged either way: when the silent-mute failure is reported, the first
+        // question is whether this recovery path ran at all, and previously a
+        // no-op here was indistinguishable from never being called.
+        if (target == null || !isA2dpConnectedTo(target)) {
+            android.util.Log.i("AapDiag", "ears reinserted, no nudge: target="
+                    + (target != null) + " a2dp=" + (target != null && isA2dpConnectedTo(target)));
+            return;
+        }
 
         long now = System.currentTimeMillis();
-        if (now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) return; // still cooling down
+        if (now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) {
+            android.util.Log.i("AapDiag", "ears reinserted, no nudge: cooling down ("
+                    + (now - lastAudioNudgeAtMs) + "ms of " + AUDIO_NUDGE_COOLDOWN_MS + ")");
+            return;
+        }
 
+        android.util.Log.i("AapDiag", "ears reinserted -> restarting the audio pipeline");
         lastAudioNudgeAtMs = now;
         AudioPlayerManager.getInstance().restartAudioPipelineQuietly();
     }
