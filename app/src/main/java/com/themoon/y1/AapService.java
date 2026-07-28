@@ -624,6 +624,13 @@ public class AapService extends Service {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private void handleEarDetectionForAutoPause(AapState s, String source) {
+        // The L2CAP session reports ear changes in well under a second, the BLE
+        // advert route takes ~5s. While the session is live it is the only source
+        // worth listening to -- and letting both through is actively harmful,
+        // because they count as different sources and the check below swallows
+        // every transition where they alternate. That showed up on-device as the
+        // first couple of removals taking seconds to pause before settling down.
+        if (activeSocket != null && !AAP_L2CAP_SOURCE.equals(source)) return;
         boolean nowBothInEar = s.earLeft == EAR_IN_EAR && s.earRight == EAR_IN_EAR;
         // Only treat a change as a real ear event when it comes from the same
         // advertiser that set the previous state. Otherwise a different pair
