@@ -1633,3 +1633,26 @@ The BLE scan still runs and still supplies battery and model, it just no longer
 drives auto-pause when the faster source is available. Confirmed on-device: a
 BLE advert arrived 149ms before the L2CAP event in the trace above and did not
 disturb the state machine.
+
+---
+
+## Note on removed scripts
+
+This file references scripts that were deleted once the cause was found, to keep
+the directory to what is still useful. They are recoverable from git history if
+the reasoning ever needs re-checking:
+
+- `y2_psm_fix.sh` — the HAL + mtkbt mtu smuggle. Retired: the PSM now travels
+  `msg->channel` and the HAL stays stock.
+- `y2_jsr82_client_l2cap_fix.sh`, `y2_jsr82_outbound_fix.sh` — earlier partial
+  fixes, both superseded by `y2_aap_l2cap_fix.sh`. The outbound one was built on
+  a wrong model and crashed the daemon.
+- `y2_link_state_test.sh`, `y2_force_session_ok.sh`, `y2_probe_fail_site.sh` —
+  diagnostics for theories this file records as dead ends.
+- `y2_evt5_caller_trace.sh`, `y2_raise_caller_trace.sh` — the LR-logging hooks
+  that identified the indirect caller. Their method (hook an entry, log the
+  caller's return address, subtract the load base from `/proc/<pid>/maps`) is
+  the reusable part and is described above.
+
+`y2_trace_to_logcat.sh` and `decode_trace_ids.py` are kept: they are general
+tooling, not tied to this bug.

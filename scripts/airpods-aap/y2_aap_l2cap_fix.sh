@@ -48,13 +48,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$HERE/build"
 TARGET="/system/bin/mtkbt"
-STOCK_REF="$BUILD/mtkbt_TRUESTOCK_1737c6d3"
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device." >&2; exit 1; }
 adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root." >&2; exit 1; }
 [ "$(adb shell getprop ro.product.device | tr -d '\r\n')" = "Y2" ] || {
   echo "ERROR: Y2-only." >&2; exit 1; }
-[ -f "$STOCK_REF" ] || { echo "ERROR: no stock reference at $STOCK_REF." >&2; exit 1; }
+
+mkdir -p "$BUILD"
 
 install() {
   adb push "$1" /data/local/tmp/m >/dev/null
@@ -66,17 +66,16 @@ install() {
   d="$(adb shell "md5 $TARGET" | awk '{print $1}' | tr -d '\r')"
   [ "$l" = "$d" ] || { echo "ERROR: md5 mismatch ($l vs $d)" >&2; exit 1; }
   echo "   md5 ok: $l"
+  # Never leave Bluetooth disabled across the reboot: mtkbt is a `oneshot` init
+  # service, so if Bluetooth is off at boot the daemon exits and never returns.
   adb shell settings put global bluetooth_on 1 >/dev/null 2>&1 || true
   adb reboot
 }
 
-if [ "${1:-}" = "--revert" ]; then
-  echo ">> Restoring stock mtkbt"
-  install "$STOCK_REF"
-  exit 0
-fi
+echo ">> Pulling live mtkbt"
+adb pull "$TARGET" "$BUILD/mtkbt_live.bin" >/dev/null
 
-python3 - "$STOCK_REF" "$BUILD/mtkbt_aapfix.bin" <<'PY'
+python3 - "$BUILD/mtkbt_live.bin" "$BUILD/mtkbt_aapfix.bin" "${1:-patch}" <<'PY'
 import struct, sys
 
 
@@ -91,8 +90,27 @@ def br(at, target, link=False):
                        (0xD000 if link else 0x9000) | (j1 << 13) | (j2 << 11) | (imm & 0x7FF))
 
 
-src, dst = sys.argv[1], sys.argv[2]
+src, dst, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 d = bytearray(open(src, 'rb').read())
+
+# (site, stock bytes, cave, cave length) for all three patches. Revert restores
+# the stock bytes and zeroes the caves, so it needs no pristine copy of mtkbt --
+# build/ is gitignored and would not survive a fresh clone.
+SITES = [(0x6bdfa, '2e62e9f764f8', 0x105f00, 12),
+         (0x47eca, '012287f8f42228460521022213e0', 0x105ee0, 20),
+         (0x4804c, '3946bde8f840fff7a9bc', 0x105f70, 14)]
+
+if mode == '--revert':
+    for site, stock, cave, n in SITES:
+        sb = bytes.fromhex(stock)
+        if bytes(d[site:site + len(sb)]) == sb:
+            print("   %#x already stock" % site)
+            continue
+        d[site:site + len(sb)] = sb
+        d[cave:cave + n] = b'\0' * n
+        print("   %#x restored, cave %#x cleared" % (site, cave))
+    open(dst, 'wb').write(bytes(d))
+    raise SystemExit(0)
 
 # --- 1. carry the PSM in msg->channel (+0x0e) into ctx.channel (+0x20) -------
 CAVE, SITE = 0x105f00, 0x6bdfa
@@ -143,6 +161,12 @@ d[SITE + 4:SITE + 10] = struct.pack('<H', 0xBF00) * 3
 print("   3/3 TX uses real CID     thunk %d B @ %#x" % (len(t), CAVE))
 open(dst, 'wb').write(bytes(d))
 PY
+
+if [ "${1:-}" = "--revert" ]; then
+  echo ">> Restoring stock mtkbt (un-patching in place)"
+  install "$BUILD/mtkbt_aapfix.bin"
+  exit 0
+fi
 
 echo ">> Installing (Bluetooth left enabled)"
 install "$BUILD/mtkbt_aapfix.bin"

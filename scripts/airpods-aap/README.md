@@ -1,66 +1,81 @@
-# AirPods AAP — ps_type L2CAP patch (Phase 2, unverified)
+# AirPods AAP over L2CAP
 
-Companion to `scripts/airpods-rtpfix/` (which fixed audio). This folder
-targets Phase 2: talking Apple's AAP protocol over L2CAP PSM `0x1001` for
-ear-detection/battery/noise-control, per
-`scripts/airpods-rtpfix/PHASE2_PLAN.md`.
+Apple's Accessory Protocol (AAP) rides on L2CAP PSM `0x1001`. Talking it gives
+in-ear detection in **under a millisecond** from the packet arriving, versus
+~5s for the BLE proximity-advert route the launcher falls back to.
 
-**Status: patch built and verified by disassembly, NOT yet flashed/tested on
-a device.** Milestone 0 (see `PHASE2_PLAN.md`) found that the stock JSR82
-socket layer on this MTK 4.2.2 stack tags every client L2CAP connect
-`ps_type=1` (the RFCOMM/channel path), which the AirPods reject. A
-static-analysis spike then confirmed `ps_type=2` is a genuine, ungated
-raw-PSM client-connect path — just nothing in the app can select it.
+Both supported devices needed a different vendor bug fixed before a
+client-initiated L2CAP connect would work at all. Stock Android can't do this
+either way: AOSP 4.4 bluedroid rejects `BTSOCK_L2CAP` outright, and
+`BluetoothSocket.TYPE_L2CAP` is a constant with no implementation until
+`createInsecureL2capChannel` arrives in Android 10. Everything here works
+through MediaTek's own JSR82 bolt-on.
 
-## What this patch does
+## Y2 (MT6582, Android 4.4.2) — `y2_aap_l2cap_fix.sh`
 
-Binary-patches `/system/lib/libextjsr82.so` (the closed MTK JSR82 native
-library) so that a client connect to a PSM-looking value (>= `0x100`, true for
-AAP's `0x1001`; RFCOMM channels are 1-30) is tagged `ps_type=2` instead of
-`ps_type=1`. Every other JSR82 caller (headset RFCOMM, OBEX, SPP — anything
-with a normal channel number) is untouched: the override only fires when the
-channel/PSM value looks like an L2CAP PSM, not an RFCOMM channel.
+**Working and measured.** Three bugs in MediaTek's client L2CAP path, all in
+`/system/bin/mtkbt`, none in Apple's protocol:
 
-Mechanically: `src/build_patch.py` uses `capstone`-verified disassembly
-offsets to append a small code cave (a new PT_LOAD segment) with the
-extra logic, and rewrites 6 bytes at the original decision point
-(`btmtk_jsr82_session_connect_req`'s `cmp r5,#1`) to jump into it. See the
-docstring in that file and the "Middle option" section of
-`../airpods-rtpfix/PHASE2_PLAN.md` for the full reverse-engineering
-writeup (disassembly excerpts, why `libandroid_runtime.so` was ruled out as
-the patch target, etc).
-
-**Risk class**: same as the Phase 1 `libbluetoothdrv.so` swap — a leaf
-Bluetooth-extension library, not zygote-loaded, fully reversible via
-`revert.sh`. Not the `system_server`/zygote-wide risk the original Phase 2
-plan worried about.
-
-## Usage
+| # | Defect | Patch |
+|---|---|---|
+| 1 | `btadp_jsr82_connect_req` zeroes `ctx.channel` and never copies `msg->channel` (`+0x0e`), so the Connection Request went out with PSM 0 and the peer refused it | `0x6bdfa` |
+| 2 | `BTJSR82_L2capCallback`'s client branch reports a *successful* connect as status 2. Status 1 alone crashes the daemon, because the raiser's success path reads `session_buffer->l2capCtx.channel` (`+0x2f8`) and nothing in the binary ever writes it | `0x47eca` |
+| 3 | The TX path takes the CID from the request message's `+0x06`, never populated for a client session, so `L2CAP_Send` got 0, failed its channel lookup and silently requeued the packet | `0x4804c` |
 
 ```
-./build.sh      # pulls the live libextjsr82.so, produces build/libextjsr82_patched.so
-./install.sh    # backs up the stock lib -> libextjsr82_real.so, installs patched, reboots
-./status.sh     # confirm which lib is active, tail relevant logcat tags
-./revert.sh     # restore the stock lib, reboot
+./y2_aap_l2cap_fix.sh            # patch and reboot
+./y2_aap_l2cap_fix.sh --revert   # restore stock and reboot
 ```
 
-`build.sh` requires `pip3 install keystone-engine lief` (and `pyelftools` +
-`capstone` if you want to re-verify the disassembly offsets rather than trust
-the hardcoded ones in `build_patch.py`).
+The blueangel HAL stays **stock** — earlier revisions smuggled the PSM through
+the `mtu` argument and needed a HAL patch; that is retired. `--revert` restores
+the original bytes and clears the code caves in place, so it needs no pristine
+copy of `mtkbt`.
 
-`build_patch.py` refuses to patch if the bytes at the hardcoded hook address
-don't match what was reverse-engineered — if your firmware's
-`libextjsr82.so` differs, re-derive the offsets before trusting this.
+Verified end to end: handshake ACK `01 00 04 00`, features ACK
+`04 00 04 00 2b 00`, then ear-detection notifications, with pause/resume firing
+in the same millisecond as the packet for both buds and both directions.
 
-## Testing
+## Y1 (MT6572, Android 4.2.2) — `build.sh` / `install.sh`
 
-The `AapSpikeService` from the M0 spike (same branch, `spike/m0-aap-l2cap`)
-already attempts exactly the connect this patch targets (`TYPE_L2CAP`,
-`port=0x1001`) — no app changes needed to test. Install the patch, launch the
-spike service, and watch for the connect actually succeeding and AAP
-handshake bytes coming back (see `M0_RESULT_l2cap_trace.txt` for what
-*failure* looked like, for comparison).
+Different device, different bug, different layer. Y1 uses MediaTek's older JNI
+socket service, which passes the Java port straight through as `psm_channel`
+and only gets `ps_type` wrong — tagging every client connect `ps_type=1` (the
+RFCOMM path) instead of `ps_type=2`. `src/build_patch.py` binary-patches
+`/system/lib/libextjsr82.so` so a PSM-looking value (`>= 0x100`) selects the
+raw L2CAP path; normal RFCOMM channels (1-30) are untouched.
 
-If it works: promote to `M1` in `PHASE2_PLAN.md` (a real `AapService`). If it
-doesn't: fall back to Path B (L2CAP client inside the `libbluetoothdrv.so`
-HCI proxy).
+```
+./build.sh     # pull the live lib, produce build/libextjsr82_patched.so
+./install.sh   # back up stock -> libextjsr82_real.so, install, reboot
+./status.sh    # which lib is active, plus relevant logcat
+./revert.sh    # restore stock, reboot
+```
+
+Needs `pip3 install keystone-engine lief`. `build_patch.py` refuses to patch if
+the bytes at the hardcoded hook don't match, so re-derive the offsets if your
+firmware differs. The Y1 patch has nothing to port to the Y2 and vice versa.
+
+## Diagnostics
+
+`mtkbt` ships thousands of internal traces that never reach logcat — its trace
+sink targets MediaTek's Catcher transport and its gates are compiled shut.
+Opening them is what made this tractable; before that it was patch-and-guess,
+and two conclusions came out wrong.
+
+- `y2_trace_to_logcat.sh` — redirect the trace sink to `__android_log_print`
+  and open the gates. Text traces appear under `MTKBTD`, numeric ids under
+  `MTKID`. **Chatty; diagnostic only, don't leave it installed.**
+- `decode_trace_ids.py` — turn those numeric ids back into MediaTek's own
+  sentences using `bluetooth_trc.h` from public MT6577 BSP dumps.
+  **JSR82 ids need `-8`**; lower ids decode at face value. Getting that wrong
+  reads plausibly and inverts conclusions.
+
+```
+adb logcat -s MTKID | ./decode_trace_ids.py -8
+```
+
+`Y2_INVESTIGATION.md` is the full trail, including the dead ends and the traps
+worth not rediscovering (`mtkbt` is a `oneshot` init service, so a crash looks
+identical to "never started" — check `/data/tombstones`, and never leave
+Bluetooth disabled across a reboot).
