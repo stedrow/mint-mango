@@ -243,10 +243,49 @@ EBADF), but **no AAP data ever arrives on it**. The vendor's state machine took
 its failure path, so it never routes channel data to the session -- reporting
 success does not undo that.
 
+## The actual cause, from mtkbt's own traces
+
+`y2_trace_to_logcat.sh` makes the daemon's internal traces visible (tag
+`MTKBTD`), and one connect attempt shows the whole failure -- which is **not an
+L2CAP problem at all**:
+
+```
+[JSR82][ADP]btadp_jsr82_connect_req: sessionid[220442]
+CMGR add handler:0xb79d51e8
+[CMGR][CON] CMGR_CreateDataLink=0xb79d51e8
+ME_FindRemoteDeviceP: 0xA4,0xFC,0x77,0x86,0x77,0x74,   -> found
+[ME][CON] ME_CreateLink : handler=0xb79d5204
+ME_FindRemoteDeviceP: 0xA4,0xFC,0x77,0x86,0x77,0x74,   -> found
+[JSR82]btadp_jsr82_session_disconnected :id[220442], conn_id[0], identify[8]
+[JSR82] btadp_jsr82_session_deinit
+```
+
+All of it lands in the same millisecond, with **no HCI traffic in between**, so
+nothing is asked of the peer and nothing times out. The session connect goes
+straight to `CMGR_CreateDataLink` -> `ME_CreateLink`, i.e. "bring up an ACL
+baseband link to this address" -- but an ACL link to the AirPods already exists
+and is carrying A2DP. The connect dies on a local state check inside link
+creation, long before any L2CAP Connection Request would be built.
+
+That explains every earlier observation at once: why the confirm always carries
+2 regardless of which event-5 raiser is tagged (the failure never reaches those
+paths), why the PSM fix visibly works on the wire yet changes no outcome (the
+request that reaches the air comes from the *stock* profile paths, not ours),
+and why forcing success produced a socket with no data (the session was already
+deinitialised).
+
 ### Next step
 
-Better than more guess-and-reboot: get a real trace. Two dead ends found while
-trying to get one:
+Find why `ME_CreateLink` refuses when the link is already up. Likely candidates,
+in order of cheapness: the JSR82 connect path may need to *reuse* the existing
+CMGR handler (there is an `ME_FindRemoteDeviceP` hit right before the teardown,
+so the device is found -- the question is what it does with a device already in
+`connected` state), or the ACL link's role/state disqualifies a second data-link
+request. `CMGR_CreateDataLink` and `ME_CreateLink` are both named symbols, so
+this is now a bounded read of two functions rather than a search.
+
+Everything below predates the trace and is kept for the reasoning trail. Two
+dead ends found while trying to get tracing working:
 
 - mtkbt's internal traces never reach logcat: both trace helpers end in a sink
   gated off on a `user` build, headed for MTK's mobile-log daemon.
