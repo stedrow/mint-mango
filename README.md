@@ -214,7 +214,15 @@ adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
 
 ## 🎧 AirPods Support (Pro 2 / Pro 3)
 
-### Audio Fix
+> **Device note:** `master` targets the **Y2**. The Y1 work lives on the `y1`
+> branch and is no longer being extended. Both devices need a vendor Bluetooth
+> bug fixed before any of this works, but they are *different* bugs in
+> *different* components — see [`scripts/airpods-aap/`](scripts/airpods-aap/).
+
+### Audio Fix (Y1 only)
+
+This one is specific to the **Y1**; the Y2 does not need it, and applying it
+there changes nothing. It is kept here because the `y1` branch still uses it.
 
 AirPods pair and connect to the Y1 but play **no sound** — the player shows a
 track playing while the AirPods stay silent. This is a bug in the Y1's MediaTek
@@ -264,21 +272,53 @@ the launcher runs a persistent backoff watchdog (2s → doubling → 15s cap) th
 never permanently quits, instead of the old fixed-budget retry. A dropout is
 now detected in a few seconds and the launcher reconnects on its own.
 
-### Ear-Detection Auto-Pause/Resume
+### Ear-Detection Auto-Pause/Resume (Sub-Second)
 
-Once audio works, the launcher also speaks Apple's AAP (Apple Accessory
-Protocol) directly to the AirPods over a separate L2CAP channel (a background
-`AapService`, distinct from the A2DP audio connection). This enables real
-"AirPods-native" behavior: playback automatically pauses the moment an AirPod
-is removed, and resumes when both are reinserted — without the AirPods needing
-to be connected to a phone at all.
+The launcher speaks Apple's AAP (Apple Accessory Protocol) directly to the
+AirPods over a separate L2CAP channel — a background `AapService`, distinct
+from the A2DP audio connection. Playback pauses the moment an AirPod comes out
+and resumes when it goes back in, with no phone involved.
 
-This required a small binary patch to the stock `libextjsr82.so` (the closed
-JSR82/L2CAP socket layer) since the stock MediaTek stack otherwise rejects the
-kind of raw-PSM L2CAP connection AAP requires. See
-[`scripts/airpods-rtpfix/PHASE2_PLAN.md`](scripts/airpods-rtpfix/PHASE2_PLAN.md)
-for the full investigation, protocol notes, and the patch's scope/safety
-rationale.
+Pause fires **in the same millisecond as the packet that reports it**. There is
+a fallback path that reads Apple's BLE proximity advertisement instead, but it
+lags by ~5s and is only used when the L2CAP session is down; the advert is also
+anonymous, so it cannot tell your AirPods from anyone else's.
+
+Getting the L2CAP session working needed three separate bugs fixed in the Y2's
+`/system/bin/mtkbt` — MediaTek shipped a client-side L2CAP path that never
+worked:
+
+1. the connect request was built with **PSM 0**, because the daemon zeroed its
+   channel field and never copied the one it was given, so the AirPods refused
+   it outright;
+2. a **successful** connect was reported upward as a failure, and the success
+   path it skipped depends on a channel pointer nothing in the binary ever
+   writes;
+3. outgoing data was sent with a **CID of zero**, so every packet was silently
+   dropped before reaching the air.
+
+Apply with [`scripts/airpods-aap/y2_aap_l2cap_fix.sh`](scripts/airpods-aap/)
+(`--revert` undoes it in place). The Bluetooth HAL is left stock.
+[`Y2_INVESTIGATION.md`](scripts/airpods-aap/Y2_INVESTIGATION.md) is the full
+trail, including the dead ends.
+
+### AirPods Status Panel
+
+**Settings → Bluetooth** shows a live, read-only AirPods section whenever the
+AAP session is up:
+
+| Row | Shows |
+| --- | --- |
+| Earbuds Battery | exact percentage per bud (⚡ while charging) |
+| Case Battery | `--` while the case is open — it genuinely reports "not present" |
+| Noise Control | Off / Noise Cancellation / Transparency / Adaptive |
+| Ear Detection | per-bud in-ear / out / in-case |
+| Conversation Awareness | On / Off |
+| Connected Devices | how many hosts the AirPods are attached to — more than one usually explains audio going somewhere unexpected |
+
+These track the AirPods themselves, so changing noise mode by holding a stem
+updates the panel immediately. Battery here is exact, unlike the 10%-granular
+figures in Apple's BLE advertisement.
 
 ### Recovering from Silent Self-Mute
 
@@ -305,15 +345,26 @@ detected as removed, the launcher never sees a "reinserted" transition to
 react to. Leaving an AirPod out for **~3 seconds** before putting it back in
 reliably clears that debounce window and triggers the fix.
 
-### Squeeze Controls (Play/Pause/Skip), Even With the Screen Off
+### Squeeze Controls, Including Per-Bud Skip
 
-Squeezing an AirPod stem to play/pause or skip tracks works from any screen in
-the launcher, including with the screen off. AirPods squeezes are recognized as
-Bluetooth AVRCP passthrough events (identified via a distinct virtual input
-device named `AVRCP`) and always pass through, independent of the
-**Screen-Off Control** setting — that setting only gates the device's own
-physical wheel/button, so it can stay off (preventing accidental in-pocket
-presses) while AirPods gestures still work.
+| Gesture | Action |
+| --- | --- |
+| Single squeeze | Play / pause |
+| **Double squeeze, right bud** | **Next track** |
+| **Double squeeze, left bud** | **Previous track** |
+| Press and hold | Cycles noise modes (the AirPods' own behaviour, untouched) |
+
+Per-bud skip isn't something the AirPods can do alone — they have no concept of
+"which bud" for their own built-in actions. The launcher asks them to hand
+double-presses over instead, then decides based on which bud fired. Single
+press is deliberately left with the AirPods so play/pause keeps working even
+when the launcher isn't running, and the request is withdrawn when the service
+stops, so a double squeeze never ends up doing nothing.
+
+All of it works **with the screen off**. Media transport keys are never gated on
+the **Screen-Off Control** setting: that setting exists to stop accidental
+in-pocket presses of the device's own wheel, which sends different key codes
+entirely.
 
 ---
 
@@ -322,9 +373,6 @@ presses) while AirPods gestures still work.
 A few additional settings and fixes added on top of the upstream launcher,
 found in the Settings menu unless noted:
 
-- **Lock Wheel on Wake** — after the screen wakes, the wheel is locked until
-  you rotate it far enough to intentionally unlock (shown as an animated
-  ring), preventing accidental playback/volume changes from pocket presses.
 - **Reboot** button in System settings — reboot the device without pulling
   the battery or using ADB.
 - **Reorder the Music menu** — long-press any row in the Music root menu
@@ -338,8 +386,9 @@ found in the Settings menu unless noted:
   by disabling the device's own speaker.
 - **Screen-Off Control** — governs whether the device's own physical
   wheel/buttons do anything with the screen off (default off, to prevent
-  in-pocket presses). Does not affect AirPods squeeze controls, which always
-  work — see [AirPods Support](#-airpods-support-pro-2--pro-3) above.
+  in-pocket presses). Never affects headset transport controls, so AirPods
+  squeezes work regardless — see
+  [AirPods Support](#-airpods-support-pro-2--pro-3) above.
 - **Bluetooth status icon** now distinguishes Bluetooth being merely "on" from
   actually "connected" to a device, instead of showing one ambiguous icon for
   both.
