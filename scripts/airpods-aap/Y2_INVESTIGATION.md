@@ -312,12 +312,23 @@ finally yields `msg->result:01` and **`AAP L2CAP connected`** with the session
 staying alive rather than dying of `EBADF`, because this time the channel under
 it is real.
 
-**Still missing: no AAP data.** No ear-detection notifications arrive on the open
+**Tested with the corrected handshake: still no AAP data.** The socket connects
+and stays alive, but nothing is ever received. The likely reason is that the
+force-success patch is self-defeating for data: it makes JSR82 *report* the
+session connected while its own case-5 path had already decided to disconnect
+it, so Java holds a socket whose session context is dead -- writes go nowhere
+and no reads arrive, regardless of whether the payloads are right. Testing the
+protocol properly needs the session to survive on its own merits, i.e. the real
+fix below, not the forced status byte.
+
+**Original note on the payloads.** No ear-detection notifications arrive on the open
 channel, so the launcher gains nothing yet. Either the handshake bytes in
 `AapService.sessionLoop()` are not what this firmware expects, or the writes
-never reach the channel (the session context that JSR82 hands back is the same
-one it had just decided to disconnect). That is the next thing to check, and the
-trace tooling now shows both sides of it.
+never reach the channel. The payload half of that has since been settled: our
+packets were checked against LibrePods and the notification request was wrong
+(a byte short, with 0xfe where the fifth mask byte should be 0xff), which is
+now fixed along with the missing SET_SPECIFIC_FEATURES and an ack-driven
+sequence. So the remaining suspect is the dead session context.
 
 ### Next step
 
