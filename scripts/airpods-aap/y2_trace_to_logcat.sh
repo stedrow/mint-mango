@@ -190,23 +190,28 @@ else:
     # --- second thunk: log every kal_trace id ------------------------------
     # The entry's first two instructions are plain register pushes, so they can
     # be relocated into the thunk and the hook branches back after them.
+    # Log the trace's first two arguments as well as the id. The ids alone name
+    # which branch ran, but several of the interesting ones carry the answer in
+    # an argument -- e.g. "JSR82 LINK CON CNF: Get L2CAP PSM Index;%02x".
     t2 = bytearray()
     t2 += struct.pack('<HH', 0xE92D, 0x500F)   # push.w {r0-r3, r12, lr}
-    t2 += struct.pack('<H', 0x460B)            # mov  r3, r1        (trace id)
-    t2 += adr(2, CAVE2 + len(t2), CAVE2 + 0x2c)   # adr r2, "kal id=%x"
+    t2 += struct.pack('<H', 0xB40C)            # push {r2, r3}      varargs 2,3
+    t2 += struct.pack('<H', 0x460B)            # mov  r3, r1        vararg 1: id
+    t2 += adr(2, CAVE2 + len(t2), CAVE2 + 0x2c)   # adr r2, "kal id=%x a=%x b=%x"
     t2 += adr(1, CAVE2 + len(t2), CAVE2 + 0x24)   # adr r1, "MTKID"
     t2 += struct.pack('<H', 0x2003)            # movs r0, #3
-    t2 += struct.pack('<HH', 0xBF00, 0xBF00)   # nops: BLX(imm) resolves against
-    assert len(t2) == 0x10, hex(len(t2))       #   Align(PC,4), so keep it aligned
+    t2 += struct.pack('<H', 0xBF00)            # nop: keep the blx 4-aligned
+    assert len(t2) == 0x10, hex(len(t2))
     t2 += blx_imm(CAVE2 + len(t2), PLT)        # blx __android_log_print
+    t2 += struct.pack('<H', 0xB002)            # add sp, #8         drop varargs
     t2 += struct.pack('<HH', 0xE8BD, 0x500F)   # pop.w {r0-r3, r12, lr}
     t2 += struct.pack('<H', 0xB40C)            # push {r2, r3}        (relocated)
     t2 += struct.pack('<HH', 0xE92D, 0x4FF0)   # push.w {r4-r11, lr}  (relocated)
     t2 += branch(CAVE2 + len(t2), LVL + 6, link=False)   # b.w back past them
-    assert len(t2) == 0x22, hex(len(t2))
-    t2 += b'\0\0'
+    assert len(t2) == 0x24, hex(len(t2))
     t2 += b'MTKID\0\0\0'                      # tag @ CAVE2+0x24
-    t2 += b'kal id=%x\0\0\0'                  # fmt @ CAVE2+0x2c
+    t2 += b'kal id=%x a=%x b=%x\0'             # fmt @ CAVE2+0x2c
+    assert len(t2) == 0x40, hex(len(t2))
     if any(b != 0 for b in d[CAVE2:CAVE2 + len(t2)]):
         sys.exit("ERROR: the second cave at %#x is not free." % CAVE2)
     d[CAVE2:CAVE2 + len(t2)] = t2

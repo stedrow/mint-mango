@@ -1145,3 +1145,83 @@ On a device using that JNI, an L2CAP client connect never reaches
 bluedroid's `btsock` glue instead and its traces show `parms.ps_type:02`
 (L2CAP), so this is almost certainly not the Y2's bug — but it is exactly the
 Y1-style one-value defect and worth checking if this work is ever ported.
+
+## Reading the decoded connect: the PSM lookup is fine
+
+`y2_trace_to_logcat.sh`'s id thunk now logs the trace's first two arguments as
+well as the id (`kal id=%x a=%x b=%x`; `a` is the format-string pointer, `b` is
+the first real argument), so `decode_trace_ids.py` produces the vendor's own
+narration of a failing connect:
+
+```
+c44  JSR82 L2CAP Client connected inx=%d
+c4b  JSR82 LINK CON CNF then Try Open RFChnl
+c30  JSR82CheckAndDisconnectAclNo(): L2CAP con req is ongoing
+c32  bt_jsr82_ACLCheckDisconnectTimer(): Still has pending_conreq_no=%d      b=5
+c92  BT_JSR82_Disable_Service Deregister channel :%02x
+c1d  bt_jsr82_get_L2capPSMIndex():Find allocated L2CAP PSM=%d and index:%02x  b=0
+c1e  bt_jsr82_get_L2capPSMIndex(): find empty inx=%02x, RegisterPsm status:%02x
+c1d  ... b=1        c1e ...
+c1d  ... b=2        c1e ...
+c1d  ... b=3        c1e ...
+c1f  bt_jsr82_free_L2capPSMIndex:%08x, %d                                     b=3
+c4c  JSR82 LINK CON CNF: Get L2CAP PSM Index;%02x                             b=3
+c83  (session teardown)
+```
+
+**The PSM-index hypothesis is dead.** `bt_jsr82_get_L2capPSMIndex` walks the
+table (`JSR82_MAX_PSM_NO = 10`), finds its entries, and `0xc4c` reports index
+**3** — a perfectly valid slot. Nothing fails to allocate.
+
+It also corrects an identification made earlier in this file: `0x45628` is not
+the index lookup. It logs `0xc92` at its own entry, so it is
+`BT_JSR82_Disable_Service` — deregister-channel plus `free_L2capPSMIndex`. In
+other words the whole `0xc4c` branch is the **cleanup path**: by the time it
+runs the decision to fail has already been taken, it releases the PSM entry and
+then raises event 5 with status 2.
+
+So the verdict really is the branch at `0x47eb4` on `[channel + 0x84]`, one
+step earlier, exactly where this file placed it — but the branch is
+"proceed to *Try Open L2cap Chnl with cid*" (`0xc4d`) versus "tear down", not
+"inbound versus outbound success". The remaining question is narrow and
+concrete: **what is supposed to set `channel+0x84` for a client channel, and
+why is it still 0 when the channel has already reached L2CAP open state?**
+
+### What the headers say about the client role
+
+From the public MTK headers and the Blue SDK `l2cap.h` (see the research links
+above):
+
+- `BT_JSR82_L2CAP_PSM_struct_t` carries `used`, `used_no` (a refcount) and
+  `client_server`, and the get/free pair is
+  `bt_jsr82_get_L2capPSMIndex(channel, mtu, security_level, client_server)` /
+  `bt_jsr82_free_L2capPSMIndex(channel, security_level, client_server)`. The
+  free takes no `mtu`, so identity is `(channel, security, role)` and `mtu` is
+  only a creation-time value written into `L2capPsm.localMtu` — the mtu smuggle
+  is therefore *not* corrupting the lookup.
+- Blue SDK requires a registered `L2capPsm` even for a purely outgoing channel,
+  and provides `#define BT_CLIENT_ONLY_PSM 0x0000` for exactly that — "PSMs of
+  this type cannot receive a connection. Only clients establishing outbound
+  L2CAP connections can use it." MediaTek's context has a matching
+  `L2capPsm dummyL2capPsm` with a `BTJSR82_L2CapDummyCallback`.
+- `L2CAP_ConnectReq(protocol, psm, ...)` takes the remote PSM as its own
+  argument; `mtu` never influences which PSM is dialed.
+
+### A cleaner alternative to the mtu smuggle (untested)
+
+Reading the request builder at `0x6bd84`, the message layout is `+0x04` bdaddr,
+`+0x0a` ps_type, `+0x0c` mtu, `+0x0e` channel, `+0x10` identify, `+0x14`
+security. Nothing ever reads `+0x0e` — that is the dropped channel this file
+identified at the very beginning. The current fix instead hijacks the mtu field,
+which leaves `ctx+0x20` zero and sets `localMtu` to 4097 against a JSR82 layer
+whose `JSR82_SESSION_PS_L2CAP_MTU` is 339.
+
+So a tidier patch is to read the field that was meant to carry it:
+
+```
+0x6be12: ldrh r0,[r4,#0xc]  ->  ldrh r0,[r4,#0xe]     (ctx+0x26 := msg->channel)
+```
+
+which keeps the existing `0x6c4e0` patch and makes the HAL patch unnecessary.
+It does not by itself fix `channel+0x84`, so it is a tidy-up, not the fix —
+worth doing only alongside whatever resolves the real gate.
