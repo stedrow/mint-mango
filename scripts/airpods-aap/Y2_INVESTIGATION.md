@@ -274,9 +274,59 @@ request that reaches the air comes from the *stock* profile paths, not ours),
 and why forcing success produced a socket with no data (the session was already
 deinitialised).
 
+### Confirmed by trace ids, and how far the patches get
+
+Hooking the leveled `kal_trace` helper too (same script logs `MTKID kal id=...`)
+names the branch taken. A connect logs **`id=15a`** and neither `0x28d` nor
+`0x25e`, which in `ME_CreateLink` is exactly this exit:
+
+```c
+InsertTailList(dev + 0xd4, param_1);
+if (dev[0xfe] != 3) { dev[0x11a] = 1; return 2; }   // <- taken
+```
+
+`2` means "pending, wait for the link". mtkbt's device record is not in state 3
+(connected) even though A2DP is streaming, and the JSR82 layer treats the 2 as
+failure and tears the session down in the same millisecond. The L2CAP machinery
+below keeps running afterwards, which is why a channel still appears on the wire
+and then leaks.
+
+`y2_link_state_test.sh` forces that comparison to match (`cmp r0,#3` ->
+`cmp r0,r0`). With it, the flow changes completely and now does real work
+(~90ms instead of same-millisecond):
+
+```
+CMGR Connected
+l2cap: remote psm:0x1001 outMode:1 inMode:1
+L2Cap: ConnectReq r-psm:0x1001
+l2cap conn_rsp result:1        (pending)
+l2cap conn_rsp result:0        (success)
+LLC_CONFIG_REQ ... handleconfigrsp result:0
+l2cap: enter open state        <- the AAP channel is fully open
+```
+
+The channel opens, then JSR82 logs trace `0xc83` -- case 5 of its event
+dispatcher, the channel-connected notification -- and disconnects the session
+anyway. Adding `y2_force_session_ok.sh` on top (which patches exactly that case)
+finally yields `msg->result:01` and **`AAP L2CAP connected`** with the session
+staying alive rather than dying of `EBADF`, because this time the channel under
+it is real.
+
+**Still missing: no AAP data.** No ear-detection notifications arrive on the open
+channel, so the launcher gains nothing yet. Either the handshake bytes in
+`AapService.sessionLoop()` are not what this firmware expects, or the writes
+never reach the channel (the session context that JSR82 hands back is the same
+one it had just decided to disconnect). That is the next thing to check, and the
+trace tooling now shows both sides of it.
+
 ### Next step
 
-Find why `ME_CreateLink` refuses when the link is already up. Likely candidates,
+Find why `ME_CreateLink` refuses when the link is already up -- the state byte at
+`dev+0xfe` is stale for a device whose ACL was established by the other stack.
+Forcing the compare is a blunt instrument: `ME_CreateLink` is core Management
+Entity code used by every profile, so the proper fix is either to correct that
+state when an ACL already exists, or to make the JSR82 caller honour `2` as
+"pending" and wait for the callback instead of tearing down. Likely candidates,
 in order of cheapness: the JSR82 connect path may need to *reuse* the existing
 CMGR handler (there is an `ME_FindRemoteDeviceP` hit right before the teardown,
 so the device is found -- the question is what it does with a device already in

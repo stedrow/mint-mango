@@ -85,6 +85,12 @@ import struct, sys
 CAVE = 0x105e64   # mapped, executable, zeroed tail of the LOAD1 page
 SINK = 0x72548    # original trace sink
 CALL = 0x7283c    # the sink call inside the plain-text trace helper
+# The *leveled* helper (kal_trace) carries only a numeric trace id, which is
+# enough to name which branch of a vendor function ran -- e.g. ME_CreateLink's
+# exits use distinct ids (0x15a "found, pending", 0x28d "found, refused",
+# 0x25e, 0x114 "new device"). Hook its entry and log the id.
+LVL  = 0x729ac    # leveled trace helper entry
+CAVE2 = 0x105e94  # second thunk, right after the first
 # The helper is gated: it formats and emits nothing unless two globals are clear,
 # which they are not on this build -- that is why its traces never appear
 # anywhere. Both guard branches are nop'd so the body always runs.
@@ -181,6 +187,33 @@ else:
     d[CAVE:CAVE + len(thunk)] = thunk
     d[CALL:CALL + 4] = branch(CALL, CAVE, True)
     print("   thunk %d bytes at %#x, call at %#x redirected" % (len(thunk), CAVE, CALL))
+    # --- second thunk: log every kal_trace id ------------------------------
+    # The entry's first two instructions are plain register pushes, so they can
+    # be relocated into the thunk and the hook branches back after them.
+    t2 = bytearray()
+    t2 += struct.pack('<HH', 0xE92D, 0x500F)   # push.w {r0-r3, r12, lr}
+    t2 += struct.pack('<H', 0x460B)            # mov  r3, r1        (trace id)
+    t2 += adr(2, CAVE2 + len(t2), CAVE2 + 0x2c)   # adr r2, "kal id=%x"
+    t2 += adr(1, CAVE2 + len(t2), CAVE2 + 0x24)   # adr r1, "MTKID"
+    t2 += struct.pack('<H', 0x2003)            # movs r0, #3
+    t2 += struct.pack('<HH', 0xBF00, 0xBF00)   # nops: BLX(imm) resolves against
+    assert len(t2) == 0x10, hex(len(t2))       #   Align(PC,4), so keep it aligned
+    t2 += blx_imm(CAVE2 + len(t2), PLT)        # blx __android_log_print
+    t2 += struct.pack('<HH', 0xE8BD, 0x500F)   # pop.w {r0-r3, r12, lr}
+    t2 += struct.pack('<H', 0xB40C)            # push {r2, r3}        (relocated)
+    t2 += struct.pack('<HH', 0xE92D, 0x4FF0)   # push.w {r4-r11, lr}  (relocated)
+    t2 += branch(CAVE2 + len(t2), LVL + 6, link=False)   # b.w back past them
+    assert len(t2) == 0x22, hex(len(t2))
+    t2 += b'\0\0'
+    t2 += b'MTKID\0\0\0'                      # tag @ CAVE2+0x24
+    t2 += b'kal id=%x\0\0\0'                  # fmt @ CAVE2+0x2c
+    if any(b != 0 for b in d[CAVE2:CAVE2 + len(t2)]):
+        sys.exit("ERROR: the second cave at %#x is not free." % CAVE2)
+    d[CAVE2:CAVE2 + len(t2)] = t2
+    d[LVL:LVL + 4] = branch(LVL, CAVE2, link=False)
+    d[LVL + 4:LVL + 6] = struct.pack('<H', 0xBF00)
+    print("   id-trace thunk %d bytes at %#x, entry %#x hooked" % (len(t2), CAVE2, LVL))
+
     for off, (stock, patch) in sorted(GATES.items()):
         stock_b, patch_b = bytes.fromhex(stock), bytes.fromhex(patch)
         if bytes(d[off:off + len(stock_b)]) == patch_b:
