@@ -101,9 +101,136 @@ public class AudioPlayerManager {
     }
 
     private void applyPlayerVolumeState() {
-        float vol = speakerMuted ? 0f : 1f;
+        float vol = speakerMuted ? 0f : (duckedForFocus ? 0.3f : 1f);
         if (exoPlayer != null) exoPlayer.setVolume(vol);
         if (legacyPlayer != null) legacyPlayer.setVolume(vol, vol);
+    }
+
+    // --- Audio focus -------------------------------------------------------
+    // Without this the app never announced itself to the system: on 4.x the
+    // media-button dispatch order is driven by the audio-focus stack, so the
+    // only reason the AirPods' buttons reached us was that nothing else was
+    // competing. Requesting focus both fixes that and makes us behave when
+    // something else (an alarm, a call) wants the speaker.
+
+    private boolean hasAudioFocus = false;
+    private boolean pausedByFocusLoss = false;
+    private boolean duckedForFocus = false;
+
+    private AudioManager audioManager() {
+        MainActivity main = MainActivity.instance;
+        if (main == null) return null;
+        return (AudioManager) main.getSystemService(android.content.Context.AUDIO_SERVICE);
+    }
+
+    private final AudioManager.OnAudioFocusChangeListener focusListener =
+            new AudioManager.OnAudioFocusChangeListener() {
+        @Override
+        public void onAudioFocusChange(int change) {
+            switch (change) {
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    // Someone else owns the speaker now, indefinitely. Give up the
+                    // focus too, and don't arm an auto-resume: coming back on our
+                    // own after an unrelated app took over is the wrong behaviour.
+                    hasAudioFocus = false;
+                    pausedByFocusLoss = false;
+                    pauseForFocus();
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                    pausedByFocusLoss = isPlaying();
+                    pauseForFocus();
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                    duckedForFocus = true;
+                    applyPlayerVolumeState();
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                    hasAudioFocus = true;
+                    AudioManager am = audioManager();
+                    if (am != null) reclaimMediaButtons(am);
+                    if (duckedForFocus) {
+                        duckedForFocus = false;
+                        applyPlayerVolumeState();
+                    }
+                    if (pausedByFocusLoss) {
+                        pausedByFocusLoss = false;
+                        resumeAfterFocus();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    };
+
+    /**
+     * Claims audio focus if we don't already hold it. Called from the paths that
+     * begin playback; cheap and idempotent, so calling it on every start is fine.
+     */
+    public void requestAudioFocus() {
+        if (hasAudioFocus) return;
+        AudioManager am = audioManager();
+        if (am == null) return;
+        int result = am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN);
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        if (!hasAudioFocus) {
+            android.util.Log.i(TAG, "audio focus request denied (" + result + ")");
+            return;
+        }
+        reclaimMediaButtons(am);
+    }
+
+    /**
+     * Re-registers the media-button receiver. On 4.x the last registrant wins, so
+     * another media app can quietly take the AirPods' buttons away from us and
+     * nothing would ever hand them back -- registration happened once in
+     * onCreate() and was never renewed. Taking focus is the natural moment to
+     * take the buttons back with it.
+     */
+    private void reclaimMediaButtons(AudioManager am) {
+        MainActivity main = MainActivity.instance;
+        if (main == null || main.mediaButtonReceiver == null) return;
+        try {
+            am.registerMediaButtonEventReceiver(main.mediaButtonReceiver);
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "could not re-register the media button receiver", t);
+        }
+    }
+
+    public void abandonAudioFocus() {
+        AudioManager am = audioManager();
+        if (am != null) am.abandonAudioFocus(focusListener);
+        hasAudioFocus = false;
+        pausedByFocusLoss = false;
+        if (duckedForFocus) {
+            duckedForFocus = false;
+            applyPlayerVolumeState();
+        }
+    }
+
+    /** Pause without touching isPausedByHand -- this wasn't the user's doing. */
+    private void pauseForFocus() {
+        if (!isPlaying()) return;
+        saveAudiobookBookmarkIfNeeded();
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.pause();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(false);
+        }
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
+    }
+
+    private void resumeAfterFocus() {
+        if (isPlaying()) return;
+        // Never fight a deliberate pause, the same rule resumeForAirpods() follows.
+        if (MainActivity.instance != null && MainActivity.instance.isPausedByHand) return;
+        if (isUsingLegacyPlayer && legacyPlayer != null) {
+            legacyPlayer.start();
+        } else if (exoPlayer != null) {
+            exoPlayer.setPlayWhenReady(true);
+        }
+        if (MainActivity.instance != null) MainActivity.instance.updatePlayerUI();
     }
 
     private AudioPlayerManager() {}
@@ -276,6 +403,7 @@ public class AudioPlayerManager {
     }
 
     public void playTrackList(List<File> list, int index) {
+        requestAudioFocus();
         isNavidromeMode = false;
         isNavidromeStreaming = false;
         updateNavidromeStreamLock(); // leaving Navidrome — let go of the stream WiFi lock
@@ -317,6 +445,7 @@ public class AudioPlayerManager {
     }
 
     public void playTrackListWithOffset(List<File> list, int index, int offsetMs) {
+        requestAudioFocus();
         if (offsetMs > 0) oneShotResumeOffsetMs = offsetMs;
         playTrackList(list, index);
         if (offsetMs > 0) {
@@ -372,6 +501,7 @@ public class AudioPlayerManager {
 
     public void playOrPauseMusic() {
         if (CastManager.getInstance().isCasting()) { CastManager.getInstance().togglePlayPause(); return; }
+        requestAudioFocus();
         pausedByAirpods = false; // any manual toggle cancels a pending AirPods auto-resume
 
         // Nothing loaded yet this session (e.g. right after a cold start) but a track was
@@ -446,6 +576,7 @@ public class AudioPlayerManager {
     public void resumeForAirpods() {
         if (!pausedByAirpods) return;
         pausedByAirpods = false;
+        requestAudioFocus();
         if (isPlaying()) return;
         if (isUsingLegacyPlayer && legacyPlayer != null) {
             legacyPlayer.start();
@@ -1134,6 +1265,7 @@ public class AudioPlayerManager {
     }
 
     public void playNavidromeSong(Context context, com.themoon.y1.subsonic.SubsonicSong song, String streamUrl) {
+        requestAudioFocus();
         // Backstop, not the primary guard: playNavidromeAlbum already checks
         // CastManager.isCasting() before reaching here (and sets isNavidromeMode itself, since
         // this method's own flip below never runs in that case). If a future caller forgets that
@@ -1296,6 +1428,7 @@ public class AudioPlayerManager {
     }
 
     public void releasePlayer() {
+        abandonAudioFocus();
         isNavidromeStreaming = false;
         NavidromeManager.getInstance().releaseNavidromeStreamLocks();
         if (exoPlayer != null) { exoPlayer.release(); exoPlayer = null; }
