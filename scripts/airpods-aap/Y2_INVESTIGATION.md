@@ -1598,3 +1598,38 @@ mtu smuggle that earlier versions needed is gone, so `localMtu` is correct and
   ACK-gating (LibrePods' Android client does this because the AirPods sometimes
   ignore the first one, and its `FEATURES_ACK` is annotated "only tested with
   AirPods Pro 2"). Not needed on this run, but it is free robustness.
+
+## Measured: sub-second pause, first try
+
+With `y2_aap_l2cap_fix.sh` and the `AapService` source-arbitration fix, on-device
+with music playing:
+
+```
+18:42:06.497  AAP rx 0400040006000001   AAP-L2CAP ear primary=0 secondary=1   right out -> pause
+18:42:08.366  AAP rx 0400040006000000   AAP-L2CAP ear primary=0 secondary=0   right in  -> resume
+18:42:10.111  AAP rx 0400040006000100   AAP-L2CAP ear primary=1 secondary=0   left out  -> pause
+18:42:11.932  AAP rx 0400040006000000   AAP-L2CAP ear primary=0 secondary=0   left in   -> resume
+```
+
+The ear event is logged in the same millisecond as the packet that carried it,
+for both buds and both directions, on the first removal. That is the goal this
+whole investigation existed for: the BLE advert route was ~5s, bounded by
+bluedroid observing ~11ms per 1.28s window and unchangeable from the KitKat API.
+
+### The app-side bug the first test exposed
+
+`handleEarDetectionForAutoPause` swallows any transition whose `source` differs
+from the previous one, to stop a *different* pair of AirPods hijacking the
+state. But the BLE advert route and the L2CAP session are two different sources
+for the *same* pair, so they alternated and cancelled each other -- the first
+couple of removals took seconds to pause before the stream settled. Fixed by
+making the L2CAP session authoritative while it is live:
+
+```java
+if (activeSocket != null && !AAP_L2CAP_SOURCE.equals(source)) return;
+```
+
+The BLE scan still runs and still supplies battery and model, it just no longer
+drives auto-pause when the faster source is available. Confirmed on-device: a
+BLE advert arrived 149ms before the L2CAP event in the trace above and did not
+disturb the state machine.
