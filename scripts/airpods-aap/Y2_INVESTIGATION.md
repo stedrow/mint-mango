@@ -1487,3 +1487,65 @@ connect and not in the AAP payload. Candidates:
 Next: trace inside `BT_JSR82_sendToL2Cap` past the `get bytes` point, and find
 what the server/RFCOMM path does after `fetchTxPacket` that the L2CAP client
 path does not. `L2CAP_Send`'s return value is the thing to capture.
+
+## Why the handshake never reaches the air: L2CAP_Send is called with cid 0
+
+Hooking `L2CAP_Send`'s return (`0x47a7a`, tag `MTKSND`) gave `L2CAP_Send=1`
+(`BT_STATUS_FAILED`) — and the caller only accepts **2** (`BT_STATUS_PENDING`):
+
+```
+47a76: bl   0x88d98        ; L2CAP_Send
+47a7a: cmp  r0, #2         ; PENDING == success
+47a7c: beq  0x47af4
+47a7e: ...                 ; anything else -> put the packet back, drop it
+```
+
+That is the third place in this stack where `PENDING` is the success value.
+
+`L2CAP_Send` (`0x88d98`) has three failure exits. The packet-flags `tst r3,#0xf6`
+passes (the caller sets flags to 1), and the exit that logs
+`"L2CAP_SendData state:%d return:%d"` never appears in the capture — so the
+failure is the CID lookup (`0x8e9f0`) returning NULL. Logging the CID confirmed
+it outright:
+
+```
+MTKSND  L2CAP_Send cid=0
+```
+
+while the channel's real CID is `0x43` (`l2cap Channel psm:0x1001 ... cid:0x43`),
+and `bt_jsr82_AddCreateL2capToContext():l2cap_id=0x43` had already stored it in
+`l2capCtx.l2capLocalCid`.
+
+### Where the zero comes from
+
+The CID travels in the TX request message, not from `l2capCtx`:
+
+```
+481d8: ldrb r0, [r4, #0x05]   ; session index
+481da: ldrh r1, [r4, #0x06]   ; the CID  <- 0 for our session
+481dc: bl   0x47fdc           ; BT_JSR82_TX_REQ  (trace c96)
+...
+4803c: ldrb r3, [r4, #0x0a]   ; ps_type
+48040: cmp  r3, #1
+48044: b.w  0x47424           ; RFCOMM sender
+4804c: mov  r1, r7            ; L2CAP: pass the message's CID through
+48052: b.w  0x479a8           ; L2CAP sender -> L2CAP_Send(cid, packet)
+```
+
+So `msg+0x06` is never populated on the client L2CAP path — the same species of
+omission as the `l2capCtx.channel` pointer found earlier. RFCOMM does not care
+because its sender takes a different route.
+
+**Candidate fix (not yet built):** at `0x4804c`, instead of
+`mov r1, r7`, source the CID from the session's own context — `r4` already holds
+the session record there (`mla r4, #0x1a0, r4, r6` at `0x48038`), so
+`ldr r0,[r4,#0x30]` gives `session_buffer` and `ldrh r1,[r0,#0x2f6]` gives
+`l2capCtx.l2capLocalCid`. That is the value `AddCreateL2capToContext` already
+stores, and it is only reached on the `ps_type != RFCOMM` branch, so RFCOMM is
+untouched.
+
+Worth doing at the same time: `AapService` should re-send the handshake at 0,
++200 ms and +5 s rather than waiting for an ACK. LibrePods' Android client does
+exactly that because the AirPods sometimes ignore the first handshake, and its
+`FEATURES_ACK` constant is annotated "only tested with AirPods Pro 2" — so an
+ACK-gated state machine can stall on newer models.
