@@ -42,10 +42,21 @@ public class AapService extends Service {
             0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
+    // Byte-for-byte from LibrePods (linux/airpods_packets.h, Connection namespace),
+    // which is the reference implementation for this protocol. The previous value
+    // here was both a byte short and had 0xFE where the fifth mask byte should be
+    // 0xFF, so the AirPods simply ignored it and never sent notifications.
     private static final byte[] AAP_ENABLE_NOTIFICATIONS = {
             0x04, 0x00, 0x04, 0x00, 0x0F, 0x00,
-            (byte) 0xFF, (byte) 0xFF, (byte) 0xFE, (byte) 0xFF
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
     };
+    /** Sent between the handshake and the notification request, as LibrePods does. */
+    private static final byte[] AAP_SET_SPECIFIC_FEATURES = {
+            0x04, 0x00, 0x04, 0x00, 0x4D, 0x00, (byte) 0xD7,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    /** The AirPods' reply to the handshake; the rest of the sequence follows it. */
+    private static final byte[] AAP_HANDSHAKE_ACK = {0x01, 0x00, 0x04, 0x00};
     private static final byte[] MAGIC = {0x04, 0x00, 0x04, 0x00};
 
     private static final int OPCODE_BATTERY = 0x0004;
@@ -473,12 +484,10 @@ public class AapService extends Service {
 
         out.write(AAP_HANDSHAKE);
         out.flush();
-        Thread.sleep(500);
-        out.write(AAP_ENABLE_NOTIFICATIONS);
-        out.flush();
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] readBuf = new byte[1024];
+        boolean sentFollowUp = false;
         while (shouldRun) {
             int n = in.read(readBuf);
             if (n < 0) {
@@ -486,6 +495,17 @@ public class AapService extends Service {
                 return;
             }
             if (n == 0) continue;
+            Log.d(TAG, "AAP rx " + n + " bytes: " + hexPrefix(readBuf, n));
+            if (!sentFollowUp && startsWith(readBuf, n, AAP_HANDSHAKE_ACK)) {
+                // Wait for the ack rather than guessing a delay: the pods ignore
+                // anything sent before they have acknowledged the handshake.
+                sentFollowUp = true;
+                out.write(AAP_SET_SPECIFIC_FEATURES);
+                out.flush();
+                out.write(AAP_ENABLE_NOTIFICATIONS);
+                out.flush();
+                Log.i(TAG, "AAP handshake acked; requested notifications");
+            }
             buffer.write(readBuf, 0, n);
             drainPackets(buffer);
         }
@@ -540,6 +560,25 @@ public class AapService extends Service {
             }
             buffer.write(remainder, 0, remainder.length);
         }
+    }
+
+    private static boolean startsWith(byte[] data, int len, byte[] prefix) {
+        if (len < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) return false;
+        }
+        return true;
+    }
+
+    /** First bytes of a packet as hex, for working out what the pods actually send. */
+    private static String hexPrefix(byte[] data, int len) {
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(len, 24);
+        for (int i = 0; i < limit; i++) {
+            sb.append(String.format("%02x", data[i] & 0xFF));
+        }
+        if (len > limit) sb.append("...");
+        return sb.toString();
     }
 
     private static int indexOfMagic(byte[] data, int from) {
