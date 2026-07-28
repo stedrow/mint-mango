@@ -1302,3 +1302,68 @@ Suggested isolation, one reboot each: install `0x47ed4` **alone** on otherwise
 stock mtkbt (no PSM patch, no trace thunks) and check `init.svc.mtkbt`. If it
 still dies, dump the bytes around `0x47ec0..0x47ef0` from the live binary and
 re-derive the instruction boundaries rather than trusting the sweep.
+
+## Isolation result: the status literal is right, but it is not sufficient
+
+Two experiments settled the "the patch stops the daemon" question, and the
+answer is neither of the two guesses in the section above.
+
+1. **`0x47ed4` alone on otherwise-stock mtkbt: the daemon runs.** So the patch
+   does not break startup, and the instruction boundaries are fine —
+   `0x47ed0` reads `28 46 | 05 21 | 02 22 | 13 e0`, exactly
+   `mov r0,r5 / movs r1,#5 / movs r2,#2 / b`, all 2-byte aligned.
+2. **PSM fix + `0x47ed4`, no trace thunks: `init.svc.mtkbt` is `stopped` after
+   boot — and `/data/tombstones` holds a fresh SIGSEGV timestamped to the exact
+   second of the AAP connect attempts.**
+
+`mtkbt` is a `oneshot` init service, so a crash at *any* point looks identical
+to "never started" via `getprop`. It was never a startup problem: the daemon
+dies on the first AAP connect and init never brings it back, which then takes
+Bluetooth and audio down with it. **Always check `/data/tombstones` before
+concluding a patch prevented startup.**
+
+The tombstone:
+
+```
+pid: 156, name: mtkbt  >>> /system/bin/mtkbt <<<
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 00000024
+    r2 00000000   r5 00000001   r8 00000005
+backtrace:
+    #00  pc 000450fe  /system/bin/mtkbt
+    #01  pc 00047f01  /system/bin/mtkbt      <- the bl at 0x47f00
+```
+
+`#01` is the raise call, and `0x450fe` is inside the event-5 block of the
+raiser `0x450a0`:
+
+```
+450f6: cmp   r5, #1            ; r5 is the status argument we changed
+450f8: bne   0x45104
+450fa: ldr.w r2, [r6, #0x2f8]  ; r6 = ctx->[+0x30]; this is NULL for a client
+450fe: ldrh  r3, [r2, #0x24]   ; SIGSEGV, fault addr 0x24
+```
+
+So the raiser has a **status-1-only branch** that reaches through
+`[r6 + 0x2f8]` to copy a halfword at `+0x24` into the event. With status 2 that
+branch is skipped, which is why the stock firmware never crashes here. With
+status 1 it runs and dereferences a pointer the client path never populated.
+
+**This is the strongest evidence yet that the diagnosis is right and the fix is
+incomplete.** The hardcoded 2 is not an arbitrary lie — it is load-bearing,
+because the success path depends on state that MediaTek's client flow never
+sets up. The header names the missing step: `bt_jsr82_AddCreateL2capToContext`
+(client) versus `bt_jsr82_AddNewL2capToContext` (server). Something equivalent
+to the former has to run — attaching the opened channel to the session context
+— before an event-5 status 1 can be raised safely.
+
+### Next steps
+
+- Identify what `ctx->[+0x30] + 0x2f8` points at, and which function populates
+  it on the *server* path. That is the state the client path is missing.
+  `0x450a8` (`ldr r6,[r0,#0x30]`) gives the base; find the writer of `+0x2f8`.
+- Only then consider raising status 1, and expect to have to populate that
+  pointer first — or to jump to whatever the server path does after
+  `bt_jsr82_AddNewL2capToContext`.
+- Reminder for whoever tests: `AapService` gives up after
+  `MAX_BOOTSTRAP_ATTEMPTS`, so a single boot only ever produces about three
+  connect attempts.
