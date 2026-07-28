@@ -779,3 +779,31 @@ and it does get the channel open. The honest options:
    mtkbt's ME for that link, the two-stack explanation is confirmed.
 
 Option 3 is cheap and decides between 1 and 2.
+
+### Option 3 result: ME is not blind to the ACL
+
+Ran the trace patch alone and connected audio. ME clearly *does* process the
+link: `MeCallLinkHandlers` three times, plus `MeDevEventHandler 9` and `99`. So
+the "mtkbt's ME never sees this ACL" theory is **wrong** -- discard it.
+
+What is missing is narrower: no `kal id=9d`, and the AirPods' BR/EDR address
+(`0xA4,0xFC,0x77,...`) never appears in the whole capture -- while the log is
+full of their *BLE* advert traffic (`BTEVENT_INQUIRY_RESULT`, `BLE adv report of
+dual mode device`, `devType is LE and COD is 0`).
+
+New hypothesis, better supported: there are two device records for the AirPods --
+one created/refreshed by BLE advert handling, one for the BR/EDR link -- and
+`ME_FindRemoteDeviceP` inside `ME_CreateLink` matches the LE one, which never has
+a BR/EDR link state and so never equals 3. Note the launcher itself runs a
+continuous LE scan for ear detection, which keeps that LE record constantly
+refreshed, so this is self-inflicted and testable.
+
+Next, in order of cheapness:
+
+1. Log the record pointer and `dev+0xfe` from both sites -- `ME_CreateLink`'s
+   lookup and the connection-complete handler `FUN_000a94c8` -- and compare. If
+   the pointers differ, the duplicate-record theory is confirmed outright.
+2. Stop the launcher's BLE scan (or run AapService with ear detection disabled)
+   and retry the L2CAP connect. If it then succeeds unpatched, the LE scan is
+   what poisons the lookup, and the fix may be as simple as not scanning while
+   connecting.
