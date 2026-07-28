@@ -330,10 +330,30 @@ packets were checked against LibrePods and the notification request was wrong
 now fixed along with the missing SET_SPECIFIC_FEATURES and an ack-driven
 sequence. So the remaining suspect is the dead session context.
 
-### Next step
+### Next step: the state machine, located
 
-Find why `ME_CreateLink` refuses when the link is already up -- the state byte at
-`dev+0xfe` is stale for a device whose ACL was established by the other stack.
+The link-state byte lives at `dev+0xfe` in the ME device record. Its writers were
+enumerated (`strb.w rX, [rY, #0xfe]`, note objdump separates mnemonic and
+operands with a tab -- a space-only regex silently finds nothing):
+
+```
+0x99538: movs r1, #3      0x9953a: strb.w r1, [r5, #0xfe]   <- "connected"
+0x991e8: movs r2, #4      0x991ec: strb.w r2, [r4, #0xfe]
+0x94b32: movs r3, #0      0x94b34: strb.w r3, [r5, #0xfe]
+0x981fa, 0x992c6, 0x99580, 0x99f72, 0x9a5b8: further transitions
+```
+
+So the transition to 3 exists and simply never runs for the ACL our AirPods are
+already using. Decompile the function containing `0x99538` (it should be the
+connection-complete / link-up handler) and find out why: most likely it updates a
+different device record than the one `ME_FindRemoteDeviceP` returns to
+`ME_CreateLink`, or it is only reached for links this stack itself initiated.
+Fixing it there -- so the record honestly reflects an established ACL -- is the
+correct change, and it makes `y2_link_state_test.sh`'s blunt compare patch
+unnecessary.
+
+Older note: find why `ME_CreateLink` refuses when the link is already up -- the
+state byte at `dev+0xfe` is stale for a device whose ACL was established by the other stack.
 Forcing the compare is a blunt instrument: `ME_CreateLink` is core Management
 Entity code used by every profile, so the proper fix is either to correct that
 state when an ACL already exists, or to make the JSR82 caller honour `2` as
