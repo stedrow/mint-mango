@@ -93,10 +93,7 @@ public class MainActivity extends Activity {
 
     // 🚀 [New] "Wheel lock" to prevent pocket misfires — once the screen turns on (real hardware wake)
     // all button input is ignored until the wheel has been turned a certain number of clicks.
-    // State machine lives in WheelLockManager; this Activity only builds the overlay View tree
     // and routes dispatchKeyEvent()/screen-wake into it.
-    private LinearLayout layoutWheelLockOverlay;
-    private com.themoon.y1.views.WheelLockRingView wheelLockRing;
 
     // 🚀 [New] Direct-shortcut back-navigation return-path tracker!
     public int backTargetForPlayer = STATE_BROWSER;
@@ -736,8 +733,6 @@ public class MainActivity extends Activity {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
                 autoManageWifiPower(false); // 🚀 [Exiting power-saving mode]
-                if (com.themoon.y1.managers.WheelLockManager.getInstance().isEnabled())
-                    com.themoon.y1.managers.WheelLockManager.getInstance().activate();
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -1078,54 +1073,6 @@ public class MainActivity extends Activity {
         // 🚀 [End of addition!]
 
         // 🚀 [New] Wheel-lock overlay — safely ignores accidental button presses inside a pocket!
-        layoutWheelLockOverlay = new LinearLayout(this);
-        layoutWheelLockOverlay.setOrientation(LinearLayout.VERTICAL);
-        layoutWheelLockOverlay.setGravity(android.view.Gravity.CENTER);
-        layoutWheelLockOverlay.setBackgroundColor(0xDD000000);
-        layoutWheelLockOverlay.setClickable(true);
-        layoutWheelLockOverlay.setFocusable(true);
-        layoutWheelLockOverlay.setVisibility(View.GONE);
-
-        float wheelLockDensity = getResources().getDisplayMetrics().density;
-        int ringSize = (int) (140 * wheelLockDensity);
-
-        android.widget.FrameLayout wheelLockRingFrame = new android.widget.FrameLayout(this);
-        wheelLockRing = new com.themoon.y1.views.WheelLockRingView(this);
-        android.widget.FrameLayout.LayoutParams ringLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
-        wheelLockRingFrame.addView(wheelLockRing, ringLp);
-
-        TextView tvWheelLockIcon = new TextView(this);
-        tvWheelLockIcon.setText("\uE897"); // Material Icons "lock" glyph — same icon font used everywhere else in the app
-        tvWheelLockIcon.setTextColor(0xFFFFFFFF);
-        tvWheelLockIcon.setTextSize(40);
-        tvWheelLockIcon.setGravity(android.view.Gravity.CENTER);
-        if (materialIconFont == null) {
-            try { materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/MaterialIcons-Regular.ttf"); }
-            catch (Exception e) {
-                Log.d(TAG, "onCreate failed", e);
-            }
-        }
-        if (materialIconFont != null) tvWheelLockIcon.setTypeface(materialIconFont);
-        // Tag it so applyFontToAllViews() (which walks the whole tree and reassigns the app's
-        // regular font to every TextView) skips this one and leaves the icon-font glyph alone
-        tvWheelLockIcon.setTag("icon_font");
-        android.widget.FrameLayout.LayoutParams iconLp = new android.widget.FrameLayout.LayoutParams(ringSize, ringSize);
-        wheelLockRingFrame.addView(tvWheelLockIcon, iconLp);
-
-        layoutWheelLockOverlay.addView(wheelLockRingFrame, new LinearLayout.LayoutParams(ringSize, ringSize));
-
-        TextView tvWheelLockTitle = new TextView(this);
-        tvWheelLockTitle.setText(t("Rotate wheel to unlock"));
-        tvWheelLockTitle.setTextColor(0xFFFFFFFF);
-        tvWheelLockTitle.setTextSize(18);
-        tvWheelLockTitle.setGravity(android.view.Gravity.CENTER);
-        tvWheelLockTitle.setPadding(0, 30, 0, 0);
-        layoutWheelLockOverlay.addView(tvWheelLockTitle);
-
-        root.addView(layoutWheelLockOverlay, new android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        com.themoon.y1.managers.WheelLockManager.getInstance().bindViews(layoutWheelLockOverlay, wheelLockRing);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         // 🚀 [Officially registered with the system] Mounts a receiver so button signals can be received even with the screen off!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
@@ -1234,7 +1181,6 @@ public class MainActivity extends Activity {
         }
 
         try {
-            com.themoon.y1.managers.WheelLockManager.getInstance().setEnabled(prefs.getBoolean("wheel_lock_on_wake", false));
         } catch (Exception e) {
             Log.d(TAG, "onCreate failed", e);
         }
@@ -3189,7 +3135,6 @@ public class MainActivity extends Activity {
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);
-        com.themoon.y1.managers.WheelLockManager.getInstance().cancelPendingReset();
         qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
         doubleClickHandler.removeCallbacks(singleClickRunnable);
         com.themoon.y1.managers.FmRadioUiManager.getInstance().cancelPendingReset();
@@ -3318,10 +3263,27 @@ public class MainActivity extends Activity {
                             && inputDevice.getName() != null
                             && inputDevice.getName().contains("AVRCP");
 
-                    if (!isFromAirpods && !MainActivity.instance.isScreenOffControlEnabled)
-                        return;
-
                     int keyCode = event.getKeyCode();
+
+                    // The wheel-lock setting exists to stop accidental in-pocket
+                    // presses of the *physical* wheel, which arrives as DPAD codes.
+                    // Real transport keys can only come from a headset, so they are
+                    // never gated -- and they must not be, because with the screen
+                    // off getDevice() usually returns null for broadcast key events,
+                    // so the "AVRCP" name check silently fails and every AirPods
+                    // squeeze was being dropped.
+                    boolean isTransportKey = keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                            || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT
+                            || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                            || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY
+                            || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE
+                            || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
+                            || keyCode == 85 || keyCode == 86 || keyCode == 87
+                            || keyCode == 88 || keyCode == 126 || keyCode == 127;
+
+                    if (!isFromAirpods && !isTransportKey
+                            && !MainActivity.instance.isScreenOffControlEnabled)
+                        return;
 
                     // ⏮ Previous track button
                     if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88 || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {

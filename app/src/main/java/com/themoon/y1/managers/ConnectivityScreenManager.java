@@ -144,6 +144,7 @@ public class ConnectivityScreenManager {
                 for (BluetoothDevice device : pairedDevices) {
                     addPairedBluetoothItemToUI(a, device); // Call the UI dedicated to paired devices
                 }
+                addNoiseControlRow(a);
             } else {
                 TextView tvEmpty = new TextView(a);
                 tvEmpty.setText(a.t("No paired devices."));
@@ -183,6 +184,57 @@ public class ConnectivityScreenManager {
         }
 
         restoreBluetoothFocus(a, targetFocusIndex);
+    }
+
+    private static final int[] NOISE_MODES = {
+            com.themoon.y1.AapService.NOISE_OFF,
+            com.themoon.y1.AapService.NOISE_ANC,
+            com.themoon.y1.AapService.NOISE_TRANSPARENCY,
+            com.themoon.y1.AapService.NOISE_ADAPTIVE
+    };
+    private static final String[] NOISE_LABELS = {
+            "Off", "Noise Cancellation", "Transparency", "Adaptive"
+    };
+
+    private static String noiseLabel(int mode) {
+        for (int i = 0; i < NOISE_MODES.length; i++) {
+            if (NOISE_MODES[i] == mode) return NOISE_LABELS[i];
+        }
+        return "--";
+    }
+
+    /**
+     * Noise-control selector for AirPods, shown only while the AAP session is up
+     * -- this setting exists solely over L2CAP, there is no BLE fallback for it.
+     *
+     * The label is rendered from the state the pods reported rather than from
+     * what we last sent, so a mode changed on the bud itself (or from a phone)
+     * shows up here correctly.
+     */
+    private void addNoiseControlRow(final MainActivity a) {
+        if (!com.themoon.y1.AapService.isConnected()) return;
+        com.themoon.y1.AapService.AapState st = com.themoon.y1.AapService.getLastState();
+        final LinearLayout row = a.createSettingRow(a.t("Noise Control"), a.t(noiseLabel(st.noiseMode)));
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                int current = com.themoon.y1.AapService.getLastState().noiseMode;
+                int idx = 0;
+                for (int i = 0; i < NOISE_MODES.length; i++) {
+                    if (NOISE_MODES[i] == current) { idx = i; break; }
+                }
+                int next = NOISE_MODES[(idx + 1) % NOISE_MODES.length];
+                if (com.themoon.y1.AapService.setNoiseMode(next)) {
+                    // Optimistic: the pods echo the change back and correct us if
+                    // they disagree (e.g. Adaptive is refused on older models).
+                    ((TextView) row.getChildAt(1)).setText(a.t(noiseLabel(next)));
+                } else {
+                    ((TextView) row.getChildAt(1)).setText(a.t("--"));
+                }
+            }
+        });
+        a.containerBtItems.addView(row);
     }
 
     @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install

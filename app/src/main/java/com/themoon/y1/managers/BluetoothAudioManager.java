@@ -28,7 +28,7 @@ import java.util.List;
  * globalA2dp/targetDeviceForAudio/isBtConnectingState state directly.
  *
  * Uses MainActivity.instance for the handful of UI callbacks (Toast, status icon, translator)
- * the engine needs mid-flow, the same load-bearing pattern WheelLockManager uses -- this class
+ * the engine needs mid-flow, the same load-bearing pattern the other managers use -- this class
  * doesn't need enough of MainActivity's surface to justify the heavier "MainActivity a" parameter
  * pattern FmRadioUiManager/KeyEventRouter/SettingsUiManager use.
  *

@@ -182,8 +182,14 @@ public class AapService extends Service {
     private static volatile boolean lastConnected = false;
     /** The running service, so the static setters below can reach its socket. */
     private static volatile AapService instance;
-    /** Gestures to intercept; re-applied on every session, 0 = leave the pods alone. */
-    private static volatile int stemGestureMask = 0;
+    /**
+     * Gestures to intercept; re-applied on every session, 0 = leave the pods
+     * alone. Double-press is on by default so it can be split per bud (right =
+     * next, left = previous), which the buds cannot do themselves. Single press
+     * is deliberately left alone so play/pause keeps working through the normal
+     * media-button path even when this service isn't running.
+     */
+    private static volatile int stemGestureMask = STEM_DOUBLE;
     private static final CopyOnWriteArrayList<StemListener> stemListeners =
             new CopyOnWriteArrayList<StemListener>();
 
@@ -529,6 +535,17 @@ public class AapService extends Service {
 
     @Override
     public void onDestroy() {
+        // Hand the intercepted gestures back before going away. Otherwise the
+        // pods keep withholding double-press for a listener that no longer
+        // exists, and a double squeeze would do nothing at all.
+        if (stemGestureMask != 0 && activeOut != null) {
+            sendControl(CTRL_STEM_GESTURES, 0);
+            try {
+                Thread.sleep(50); // let the queued write reach the socket
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
         if (instance == this) instance = null;
         shouldRun = false;
         stopBleScan();
@@ -877,6 +894,7 @@ public class AapService extends Service {
             for (StemListener l : stemListeners) {
                 l.onStemPress(type, bud);
             }
+            handleStemPress(type, bud);
         } else if (opcode == OPCODE_CONV_AWARENESS) {
             if (len < 10) return;
             // Level ramps rather than toggling; LibrePods' shipping code treats
@@ -891,6 +909,31 @@ public class AapService extends Service {
             Log.d(TAG, "AAP control id=0x" + Integer.toHexString(id) + " value=" + value);
             applyControlValue(id, value);
         }
+    }
+
+    /**
+     * Default gesture mapping: a double squeeze skips forward on the right bud
+     * and back on the left. The pods have no notion of "which bud" for their own
+     * built-in actions, which is the whole reason for intercepting.
+     */
+    private void handleStemPress(int type, int bud) {
+        if (type != PRESS_DOUBLE) return;
+        final boolean forward = bud != BUD_LEFT;
+        // Track changes go through MainActivity and ExoPlayer, so main thread only.
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (forward) {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "stem track change failed", t);
+                }
+            }
+        });
     }
 
     /** Records a setting the pods reported, so the UI reflects changes made elsewhere. */

@@ -40,11 +40,6 @@ public class KeyEventRouter {
     }
 
     public boolean dispatchKeyEvent(MainActivity a, KeyEvent event) {
-        // 🚀 [Wheel lock] Nothing gets through except turning the wheel (DPAD_UP/DOWN) — whatever button
-        // gets pressed and however it happens inside a pocket, it's all absorbed here.
-        if (WheelLockManager.getInstance().isActive()) {
-            return WheelLockManager.getInstance().handleKeyEvent(event);
-        }
         if (a.isFakeScreenOff) {
             int keyCode = event.getKeyCode();
 

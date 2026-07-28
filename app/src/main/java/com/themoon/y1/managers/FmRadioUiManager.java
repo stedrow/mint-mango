@@ -27,7 +27,7 @@ import java.util.Locale;
  * wheel-driven frequency-adjust popup. Extracted from MainActivity's buildRadioUI(),
  * tuneToNextSavedRadioChannel(), updateRadioMainPlayerUI() and showRadioFreqPopup() verbatim.
  *
- * Unlike GaussianBlurManager/WidgetClockManager/WheelLockManager, this subsystem has no clean
+ * Unlike GaussianBlurManager/WidgetClockManager, this subsystem has no clean
  * field boundary of its own -- it reaches into MainActivity's shared settings-page scaffolding
  * (containerSettingsItems, currentSettingsDepth, the loading-popup views, createSettingRow(),
  * etc.) the same way every other Settings sub-page does. Per GOD_ACTIVITY_EXTRACTION.md this
