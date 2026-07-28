@@ -125,7 +125,7 @@ t = bytearray()
 t += struct.pack('<HH', 0xE92D, 0x500F)   # push.w {r0-r3, r12, lr}   (24 bytes)
 t += struct.pack('<H', 0x9B0D)            # ldr  r3, [sp, #0x34]      caller LR
 t += struct.pack('<HH', 0xF894, 0x1022)   # ldrb.w r1, [r4, #0x22]    status byte
-t += struct.pack('<H', 0x69E2)            # ldr  r2, [r4, #0x1c]      session id
+t += struct.pack('<H', 0x6822)            # ldr  r2, [r4]             event id (struct+0)
 t += struct.pack('<H', 0xB406)            # push {r1, r2}             varargs 2,3
 t += adr(2, CAVE + len(t), CAVE + FMT_OFF)
 t += adr(1, CAVE + len(t), CAVE + TAG_OFF)
@@ -140,7 +140,7 @@ t += branch(CAVE + len(t), CALLEE, link=True)              # bl 0x6c308 (relocat
 t += branch(CAVE + len(t), RESUME, link=False)             # b.w back
 assert len(t) == TAG_OFF, hex(len(t))
 t += b'MTKEVT5\0'                         # tag @ CAVE+0x2c
-t += b'evt5 lr=%x st=%x sid=%x\0'         # fmt @ CAVE+0x34
+t += b'evt5 lr=%x st=%x ev=%x\0\0'        # fmt @ CAVE+0x34
 assert len(t) == TOTAL, hex(len(t))
 
 src, dst = sys.argv[1], sys.argv[2]

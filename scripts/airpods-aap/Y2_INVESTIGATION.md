@@ -936,3 +936,119 @@ id under tag `MTKEVT5`.
   during this run. The force-stop of the launcher is a confounder so this is not
   proven to be the cause, but the trace build is a diagnostic, not something to
   leave on.
+
+## The real verdict site, found by tracing (supersedes everything above it)
+
+Two hooks settled this: `y2_evt5_caller_trace.sh` (logs the event-5 handler's
+caller, status byte and event id) and `y2_raise_caller_trace.sh` (logs who calls
+the raiser `0x450a0`, gated on event id 5). Run with `y2_trace_to_logcat.sh` so
+the vendor's own text traces are visible alongside.
+
+**Without the PSM fix** the traces show the failure is not internal at all:
+
+```
+L2Cap: ProcessRsp opcode:0x3() psm:0x0
+l2cap conn_rsp result:2          <- the peer refusing PSM 0
+L2EVENT_DISCONNECTED
+remDev->state:3                  <- the device record IS BDS_CONNECTED
+kal id=c49 -> c83 -> evt5 st=2 -> btadp_jsr82_session_disconnected
+```
+
+So the `msg->result:02` in that configuration is the AirPods' own
+"Refused – PSM not supported" relayed upward. Note `remDev->state:3`: the
+`ME_CreateLink` "returns PENDING because the device record is not in state 3"
+theory does **not** reproduce here. It was a real observation in an earlier
+session but it is not the steady-state failure, and it is not what needs fixing.
+
+**With the PSM fix** the channel opens properly --
+`ConnectReq r-psm:0x1001`, `conn_rsp result:1` (pending), `conn_rsp result:0`
+(success), config exchange both ways, `l2cap: enter open state` -- and the
+session is *still* torn down. The raiser hook names the culprit exactly:
+
+```
+MTKRAIS  raise lr=0x47f04 ev=5 st=2
+MTKEVT5  evt5  lr=0x4518a st=2 ev=5
+[JSR82]btadp_jsr82_session_disconnected
+```
+
+### Why static tagging could never find it
+
+`0x47f04` is the return of the `bl` at `0x47f00`, inside JSR82's L2CAP callback
+`0x47b38`. That call site *looks* like an event-4 raiser -- its own preceding
+instructions are `movs r1,#4 ; mov r2,r4`. But a branch from `0x47ed6` jumps
+**into** it with different arguments already loaded:
+
+```
+47eb0: ldrb.w r1, [r8, #0x84]   ; r8 = L2CAP channel record
+47eb4: cbnz   r1, 0x47ed8       ; inbound  -> trace c4d, raise(ev=4, status=1)
+47eb6: ...                      ; outbound -> trace c4c
+47eca: movs   r2, #1
+47ecc: strb.w r2, [r7, #0x2f4]
+47ed0: mov    r0, r5
+47ed2: movs   r1, #5            ; event 5
+47ed4: movs   r2, #2            ; status 2  <- the fatal literal
+47ed6: b      0x47f00           ; jumps into the "event 4" call site
+47f00: bl     0x450a0
+```
+
+That is why every earlier probe run came back "not it": the tagging patched
+literals adjacent to each `bl`, and this status literal sits 44 bytes away in a
+different basic block. The site was never a distinct raiser to tag.
+
+### What the byte at channel+0x84 means
+
+`0x8e9f0` maps a CID to its channel record (`base + 0x198*(cid-0x40) + 0x50`).
+Two places write `+0x84`:
+
+- `0x8941e` writes **0**, in the function logging
+  `l2cap: remote psm:0x%x outMode:%d inMode:%d` -- the *outgoing* connect setup.
+- `0x8cdd6` writes **1**, in the `L2CapState_CLOSED event:%d` handler, on the
+  events that mean the peer opened the channel.
+
+So `+0x84` is an **inbound flag**, and JSR82's callback reports success only for
+channels the peer initiated. A client-initiated channel is told status 2 no
+matter how cleanly it opened.
+
+Crucially, this whole block is only entered on a *successful* connect:
+`0x47e6e` checks the result halfword at `event+0x02` and diverts to the error
+trace `c4e` otherwise. There is no path here that distinguishes success from
+failure -- the status is simply hardcoded.
+
+**Conclusion: MediaTek's JSR82 session layer never implemented the client side
+of L2CAP.** It completes accepted channels and hardcodes a failure for the ones
+it opens itself. That is one coherent bug that explains the PSM-0 request, the
+relayed refusal, the leaked channels, and the `result:02` that survived every
+downstream patch.
+
+### The candidate fix, and why it is not yet proven
+
+`y2_jsr82_outbound_fix.sh` changes the status literal only:
+
+```
+0x47ed4: 2202 (movs r2,#2)  ->  2201 (movs r2,#1)
+```
+
+Event 5 is already the right message -- it is the connect *confirm* for our own
+request. Forcing the `cbnz` instead would be wrong: event 4 is the connect
+*indication* and its handler `0x6ce0c` looks up a listening session, which an
+outgoing connect does not have.
+
+**Not yet verified end to end.** After installing it, `init.svc.mtkbt` came up
+`stopped` and the daemon never started, so no connect was attempted; the device
+was restored to stock before the cause was found. The binary itself is fine --
+launched by hand from a shell it runs and stays up -- so the two-byte change is
+not what stops it. Most likely the daemon simply was not started by the stack
+that boot; check `getprop init.svc.mtkbt` and toggle Bluetooth before concluding
+anything. **Re-test this before trusting or discarding the patch.**
+
+### Corrections to earlier sections
+
+- The `ME_CreateLink` / `BT_STATUS_PENDING` theory is not the live failure
+  (`remDev->state:3` in every traced run). Leave `y2_link_state_test.sh` alone.
+- The doc's "the status byte lands at +0x22, confirmed in its decompiled case 5"
+  is right; an intermediate reading here that called it wrong was itself wrong,
+  caused by misreading objdump's halfword-swapped display of a `tbb` table.
+  When decoding an inline jump table, read the bytes out of the file, not out of
+  the disassembly listing.
+- `AapService` gives up permanently after `MAX_BOOTSTRAP_ATTEMPTS`; connect
+  attempts only happen if the AirPods are toggled *after* the daemon is up.
