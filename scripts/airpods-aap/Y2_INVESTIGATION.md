@@ -831,3 +831,43 @@ and our connect (look for the other `dev+0xfe` writers, e.g. the `= 4` store at
 `0x991ec`); different pointers means duplicate records after all, just not caused
 by our scanning. The trace thunk already in `y2_trace_to_logcat.sh` is the
 vehicle: extend it to log `r0`/the record pointer at those two call sites.
+
+## What the stack actually is (and why return 2 is not an error)
+
+The symbol names give it away: `ME_CreateLink`, `CMGR_CreateDataLink`,
+`ME_FindRemoteDeviceP`, `BTEVENT_*`, `MeCallLinkHandlers` are **Extended Systems
+"Blue SDK"** (later OpenSynergy) naming, not MediaTek's own. blueangel/mtkbt is a
+derivative of that commercial stack, which is why no MTK BSP dump contains this
+source -- searches for these symbols return nothing because the code is licensed
+from a third party.
+
+That matters because Blue SDK's conventions explain the values we reverse
+engineered:
+
+- `BtStatus`: `BT_STATUS_SUCCESS = 0`, `BT_STATUS_FAILED = 1`,
+  **`BT_STATUS_PENDING = 2`**.
+- `BtDeviceState`: `BDS_DISCONNECTED = 0`, `BDS_OUTCONNECT = 1`,
+  `BDS_INCONNECT = 2`, **`BDS_CONNECTED = 3`**, `BDS_DISCONNECTING = 4`.
+
+So `ME_CreateLink` returning **2 is not a failure at all** -- it is
+`BT_STATUS_PENDING`, the documented "link is being established, expect a
+callback" return. The state byte at `dev+0xfe` is `BtDeviceState`, and the
+handler we decompiled setting 3/4 is setting `BDS_CONNECTED`/`BDS_DISCONNECTING`
+exactly as the SDK intends.
+
+**This relocates the bug.** ME is behaving correctly; the defect is in
+MediaTek's JSR82 ADP layer, which treats `BT_STATUS_PENDING` as fatal and tears
+the session down instead of waiting for the link callback. It also explains why
+forcing the state compare "works" (it converts a pending link into an immediate
+success) and why forcing the session status produced a socket with no data (the
+session was already deinitialised).
+
+The correct fix is therefore in the JSR82 connect path, not in ME: on
+`BT_STATUS_PENDING`, keep the session and wait for the connect callback that ME
+will deliver. `btadp_jsr82_connect_req` (`FUN_0007bd84`, file `0x6bd84`) is where
+the return is consumed, and the teardown it performs is the code to bypass.
+
+Useful for whoever continues: Blue SDK headers (`me.h`, `bttypes.h`,
+`conmgr.h`) circulate in various vendor SDK trees and document these enums and
+the callback contract in full. Matching against them beats further guessing at
+struct offsets.
