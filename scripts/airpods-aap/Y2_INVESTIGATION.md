@@ -1367,3 +1367,64 @@ to the former has to run — attaching the opened channel to the session context
 - Reminder for whoever tests: `AapService` gives up after
   `MAX_BOOTSTRAP_ATTEMPTS`, so a single boot only ever produces about three
   connect attempts.
+
+## Result: the client L2CAP connect works
+
+With `y2_jsr82_client_l2cap_fix.sh` plus the HAL half of `y2_psm_fix.sh`:
+
+```
+I/AapService: AAP connect: calling connect() auth=false encrypt=false bondState=12
+I/AapService: AAP L2CAP connected to 74:77:86:77:FC:A4
+```
+
+**`BluetoothSocket.connect()` returns successfully for the first time in this
+investigation**, `mtkbt` stays alive, and `/data/tombstones` gains no new entry.
+The session survives rather than being torn down in the same millisecond.
+
+That confirms the whole chain end to end: the PSM never reached the wire
+(`y2_psm_fix.sh`), and then JSR82's client path reported its own successful
+connect as a failure because the success branch needed
+`session_buffer->l2capCtx.channel`, which nothing ever populated. Supplying that
+pointer and the success status makes the vendor's own code work.
+
+The public headers confirm the field exactly (`jsr82_session.h`):
+
+```c
+typedef struct _BT_JSR82_L2cap_struct_t {
+    U8              l2cap_con_state;   /* +0x2f4 */
+    U16             l2capLocalCid;     /* +0x2f6 */
+    L2CAP_Channel  *channel;           /* +0x2f8  <- the missing write */
+} BT_JSR82_L2cap_struct_t;
+```
+
+and `r6` is the record context's `U8 *session_buffer`, with `l2capCtx` pushed out
+to ~`0x2f4` by the `data[JSR82_SESSION_MAX_RX_DATA]` (339) buffer ahead of it.
+`+0x24` on the channel is `rxMtu`: strict BES field order puts it at `+0x20`,
+but every measured anchor in this build sits exactly `+4` from BES
+(`link` `0x04->0x08`, `psmInfo` `0x28->0x2c`, `localCid` `0x2c->0x30`), so the
+same shift lands `rxMtu` on `+0x24`.
+
+### Still open: no AAP data on the connected socket
+
+The socket connects and stays open, but nothing is received — no `AAP rx` lines
+— and one earlier session ended with `bt socket closed, read return: -1`.
+So the remaining problem is the data path, not the connect.
+
+Leading suspects, in order:
+
+1. **The MTU smuggle.** `y2_psm_fix.sh` carries the PSM in the `mtu` argument,
+   so `localMtu` becomes 4097 while JSR82's receive buffer is
+   `data[JSR82_SESSION_MAX_RX_DATA]` = **339**. The connect confirm now reports
+   that 4097 upward too (it is read from `channel->rxMtu`). Fixing this properly
+   means carrying the PSM in `msg->channel` at `+0x0e` — which nothing currently
+   reads — instead of hijacking `mtu`. See the tidier patch noted earlier
+   (`0x6be12: ldrh r0,[r4,#0xc] -> +0xe`), which would let both fields hold
+   their intended values.
+2. **Further `l2capCtx` wiring.** `AddCreateL2capToContext` may also be expected
+   to set up `mainRecord` / the RX ring buffers that route inbound L2CAP data to
+   the session. Only the channel pointer was supplied here.
+3. The AAP handshake bytes, still never exercised against a live socket.
+
+Next step: reinstall `y2_trace_to_logcat.sh` alongside this fix and watch whether
+inbound data reaches L2CAP (`Notified data`, `L2CAP_RX_DATA_IND`) but is not
+routed to the session — that separates suspect 2 from suspect 3.
