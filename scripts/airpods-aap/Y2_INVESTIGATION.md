@@ -1549,3 +1549,52 @@ Worth doing at the same time: `AapService` should re-send the handshake at 0,
 exactly that because the AirPods sometimes ignore the first handshake, and its
 `FEATURES_ACK` constant is annotated "only tested with AirPods Pro 2" — so an
 ACK-gated state machine can stall on newer models.
+
+## SOLVED: AAP data flows over L2CAP
+
+Sourcing the CID from the session's own `l2capCtx.l2capLocalCid` instead of the
+never-populated TX-message field was the last piece:
+
+```
+0x4804c: mov r1, r7  ->  ldr r1,[r4,#0x30] ; ldrh r1,[r1,#0x2f6]
+```
+
+Result, on the first run:
+
+```
+MTKSND    L2CAP_Send cid=43                       (was cid=0, BT_STATUS_FAILED)
+[BT]PutByte: len=25   ... 00 00 04 00 01 00 02 00 00 00 ...   <- handshake on air
+AapService  AAP rx 18 bytes: 010004000000010003000000000000000000   <- handshake ACK
+AapService  AAP rx 357 bytes: 040004002b0001540105475b58...          <- features ACK
+AapService  AAP rx 17 bytes: 040004002e00010001f623466582480102
+AapService  AAP rx 52 bytes: 040004000c00a4fc77867774...
+AapService  AAP-L2CAP ear primary=0 secondary=0                      <- in-ear state
+```
+
+36 AAP packets in the first session. The handshake ACK `01 00 04 00`, the
+features ACK `04 00 04 00 2b 00` and the ear-detection notifications all match
+LibrePods' documented protocol exactly.
+
+**Three bugs, all on MediaTek's client L2CAP path, none of them in Apple's
+protocol or in the AAP payloads:**
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | `btadp_jsr82_connect_req` zeroes `ctx.channel` and never copies `msg->channel` (`+0x0e`), so the Connection Request carried PSM 0 and the peer refused it | `0x6bdfa` thunk: `ctx.channel = msg->channel` |
+| 2 | `BTJSR82_L2capCallback`'s client branch hardcodes status 2 on a *successful* connect; status 1 alone faults because the raiser's success branch reads `session_buffer->l2capCtx.channel`, which nothing ever writes | `0x47eca` thunk: set `l2capCtx.channel` from the channel record in `r8`, then raise status 1 |
+| 3 | The TX path takes the CID from the request message's `+0x06`, never populated for a client session, so `L2CAP_Send` got 0 and returned `BT_STATUS_FAILED` | `0x4804c` thunk: CID from `l2capCtx.l2capLocalCid` |
+
+`y2_aap_l2cap_fix.sh` applies all three. **The blueangel HAL stays stock** — the
+mtu smuggle that earlier versions needed is gone, so `localMtu` is correct and
+`y2_psm_fix.sh` is retired.
+
+### Still to do
+
+- Confirm the pause-on-removal latency is actually sub-second now, which was the
+  entire point of pursuing L2CAP over the ~5s BLE advert route.
+- One session ended with `bt socket closed, read return: -1`; check whether that
+  is a real teardown or just the AirPods being toggled during the test.
+- `AapService` should re-send the handshake at 0/+200ms/+5s rather than
+  ACK-gating (LibrePods' Android client does this because the AirPods sometimes
+  ignore the first one, and its `FEATURES_ACK` is annotated "only tested with
+  AirPods Pro 2"). Not needed on this run, but it is free robustness.
