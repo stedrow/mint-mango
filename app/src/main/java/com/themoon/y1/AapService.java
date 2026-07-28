@@ -193,6 +193,8 @@ public class AapService extends Service {
     private static volatile boolean lastConnected = false;
     /** The running service, so the static setters below can reach its socket. */
     private static volatile AapService instance;
+    /** Survives a START_STICKY restart, which arrives with a null intent. */
+    private static volatile String lastTargetMac;
     /**
      * Gestures to intercept; re-applied on every session, 0 = leave the pods
      * alone. Double-press is on by default so it can be split per bud (right =
@@ -351,14 +353,37 @@ public class AapService extends Service {
         instance = this;
         String mac = intent != null ? intent.getStringExtra("mac") : null;
         if (mac == null) {
-            stopSelf();
-            return START_NOT_STICKY;
+            // START_STICKY restarts hand us a null intent. Falling straight to
+            // stopSelf() there left the service dead until the next
+            // ACL_CONNECTED broadcast -- which has usually already fired, so the
+            // AAP session never came back and the AirPods panel stayed empty.
+            mac = lastTargetMac;
+            if (mac == null) {
+                try {
+                    mac = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE)
+                            .getString("aap_last_mac", null);
+                } catch (Throwable t) {
+                    Log.d(TAG, "could not read the last AAP target", t);
+                }
+            }
+            if (mac == null) {
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            Log.i(TAG, "restarted without an intent; resuming " + mac);
         }
         if (shouldRun && mac.equalsIgnoreCase(targetMac)) {
             // Already running against this device.
             return START_STICKY;
         }
         targetMac = mac;
+        lastTargetMac = mac;
+        try {
+            getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE)
+                    .edit().putString("aap_last_mac", mac).apply();
+        } catch (Throwable t) {
+            Log.d(TAG, "could not persist the AAP target", t);
+        }
         shouldRun = true;
         startBleScan();
         if (worker == null || !worker.isAlive()) {
