@@ -807,3 +807,27 @@ Next, in order of cheapness:
    and retry the L2CAP connect. If it then succeeds unpatched, the LE scan is
    what poisons the lookup, and the fix may be as simple as not scanning while
    connecting.
+
+### Test 2 result: the LE scan is not the cause either
+
+Ran the connect on **completely stock firmware** with the launcher's advert scan
+disabled (no `AAP-BLE` lines in the capture confirm it never started). Result was
+unchanged: `msg->result:02` on every attempt.
+
+So the LE-record theory is disproven as well. Neither "ME never sees the ACL" nor
+"our own LE scan poisons the device lookup" survives contact with the device.
+What is established, and worth not re-testing:
+
+- ME *does* process the ACL (`MeCallLinkHandlers`, `MeDevEventHandler 9`/`99`).
+- The connection-complete handler sets state 3 unconditionally on success.
+- Yet `ME_CreateLink` finds a record whose state is not 3, with or without any
+  LE scanning by us.
+
+The remaining way to settle it is direct rather than inferential: log the record
+pointer and the state byte from both sites -- `ME_FindRemoteDeviceP`'s return
+inside `ME_CreateLink`, and `param_1` in `FUN_000a94c8` -- and compare them for
+the same device. Same pointer means the state is being changed between link-up
+and our connect (look for the other `dev+0xfe` writers, e.g. the `= 4` store at
+`0x991ec`); different pointers means duplicate records after all, just not caused
+by our scanning. The trace thunk already in `y2_trace_to_logcat.sh` is the
+vehicle: extend it to log `r0`/the record pointer at those two call sites.
