@@ -301,15 +301,7 @@ public class AapService extends Service {
     }
 
     private static final int BLE_RSSI_FLOOR = -70;
-    // Strongest advert seen lately is tracked for the log only -- it makes the
-    // relative strength of a foreign pair obvious when diagnosing on-device.
-    private static final long RSSI_PEAK_TTL_MS = 30000;
-    // How long a locked advertiser may go quiet before another may take over.
-    // AirPods re-advertise every couple of seconds, so this only expires on
-    // address rotation or the pair genuinely leaving.
-    private static final long ADDR_LOCK_TTL_MS = 10000;
-    // How much stronger a different advertiser must be to steal a live lock.
-    private static final int RSSI_STEAL_DB = 12;
+
     private static final int PROXIMITY_MSG_LEN = 27;
     private static final int STATUS_PRIMARY_IN_EAR = 0x02;
     private static final int STATUS_SECONDARY_IN_EAR = 0x08;
@@ -317,18 +309,6 @@ public class AapService extends Service {
 
     private BluetoothAdapter.LeScanCallback leScan;
     private int lastAdvertKey = -1;
-    // Strongest proximity advert seen lately: our own AirPods are the nearest
-    // transmitter, so anything much weaker is a different pair (see onLeScan).
-    private int bestRssi = Integer.MIN_VALUE;
-    private long bestRssiAt = 0;
-    // The advertiser we're currently following (see acceptAdvertiser()).
-    private String lockedAddr;
-    private long lockedSeenAt = 0;
-    private int lockedRssi = Integer.MIN_VALUE;
-    // Advertiser whose adverts produced the current ear state (see
-    // handleEarDetectionForAutoPause) -- transitions are only honoured within one.
-    private String earStateSource;
-    private int skippedAdverts = 0;
     private volatile boolean shouldRun = false;
     private volatile BluetoothSocket activeSocket = null;
     /** Write end of the live session, and the lock serialising writes to it. */
@@ -412,30 +392,7 @@ public class AapService extends Service {
                 // ponytail: RSSI gate instead of identity checks -- AirPods use rotating
                 // random addresses, so there is no stable id to match on.
                 if (p == null || rssi < BLE_RSSI_FLOOR) return;
-                // A fixed floor alone isn't enough: another pair of AirPods elsewhere in
-                // the home clears -70 easily, and mixing their ear state into ours flaps
-                // the auto-pause (seen as random pause/play, from a single bud worn two
-                // rooms away at -54 against our -44). Signal strength alone can't
-                // separate them reliably either, so lock onto one advertiser: the
-                // rotating random address is stable for minutes at a time, which is long
-                // enough to follow a single pair.
-                long now = android.os.SystemClock.elapsedRealtime();
-                if (now - bestRssiAt > RSSI_PEAK_TTL_MS) bestRssi = Integer.MIN_VALUE;
-                if (rssi > bestRssi) {
-                    bestRssi = rssi;
-                    bestRssiAt = now;
-                }
                 String addr = device != null ? device.getAddress() : null;
-                if (!acceptAdvertiser(addr, rssi, now)) {
-                    // Throttled, so a pair we're deliberately ignoring can't spam the
-                    // log, but a total lock-out is still visible instead of silent.
-                    if ((++skippedAdverts % 25) == 1) {
-                        Log.d(TAG, "AAP-BLE skipped " + skippedAdverts + " adverts; last addr="
-                                + addr + " rssi=" + rssi + " locked=" + lockedAddr
-                                + " lockedRssi=" + lockedRssi);
-                    }
-                    return;
-                }
                 applyAdvert(p, rssi, addr);
             }
         };
@@ -445,34 +402,6 @@ public class AapService extends Service {
         }
     }
 
-    /**
-     * Follows a single advertiser so a second pair of AirPods in the house can't
-     * feed its ear state into ours. While a lock is alive only that address is
-     * accepted; a lock is (re)taken when it goes silent -- address rotation, or
-     * the pods going away -- and only by the nearest advertiser then audible. A
-     * clearly closer advertiser can also steal an existing lock, so picking the
-     * wrong one initially self-corrects instead of sticking until reboot.
-     *
-     * Called only from the scan callback (single-threaded), hence no locking.
-     */
-    private boolean acceptAdvertiser(String addr, int rssi, long now) {
-        if (addr == null) return false;
-        if (lockedAddr == null || now - lockedSeenAt > ADDR_LOCK_TTL_MS) {
-            // No live lock: the address rotated, or the pods went away. Accept
-            // whatever clears the absolute floor rather than comparing against an
-            // older peak -- a bud resting on a table is much weaker than the same
-            // bud in an ear, and gating on the peak locked our own pods out.
-            lockedAddr = addr;
-        } else if (!addr.equals(lockedAddr)) {
-            // Someone else's pods while our lock is alive. Only a clearly closer
-            // advertiser takes over, so an unlucky initial pick self-corrects.
-            if (rssi < lockedRssi + RSSI_STEAL_DB) return false;
-            lockedAddr = addr;
-        }
-        lockedSeenAt = now;
-        lockedRssi = rssi;
-        return true;
-    }
 
     @SuppressLint("MissingPermission")
     private void stopBleScan() {
@@ -503,7 +432,7 @@ public class AapService extends Service {
         Log.d(TAG, "AAP-BLE status=" + Integer.toHexString(status)
                 + " battery=" + Integer.toHexString(battery)
                 + " charge=" + Integer.toHexString(charge)
-                + " rssi=" + rssi + " peak=" + bestRssi + " addr=" + addr
+                + " rssi=" + rssi + " addr=" + addr
                 + " model=" + Integer.toHexString(((p[3] & 0xFF) << 8) | (p[4] & 0xFF)));
 
         boolean primaryLeft = (status & STATUS_PRIMARY_IS_LEFT) != 0;
@@ -1025,22 +954,12 @@ public class AapService extends Service {
     }
 
     private void handleEarDetectionForAutoPause(AapState s, String source) {
-        // The L2CAP session reports ear changes in well under a second, the BLE
-        // advert route takes ~5s. While the session is live it is the only source
-        // worth listening to -- and letting both through is actively harmful,
-        // because they count as different sources and the check below swallows
-        // every transition where they alternate. That showed up on-device as the
-        // first couple of removals taking seconds to pause before settling down.
+        // The L2CAP session reports ear changes in well under a second; the BLE
+        // advert route takes ~5s and is only a fallback for when there is no
+        // session. applyAdvert() already bows out while one is live -- this is
+        // the same rule enforced at the point it actually matters.
         if (activeSocket != null && !AAP_L2CAP_SOURCE.equals(source)) return;
         boolean nowBothInEar = s.earLeft == EAR_IN_EAR && s.earRight == EAR_IN_EAR;
-        // Only treat a change as a real ear event when it comes from the same
-        // advertiser that set the previous state. Otherwise a different pair
-        // taking over the lock would read as "a bud came out" and pause the music.
-        if (source != null && !source.equals(earStateSource)) {
-            earStateSource = source;
-            bothInEar = nowBothInEar;
-            return;
-        }
         if (bothInEar && !nowBothInEar) {
             // ExoPlayer must only be touched from the main thread -- this callback
             // runs on the AapService read-loop thread, so hop over first.
@@ -1059,7 +978,6 @@ public class AapService extends Service {
             });
         }
         bothInEar = nowBothInEar;
-        earStateSource = source;
     }
 
     private void publishState(AapState s) {
