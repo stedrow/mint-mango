@@ -193,8 +193,6 @@ public class AapService extends Service {
     private static volatile boolean lastConnected = false;
     /** The running service, so the static setters below can reach its socket. */
     private static volatile AapService instance;
-    /** Survives a START_STICKY restart, which arrives with a null intent. */
-    private static volatile String lastTargetMac;
     /**
      * Gestures to intercept; re-applied on every session, 0 = leave the pods
      * alone. Double-press is on by default so it can be split per bud (right =
@@ -351,39 +349,23 @@ public class AapService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         instance = this;
+        // The MAC is a hint, not a requirement. START_STICKY restarts arrive with
+        // a null intent, and gating on the extra meant any restart left the
+        // service permanently dead -- no session, no AirPods panel -- until the
+        // next ACL_CONNECTED broadcast, which had usually already fired. So fall
+        // back to whatever is actually connected, which is the thing we wanted
+        // all along.
         String mac = intent != null ? intent.getStringExtra("mac") : null;
+        if (mac == null) mac = connectedDeviceAddress();
         if (mac == null) {
-            // START_STICKY restarts hand us a null intent. Falling straight to
-            // stopSelf() there left the service dead until the next
-            // ACL_CONNECTED broadcast -- which has usually already fired, so the
-            // AAP session never came back and the AirPods panel stayed empty.
-            mac = lastTargetMac;
-            if (mac == null) {
-                try {
-                    mac = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE)
-                            .getString("aap_last_mac", null);
-                } catch (Throwable t) {
-                    Log.d(TAG, "could not read the last AAP target", t);
-                }
-            }
-            if (mac == null) {
-                stopSelf();
-                return START_NOT_STICKY;
-            }
-            Log.i(TAG, "restarted without an intent; resuming " + mac);
+            stopSelf();
+            return START_NOT_STICKY;
         }
         if (shouldRun && mac.equalsIgnoreCase(targetMac)) {
             // Already running against this device.
             return START_STICKY;
         }
         targetMac = mac;
-        lastTargetMac = mac;
-        try {
-            getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE)
-                    .edit().putString("aap_last_mac", mac).apply();
-        } catch (Throwable t) {
-            Log.d(TAG, "could not persist the AAP target", t);
-        }
         shouldRun = true;
         startBleScan();
         if (worker == null || !worker.isAlive()) {
@@ -396,6 +378,20 @@ public class AapService extends Service {
             worker.start();
         }
         return START_STICKY;
+    }
+
+    /** Address of the currently connected audio device, or null if there isn't one. */
+    private static String connectedDeviceAddress() {
+        try {
+            java.util.List<BluetoothDevice> connected =
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().getConnectedDevices();
+            if (connected != null && !connected.isEmpty()) {
+                return connected.get(0).getAddress();
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "could not resolve the connected device", t);
+        }
+        return null;
     }
 
     /**
