@@ -1052,3 +1052,96 @@ anything. **Re-test this before trusting or discarding the patch.**
   the disassembly listing.
 - `AapService` gives up permanently after `MAX_BOOTSTRAP_ATTEMPTS`; connect
   attempts only happen if the AirPods are toggled *after* the daemon is up.
+
+## The trace ids are decodable — and they overturn the section above
+
+MediaTek's `bluetooth_trc.h` is public in MT6577 BSP dumps (e.g.
+`andr3jx/MTK6577`, path
+`mediatek/source/external/bluetooth/blueangel/btadp_int/include/bluetooth_trc.h`).
+Its `TRC_MSG(...)` list is the enum the leveled `kal_trace` helper indexes, so
+the `MTKID kal id=<hex>` lines that `y2_trace_to_logcat.sh` produces turn back
+into the vendor's own sentences. A copy is checked in next to
+`decode_trace_ids.py`.
+
+Calibrated on three ids whose position is unambiguous: `0x630` =
+`L2CapState_OPEN() Cid=0x%x, event=0x%x` (logged exactly at
+`l2cap: enter open state`), `0x70f` = `SDP Client: Sending query packet`
+(immediately before the SDP request appears on the wire), `0x636` =
+`L2Cap_GetSysPkt`. The header is MT6577 and the device is MT6582, so a small
+index offset is possible — check a decode's `%` count against the call site's
+argument count before relying on it.
+
+Decoding the ids seen in the failing connect:
+
+| id | text |
+|---|---|
+| `0xc44` | `JSR82 L2CAP Client connected inx=%d` |
+| `0xc49` | `JSR82 Client Cmgr Callback: con_id=%d,event=%d,status=%d` |
+| `0xc4b` | `JSR82 LINK CON CNF then Try Open RFChnl` |
+| `0xc4c` | `JSR82 LINK CON CNF: Get L2CAP PSM Index;%02x` |
+| `0xc4d` | `JSR82 LINK CON CNF then Try Open L2cap Chnl with cid=%04X` |
+
+So `0x47b38` is not a generic channel callback: it is JSR82's **client**
+connect path — the CMGR link-connected confirm that decides whether to open an
+RFCOMM or an L2CAP channel. The branch this file called "inbound vs outbound"
+sits between "Get L2CAP PSM Index" and "Try Open L2cap Chnl with cid", which is
+a PSM-table lookup, not a direction test.
+
+**That makes the previous section's conclusion unsafe.** MediaTek did *not*
+omit the client side. The public header
+`blueangel/btcore/btprofiles/include/jsr82_session.h` shows the whole designed
+path, including a CLIENT/SERVER discriminator added specifically to tell the two
+apart on the same PSM:
+
+```c
+typedef enum { BT_JSR82_SESSION_CLIENT = 0, BT_JSR82_SESSION_SERVER } bt_jsr82_session_type;
+void     bt_jsr82_HandleSessionApL2capConnectReq(bt_jsr82_connect_req_struct *ptr);
+U8       bt_jsr82_get_L2capPSMIndex(U16 channel, U16 mtu, U8 security_level,
+                                    bt_jsr82_session_type client_server);
+BtStatus bt_jsr82_AddCreateL2capToContext(...);   /* client-side channel */
+BtStatus bt_jsr82_AddNewL2capToContext(...);      /* server-side channel */
+```
+
+and `bluetooth_trc.h` carries the matching failure messages, including
+`BT_JSR82_L2CAP_CON_REQ empty Channel find` and
+`BT_JSR82_L2CAP_CON_REQ:open channel failed`.
+
+**New prime suspect:** `bt_jsr82_get_L2capPSMIndex` (very likely the
+`bl 0x45628` whose result is what `0xc4c` prints) fails to find a CLIENT-role
+PSM entry for `0x1001`, so the client channel can never be attached to a
+context. Verify by logging that return value — the `%02x` in the trace is
+already the answer, so decoding one more captured run may settle it without a
+new patch.
+
+**Do not use `y2_jsr82_outbound_fix.sh`.** Beyond being built on the wrong
+model, it correlates with `mtkbt` failing to start at boot (`init.svc.mtkbt`
+`stopped` on two separate boots, running again as soon as stock is restored),
+which a two-byte `movs` literal should not cause and which is unexplained.
+
+### Other corrections from the decode
+
+- `0x15a` is `MeSec: Starting Set Connection Encryption command`, **not** an
+  `ME_CreateLink` exit. The earlier reading of the `ME_CreateLink` branch ids
+  was guesswork and should be re-derived with the decoder before reuse.
+- `mtkbt` is an `oneshot` init service with no `disabled` flag: it starts once
+  at boot and init never restarts it. If Bluetooth is off at boot it exits and
+  stays gone, and `service call bluetooth_manager 8` turns Bluetooth off
+  *persistently*. That, not any patch, is why the daemon was missing after
+  several test boots — check `settings get global bluetooth_on` before blaming
+  a binary.
+
+### The MTK JNI RFCOMM bug (probably not our path, recorded anyway)
+
+`android_server_BluetoothSocketService.cpp` in the MT6582 source hardcodes
+RFCOMM in the client connect while `initSocketNative` and `bindListenNative`
+handle `ps_type` correctly:
+
+```c
+bConnectResult = btmtk_jsr82_session_connect_req(..., JSR82_SESSION_PS_RFCOMM, ...);
+```
+
+On a device using that JNI, an L2CAP client connect never reaches
+`bt_jsr82_HandleSessionApL2capConnectReq` at all. The Y2 goes through
+bluedroid's `btsock` glue instead and its traces show `parms.ps_type:02`
+(L2CAP), so this is almost certainly not the Y2's bug — but it is exactly the
+Y1-style one-value defect and worth checking if this work is ever ported.
