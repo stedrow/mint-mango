@@ -51,6 +51,9 @@ VERBOSE=1
 [ "${QUIET:-0}" = "1" ] && VERBOSE=0
 LSTO="${LINK_SUPERVISION_TIMEOUT:-1}"  # shorten the ACL supervision timeout for fast drop recovery
 LSTO_SLOTS="${LSTO_SLOTS:-8000}"       # 0.625ms slots; 8000 = 5s (default is 0x7D00 = 20s)
+SNOOP="${SNOOP:-0}"                    # HCI_SNOOP=1: hex-dump all non-media HCI traffic (diagnostic)
+PSMFIX="${PSMFIX:-0}"                  # PSMFIX=1: rewrite the stack's PSM-0 L2CAP connect requests to the AAP PSM
+MTKTRACE="${MTKTRACE:-0}"              # MTKTRACE=1: redirect mtkbt's internal traces into logcat (diagnostic)
 
 # --- locate the NDK clang (macOS Homebrew cask or Linux $ANDROID_NDK_HOME) ----
 NDK_CLANG="$(find /opt/homebrew/Caskroom/android-ndk /usr/local/Caskroom/android-ndk \
@@ -91,7 +94,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE LSTO=$LSTO LSTO_SLOTS=$LSTO_SLOTS)"
+echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE LSTO=$LSTO LSTO_SLOTS=$LSTO_SLOTS SNOOP=$SNOOP MTKTRACE=$MTKTRACE PSMFIX=$PSMFIX)"
 "$NDK_CLANG" --target=armv7a-linux-androideabi21 \
   -isystem "$NDK_SYSROOT/usr/include" \
   -isystem "$NDK_SYSROOT/usr/include/arm-linux-androideabi" \
@@ -101,6 +104,9 @@ echo ">> Compiling (RTP_FIX=$RTP_FIX CLAMP=$CLAMP VERBOSE=$VERBOSE LSTO=$LSTO LS
   -DENABLE_VERBOSE_BT_MEDIA_LOG="$VERBOSE" \
   -DENABLE_LINK_SUPERVISION_TIMEOUT="$LSTO" \
   -DLINK_SUPERVISION_TIMEOUT_SLOTS="$LSTO_SLOTS" \
+  -DENABLE_HCI_SNOOP="$SNOOP" \
+  -DENABLE_MTKBT_TRACE="$MTKTRACE" \
+  -DENABLE_L2CAP_PSM_FIX="$PSMFIX" \
   -c "$SRC" -o "$OUT_DIR/proxy.o"
 
 echo ">> Linking against device ABI"

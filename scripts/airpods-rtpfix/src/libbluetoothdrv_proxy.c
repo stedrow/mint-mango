@@ -5,7 +5,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -21,6 +23,10 @@
 #define LOGRTPFIX(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_RTPFIX, __VA_ARGS__)
 #define LOG_TAG_LSTO "BTLSTO"
 #define LOGLSTO(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_LSTO, __VA_ARGS__)
+#define LOG_TAG_PSM "BTPSM"
+#define LOGPSM(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_PSM, __VA_ARGS__)
+#define LOG_TAG_SNOOP "BTSNOOP"
+#define LOGSNOOP(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_SNOOP, __VA_ARGS__)
 
 /* Known-good AirPods Pro 2/Y1 mode:
  * - Rewrite SET_CONFIGURATION max_bitpool 0x35 -> 0x23.
@@ -52,8 +58,39 @@
 #ifndef LINK_SUPERVISION_TIMEOUT_SLOTS
 #define LINK_SUPERVISION_TIMEOUT_SLOTS 8000
 #endif
+/* Raw H4 snoop: hex-dump every non-media byte in both directions under the
+ * BTSNOOP tag, so the HCI traffic can be reassembled and parsed on the host.
+ * The device's standard btsnoop_hci.log hook doesn't work on this firmware
+ * (see scripts/airpods-aap/Y2_INVESTIGATION.md), and this is the only view of
+ * what actually reaches the air. Diagnostic only -- off in shipping builds. */
+#ifndef ENABLE_HCI_SNOOP
+#define ENABLE_HCI_SNOOP 0
+#endif
+/* Redirect mtkbt's internal stack traces into logcat (see the hook code below).
+ * Patches another module's code in-process, so diagnostic builds only. */
+#ifndef ENABLE_MTKBT_TRACE
+#define ENABLE_MTKBT_TRACE 0
+#endif
+/* Y2's Bluetooth stack puts PSM 0x0000 in every raw L2CAP client Connection
+ * Request -- an invalid PSM that peers correctly refuse, which is what makes
+ * AapService's connect fail (see scripts/airpods-aap/Y2_INVESTIGATION.md). No
+ * BluetoothSocket argument reaches that field, and patching the vendor HAL's
+ * connect-message builder doesn't reach the wire either, so the PSM is fixed
+ * here, in the last place the packet passes through. PSM 0 is invalid and
+ * nothing else on this device ever emits it, so this rewrites exactly the
+ * broken request: the stack's own profiles (SDP 0x0001, AVCTP 0x0019, AVDTP
+ * 0x0017) carry correct PSMs and are untouched. */
+#ifndef ENABLE_L2CAP_PSM_FIX
+#define ENABLE_L2CAP_PSM_FIX 0
+#endif
+#ifndef L2CAP_PSM_FIX_TARGET
+#define L2CAP_PSM_FIX_TARGET 0x1001  /* Apple AAP */
+#endif
 #ifndef __NR_gettid
 #define __NR_gettid 224
+#endif
+#ifndef __ARM_NR_cacheflush
+#define __ARM_NR_cacheflush 0xf0002
 #endif
 
 #if ENABLE_VERBOSE_BT_MEDIA_LOG
@@ -110,9 +147,126 @@ static void resolve_real_library(void) {
     g_real_mtk_bt_op = (int (*)(int op, int fd, int arg3, void *out))dlsym(g_real_handle, "mtk_bt_op");
 }
 
+#if ENABLE_MTKBT_TRACE
+/* mtkbt's own stack traces never reach logcat: both of its trace helpers end in
+ * a sink that is gated off on a "user" build and would otherwise go to MTK's
+ * mobile-log daemon. This proxy is loaded *into* the mtkbt process (mtkbt is the
+ * only consumer of libbluetoothdrv.so), so it can redirect those helpers into
+ * logcat by overwriting their entry points with a branch to our own variadic
+ * stand-ins. Diagnostic only -- this is the sole view into the vendor stack's
+ * decisions, e.g. which internal site rejects a raw L2CAP connect.
+ *
+ * Offsets are file offsets into /system/bin/mtkbt (Ghidra address - 0x10000,
+ * since it bases this PIE at 0x10000 and its LOAD maps vaddr == file offset):
+ *   0x55084  the plain "printf a message" helper (fully formatted strings)
+ *   0x729ac  the leveled trace helper (level, id, fmt, ...)
+ * Both are 4-byte aligned, which the branch encoding below requires. */
+#define MTKBT_TRACE_PLAIN_OFFSET 0x55084
+#define MTKBT_TRACE_LEVEL_OFFSET 0x729ac
+
+#define LOG_TAG_MTK "MTKBT"
+
+static void mtk_trace_plain(const char *fmt, ...) {
+    char line[256];
+    va_list ap;
+
+    if (fmt == NULL) return;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_MTK, "%s", line);
+}
+
+static void mtk_trace_level(int level, int id, const char *fmt, ...) {
+    char line[256];
+    va_list ap;
+
+    if (fmt == NULL) return;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_MTK, "[%d/%#x] %s", level, id, line);
+}
+
+/** True only inside /system/bin/mtkbt -- zygote maps this library too (via the
+ *  audio HAL) and must never be patched. */
+static int running_in_mtkbt(void) {
+    char exe[256];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0) return 0;
+    exe[n] = '\0';
+    return strcmp(exe, "/system/bin/mtkbt") == 0;
+}
+
+/** Load address of the main executable: its r-xp mapping at file offset 0. */
+static unsigned long mtkbt_load_base(void) {
+    FILE *f = fopen("/proc/self/maps", "r");
+    char line[512];
+    unsigned long base = 0;
+
+    if (f == NULL) return 0;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        unsigned long start, end, off;
+        char perms[8];
+        char path[256];
+        if (sscanf(line, "%lx-%lx %7s %lx %*s %*s %255s",
+                   &start, &end, perms, &off, path) != 5) {
+            continue;
+        }
+        if (off == 0 && perms[2] == 'x' && strcmp(path, "/system/bin/mtkbt") == 0) {
+            base = start;
+            break;
+        }
+    }
+    fclose(f);
+    return base;
+}
+
+/* Overwrites 8 bytes with an absolute Thumb branch:
+ *   f8df f000   ldr.w pc, [pc]     (reads the word that follows)
+ *   <target|1>                     Thumb bit set
+ * The originals are never called -- they only log, and their sink is dead. */
+static void patch_branch(unsigned long at, void *target) {
+    unsigned char code[8];
+    unsigned long page = at & ~0xFFFUL;
+    unsigned long addr = (unsigned long)target | 1UL;
+
+    if (at == 0) return;
+    if (mprotect((void *)page, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+        LOGD("mtkbt trace: mprotect failed at %#lx", page);
+        return;
+    }
+    code[0] = 0xDF; code[1] = 0xF8; code[2] = 0x00; code[3] = 0xF0;
+    memcpy(code + 4, &addr, 4);
+    memcpy((void *)at, code, sizeof(code));
+    /* Flush via the ARM cacheflush syscall, not __builtin___clear_cache: the
+     * builtin emits a call to __clear_cache, which this device's bionic does not
+     * export -- the library then fails to load at all, and since the audio HAL
+     * links it too, that takes system_server down with it. */
+    syscall(__ARM_NR_cacheflush, at, at + sizeof(code), 0);
+    LOGD("mtkbt trace: hooked %#lx -> %p", at, target);
+}
+
+static void install_mtkbt_trace_hooks(void) {
+    unsigned long base;
+
+    if (!running_in_mtkbt()) return;
+    base = mtkbt_load_base();
+    if (base == 0) {
+        LOGD("mtkbt trace: load base not found");
+        return;
+    }
+    patch_branch(base + MTKBT_TRACE_PLAIN_OFFSET, (void *)mtk_trace_plain);
+    patch_branch(base + MTKBT_TRACE_LEVEL_OFFSET, (void *)mtk_trace_level);
+}
+#endif /* ENABLE_MTKBT_TRACE */
+
 __attribute__((constructor))
 static void proxy_init(void) {
     resolve_real_library();
+#if ENABLE_MTKBT_TRACE
+    install_mtkbt_trace_hooks();
+#endif
 }
 
 static void log_prefix(const void *buf, int len) {
@@ -364,6 +518,82 @@ int mtk_bt_disable(int fd) {
     return -1;
 }
 
+#if ENABLE_HCI_SNOOP
+/* One log line per transport call: direction, byte count, and up to the first
+ * 48 bytes in hex. The transport splits an HCI packet across several calls, so
+ * a host-side parser reassembles per direction by concatenating in order --
+ * hence "len=" is the call's byte count, not a packet length. Media (>=100B)
+ * is skipped; it's the SBC stream and would bury the control traffic. */
+static void snoop_dump(char dir, const void *buf, int len) {
+    const unsigned char *b = (const unsigned char *)buf;
+    char line[208];
+    int i;
+    int limit;
+    char *p;
+
+    if (b == NULL || len <= 0) {
+        return;
+    }
+    if (len > 96) {
+        /* Media, or anything too big for one log line. Logged as a gap marker
+         * rather than dropped silently, so the host parser knows to resync
+         * instead of splicing a hole out of the stream. */
+        LOGSNOOP("%c skip=%d", dir, len);
+        return;
+    }
+    limit = len;
+    p = line;
+    for (i = 0; i < limit; i++) {
+        p += sprintf(p, "%02x", b[i]);
+    }
+    *p = '\0';
+    LOGSNOOP("%c len=%d %s", dir, len, line);
+}
+#endif
+
+#if ENABLE_L2CAP_PSM_FIX
+/* Rewrites a PSM-0 L2CAP Connection Request in place in `out` (a copy of the
+ * outgoing packet) and returns 1 if it matched. Layout of the H4 ACL packet:
+ *   [0]      0x02                     H4 type: ACL
+ *   [1..2]   handle + PB/BC flags
+ *   [3..4]   ACL length
+ *   [5..6]   L2CAP length (8: the 4-byte signalling header plus its 4 bytes)
+ *   [7..8]   L2CAP CID (0x0001 = signalling)
+ *   [9]      signalling code (0x02 = Connection Request)
+ *   [10]     identifier
+ *   [11..12] signalling length (4: PSM + source CID)
+ *   [13..14] PSM      <- the field the stack leaves as 0
+ *   [15..16] source CID
+ * The PB flag is checked so a continuation fragment (which has no L2CAP header)
+ * can never be mistaken for one of these. */
+static int rewrite_l2cap_psm_if_needed(unsigned char *out, int len) {
+    int pb;
+
+    if (out == NULL || len < 17 || out[0] != 0x02) {
+        return 0;
+    }
+    pb = (out[2] >> 4) & 0x03;
+    if (pb != 0x00 && pb != 0x02) {   /* 0x01 = continuation fragment */
+        return 0;
+    }
+    if (out[7] != 0x01 || out[8] != 0x00) {          /* signalling CID */
+        return 0;
+    }
+    if (out[9] != 0x02) {                            /* Connection Request */
+        return 0;
+    }
+    if (out[11] != 0x04 || out[12] != 0x00) {        /* signalling length 4 */
+        return 0;
+    }
+    if (out[13] != 0x00 || out[14] != 0x00) {        /* only ever fix PSM 0 */
+        return 0;
+    }
+    out[13] = (unsigned char)(L2CAP_PSM_FIX_TARGET & 0xFF);
+    out[14] = (unsigned char)((L2CAP_PSM_FIX_TARGET >> 8) & 0xFF);
+    return 1;
+}
+#endif
+
 int mtk_bt_write(int fd, const void *buf, int len) {
     int result;
     int dump_index;
@@ -373,6 +603,9 @@ int mtk_bt_write(int fd, const void *buf, int len) {
     const void *write_buf;
     unsigned char *rtp_rewritten;
     unsigned char rewritten[64];
+#if ENABLE_L2CAP_PSM_FIX
+    unsigned char psm_fixed[64];
+#endif
 
     resolve_real_library();
 
@@ -398,6 +631,19 @@ int mtk_bt_write(int fd, const void *buf, int len) {
         }
     }
 
+#if ENABLE_L2CAP_PSM_FIX
+    if (len >= 17 && len <= (int)sizeof(psm_fixed) && buf != NULL) {
+        memcpy(psm_fixed, write_buf, (size_t)len);
+        if (rewrite_l2cap_psm_if_needed(psm_fixed, len)) {
+            write_buf = psm_fixed;
+            LOGPSM("rewrote L2CAP Connection Request psm 0x0000 -> 0x%04x",
+                   (unsigned)L2CAP_PSM_FIX_TARGET);
+        }
+    }
+#endif
+#if ENABLE_HCI_SNOOP
+    snoop_dump('T', write_buf, len);
+#endif
     pthread_mutex_lock(&g_tx_lock);
     result = g_real_mtk_bt_write(fd, write_buf, len);
     pthread_mutex_unlock(&g_tx_lock);
@@ -586,6 +832,11 @@ int mtk_bt_read(int fd, void *buf, int len) {
 
 #if ENABLE_LINK_SUPERVISION_TIMEOUT
 dump_and_return:
+#endif
+#if ENABLE_HCI_SNOOP
+    if (result > 0) {
+        snoop_dump('R', buf, result);
+    }
 #endif
     if (result > 0 && result <= 128 && buf != NULL) {
         read_index = __sync_fetch_and_add(&g_read_dump_count, 1);
