@@ -744,3 +744,38 @@ For reference, these were pulled during the investigation (regenerate with
 `/system/lib/libbluetooth_jni.so`, plus dependency libs
 (`libcutils.so`, `libutils.so`, `libextsys.so`, `libc.so`, `libstdc++.so`,
 `libm.so`).
+
+## The ACL connection-complete handler, and what it means
+
+`FUN_000a94c8` (file `0x994c8`) is the handler containing the `state = 3` store.
+Its transition is correct and unconditional:
+
+```c
+if (*(char *)(iVar5 + 0x29) == '\0') {     // HCI status == success
+    *(undefined1 *)(param_1 + 0xfe) = 3;   // state = CONNECTED
+} else {
+    *(undefined1 *)(param_1 + 0xfe) = 4;   // state = failed
+}
+```
+
+So the AirPods' record is not having its state *reset* -- it never passes through
+this handler at all, meaning the state was never *set*. That fits the two-stack
+layout on this device: bluedroid + `bluetooth.blueangel.so` own the A2DP ACL
+while mtkbt relays HCI for it, so mtkbt's ME layer never sees a
+connection-complete for that link.
+
+If that holds, "repair the stale state" is the wrong framing: there is no ME link
+object to repair, and writing 3 into the record only lets `ME_CreateLink` proceed
+against a link ME does not own -- which is exactly what the compare patch does,
+and it does get the channel open. The honest options:
+
+1. **Adopt the existing ACL.** Find where ME keeps the connection handle and
+   populate the record from the live link instead of creating one. Correct, and
+   the most work.
+2. **Narrow the compare patch to `ps_type == 2`** (raw L2CAP) so profiles that
+   legitimately need a new link are unaffected. Pragmatic, small, testable.
+3. **Verify the premise first.** Install the trace patch and connect audio: if no
+   connection-complete (trace id `0x9d`, `FUN_000a94c8`'s neighbourhood) reaches
+   mtkbt's ME for that link, the two-stack explanation is confirmed.
+
+Option 3 is cheap and decides between 1 and 2.
