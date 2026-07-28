@@ -20,6 +20,8 @@
 #   result:05  -> 0x45b08  (Ghidra 0x5595c)
 #   result:06  -> 0x47d4c  (Ghidra 0x57b38)
 #   result:07  -> 0x462ca  (a tail-call raiser in the same region as 0x4650c)
+# Run with --offset for the follow-up probe described next to OFFSET_PATCHES.
+#
 #   result:08  -> 0x6be5a  (btadp_jsr82_connect_req's own rejection tail, which
 #                           answers the client *without* attempting a channel --
 #                           reached on "identify conflicts with existing context"
@@ -43,6 +45,13 @@ BUILD="$HERE/build"
 TARGET="/system/bin/mtkbt"
 BACKUP="/system/bin/mtkbt.stock.probe"
 
+# --offset mode: instead of tagging raisers, repoint the confirm's copy at the
+# event's +0x20 (which FUN_000550a0's case 5 explicitly zeroes) rather than +0x22.
+# result:00 means the event really does come from that raiser and the sender's and
+# receiver's field offsets disagree; an unchanged result:02 means a different
+# producer built the event.
+OFFSET_PATCHES="0x6cf8e:94f82230:94f82030"
+
 PATCHES="0x46000:0222:0322 0x4650c:0222:0422 0x45b08:0222:0522 0x47d4c:0222:0622 0x462ca:0222:0722 0x6be5a:0221:0821"
 
 adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device. Plug in the Y2." >&2; exit 1; }
@@ -57,6 +66,11 @@ stop_bluetooth() {
     sleep 2
   done
 }
+
+if [ "${1:-}" = "--offset" ]; then
+  PATCHES="$OFFSET_PATCHES"
+  echo ">> Mode: confirm reads event+0x20 instead of +0x22"
+fi
 
 if [ "${1:-}" = "--revert" ]; then
   adb shell "[ -f $BACKUP ]" || { echo "ERROR: no backup at $BACKUP." >&2; exit 1; }

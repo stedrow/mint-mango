@@ -218,11 +218,30 @@ layout, or the receiver's `+0x22` is not the field the sender thinks it is (a
 header offset mismatch, of the same kind as the channel/mtu confusion found
 earlier in this file).
 
-Cheap next probe along the same lines: point the confirm's copy at the event's
-`+0x20` instead of `+0x22` (`ldrb.w r3,[r4,#0x22]` -> `ldrb.w r3,[r4,#0x20]`).
-Case 5 of `FUN_000550a0` explicitly zeroes `+0x20`, so `result:00` would prove
-the event came from there and the offsets are shifted, while an unchanged `02`
-would prove a different producer.
+That probe was run (`y2_probe_fail_site.sh --offset`, pointing the confirm's copy
+at the event's `+0x20`): the client reported **`result:00`**. Combined with the
+raiser's own code this pins the layout down rather than the culprit:
+
+- `FUN_000550a0` memsets the whole 0x24-byte event before filling it, so `+0x20`
+  reads 0 for *any* event -- `result:00` only confirms the offsets line up, it
+  does not identify the producer.
+- Exactly one instruction writes the status field: `strb.w r5,[sp,#0x26]` at
+  `0x4511e` (struct base is `sp+4`, so `sp+0x26` is `+0x22`).
+- `r5` really is the status argument, not something derived: the `cmp r5,#1` at
+  `0x450f6` is the decompiled `else if (param_3 == 1)`.
+
+So the receiver reads the right field, the field holds the raiser's third
+argument, and yet every static event-5 call site was tagged with a non-2 value
+while the client still reported 2. The only reading left is that the raise which
+fires is reached through **indirect dispatch** -- a registered callback or
+function-pointer table rather than a `bl` -- which static tagging cannot reach.
+Patch-and-observe is exhausted here; the next attempt needs a real trace.
+
+Note also that "just force success" is not a shortcut: PSM fix + forced success
+together do produce a socket that `connect()` accepts and that stays open (no
+EBADF), but **no AAP data ever arrives on it**. The vendor's state machine took
+its failure path, so it never routes channel data to the session -- reporting
+success does not undo that.
 
 ### Next step
 
