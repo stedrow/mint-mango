@@ -33,6 +33,8 @@ public class AapService extends Service {
 
     private static final String TAG = "AapService";
     private static final int AAP_PSM = 0x1001;
+    /** Stands in for an advertiser address when ear state came over L2CAP. */
+    private static final String AAP_L2CAP_SOURCE = "l2cap";
     private static final int MAX_BOOTSTRAP_ATTEMPTS = 3;
     private static final int MAX_BUFFER_BYTES = 8192;
 
@@ -128,10 +130,8 @@ public class AapService extends Service {
     }
 
     private static final int BLE_RSSI_FLOOR = -70;
-    // How far below the strongest recent advert a packet may be and still count as
-    // ours. Wide enough to ride out normal fading of the pair being worn, narrow
-    // enough to exclude a second pair across the room.
-    private static final int RSSI_MARGIN_DB = 12;
+    // Strongest advert seen lately is tracked for the log only -- it makes the
+    // relative strength of a foreign pair obvious when diagnosing on-device.
     private static final long RSSI_PEAK_TTL_MS = 30000;
     // How long a locked advertiser may go quiet before another may take over.
     // AirPods re-advertise every couple of seconds, so this only expires on
@@ -154,6 +154,10 @@ public class AapService extends Service {
     private String lockedAddr;
     private long lockedSeenAt = 0;
     private int lockedRssi = Integer.MIN_VALUE;
+    // Advertiser whose adverts produced the current ear state (see
+    // handleEarDetectionForAutoPause) -- transitions are only honoured within one.
+    private String earStateSource;
+    private int skippedAdverts = 0;
     private volatile boolean shouldRun = false;
     private volatile BluetoothSocket activeSocket = null;
     private Thread worker;
@@ -225,7 +229,16 @@ public class AapService extends Service {
                     bestRssiAt = now;
                 }
                 String addr = device != null ? device.getAddress() : null;
-                if (!acceptAdvertiser(addr, rssi, now)) return;
+                if (!acceptAdvertiser(addr, rssi, now)) {
+                    // Throttled, so a pair we're deliberately ignoring can't spam the
+                    // log, but a total lock-out is still visible instead of silent.
+                    if ((++skippedAdverts % 25) == 1) {
+                        Log.d(TAG, "AAP-BLE skipped " + skippedAdverts + " adverts; last addr="
+                                + addr + " rssi=" + rssi + " locked=" + lockedAddr
+                                + " lockedRssi=" + lockedRssi);
+                    }
+                    return;
+                }
                 applyAdvert(p, rssi, addr);
             }
         };
@@ -247,14 +260,18 @@ public class AapService extends Service {
      */
     private boolean acceptAdvertiser(String addr, int rssi, long now) {
         if (addr == null) return false;
-        boolean locked = lockedAddr != null && now - lockedSeenAt <= ADDR_LOCK_TTL_MS;
-        if (locked && !addr.equals(lockedAddr) && rssi < lockedRssi + RSSI_STEAL_DB) {
-            return false;
+        if (lockedAddr == null || now - lockedSeenAt > ADDR_LOCK_TTL_MS) {
+            // No live lock: the address rotated, or the pods went away. Accept
+            // whatever clears the absolute floor rather than comparing against an
+            // older peak -- a bud resting on a table is much weaker than the same
+            // bud in an ear, and gating on the peak locked our own pods out.
+            lockedAddr = addr;
+        } else if (!addr.equals(lockedAddr)) {
+            // Someone else's pods while our lock is alive. Only a clearly closer
+            // advertiser takes over, so an unlucky initial pick self-corrects.
+            if (rssi < lockedRssi + RSSI_STEAL_DB) return false;
+            lockedAddr = addr;
         }
-        if (!locked && rssi < bestRssi - RSSI_MARGIN_DB) {
-            return false;
-        }
-        lockedAddr = addr;
         lockedSeenAt = now;
         lockedRssi = rssi;
         return true;
@@ -311,7 +328,7 @@ public class AapService extends Service {
         s.chargingRight = (podCharge & (primaryLeft ? 0x02 : 0x01)) != 0;
         s.chargingCase = (podCharge & 0x04) != 0;
         publishState(s);
-        handleEarDetectionForAutoPause(s);
+        handleEarDetectionForAutoPause(s, addr);
     }
 
     /** Battery levels ride in a nibble as tens of percent, with 0xF meaning "not reported". */
@@ -533,11 +550,14 @@ public class AapService extends Service {
         if (opcode == OPCODE_EAR_DETECTION) {
             int primary = data[offset + 6] & 0xFF;
             int secondary = data[offset + 7] & 0xFF;
+            // Tagged distinctly from the "AAP-BLE" advert path so it's obvious which
+            // source drove a pause -- the L2CAP notifications are the sub-second one.
+            Log.d(TAG, "AAP-L2CAP ear primary=" + primary + " secondary=" + secondary);
             AapState s = lastState.copy();
             s.earLeft = primary;
             s.earRight = secondary;
             publishState(s);
-            handleEarDetectionForAutoPause(s);
+            handleEarDetectionForAutoPause(s, AAP_L2CAP_SOURCE);
         } else if (opcode == OPCODE_BATTERY) {
             int count = data[offset + 6] & 0xFF;
             AapState s = lastState.copy();
@@ -564,8 +584,16 @@ public class AapService extends Service {
 
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private void handleEarDetectionForAutoPause(AapState s) {
+    private void handleEarDetectionForAutoPause(AapState s, String source) {
         boolean nowBothInEar = s.earLeft == EAR_IN_EAR && s.earRight == EAR_IN_EAR;
+        // Only treat a change as a real ear event when it comes from the same
+        // advertiser that set the previous state. Otherwise a different pair
+        // taking over the lock would read as "a bud came out" and pause the music.
+        if (source != null && !source.equals(earStateSource)) {
+            earStateSource = source;
+            bothInEar = nowBothInEar;
+            return;
+        }
         if (bothInEar && !nowBothInEar) {
             // ExoPlayer must only be touched from the main thread -- this callback
             // runs on the AapService read-loop thread, so hop over first.
@@ -584,6 +612,7 @@ public class AapService extends Service {
             });
         }
         bothInEar = nowBothInEar;
+        earStateSource = source;
     }
 
     private void publishState(AapState s) {

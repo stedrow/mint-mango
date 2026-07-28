@@ -189,10 +189,45 @@ The force-success variant is gone (it was mutually exclusive with a real PSM);
 the gate variant's offsets are recorded above if someone wants to retry it in
 combination with something else.
 
+### Ruled out: every event-5 raiser (measured, not inferred)
+
+The status byte the client reports is `FUN_000550a0`'s third argument, landing at
+the event struct's `+0x22` (confirmed in its decompiled case 5). So each raiser
+was given a *distinct* status value, turning `msg->result:0X` into a name tag for
+whichever site fires (`scripts/airpods-aap/y2_probe_fail_site.sh`, with the PSM
+fix applied so the failure under test is the real one):
+
+| tagged site | code | result |
+|---|---|---|
+| `0x46000` (Ghidra `0x55fdc`) | 3 | not it |
+| `0x4650c` (Ghidra `0x562ec`) | 4 | not it |
+| `0x45b08` (Ghidra `0x5595c`) | 5 | not it |
+| `0x47d4c` (Ghidra `0x57b38`) | 6 | not it |
+| `0x462ca` (tail-call raiser) | 7 | not it |
+| `0x6be5a` (`btadp_jsr82_connect_req`'s own rejection tail) | 8 | not it |
+
+Every attempt still reported `result:02`. Those are *all* the event-5 raisers —
+the other `FUN_000550a0` call sites pass their status in a register and raise
+events 3, 4 and 6, checked individually. And the confirm-building copy is
+definitely the one observed, because forcing that copy to 1 (the earlier
+force-success patch) did change the client's report to `result:01`.
+
+So the event reaching `FUN_0007d208` case 5 carries a 2 that no tagged raiser
+produced. Either a second producer sends the same message with its own struct
+layout, or the receiver's `+0x22` is not the field the sender thinks it is (a
+header offset mismatch, of the same kind as the channel/mtu confusion found
+earlier in this file).
+
+Cheap next probe along the same lines: point the confirm's copy at the event's
+`+0x20` instead of `+0x22` (`ldrb.w r3,[r4,#0x22]` -> `ldrb.w r3,[r4,#0x20]`).
+Case 5 of `FUN_000550a0` explicitly zeroes `+0x20`, so `result:00` would prove
+the event came from there and the offsets are shifted, while an unchanged `02`
+would prove a different producer.
+
 ### Next step
 
-The blocker is knowing *which* of the five event-5-status-2 sites fires. That
-needs a trace, and note two dead ends found while trying to get one:
+Better than more guess-and-reboot: get a real trace. Two dead ends found while
+trying to get one:
 
 - mtkbt's internal traces never reach logcat: both trace helpers end in a sink
   gated off on a `user` build, headed for MTK's mobile-log daemon.
