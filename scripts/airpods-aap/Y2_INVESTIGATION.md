@@ -257,9 +257,44 @@ trying to get one:
   which this bionic lacks, so the library fails to load *and takes the audio HAL
   and system_server down with it*. Use the `__ARM_NR_cacheflush` syscall.
 
-A safer route to the same answer is a static patch of mtkbt that redirects the
-trace sink to its own `__android_log_print` PLT entry, or simply patching the
-sink's gate and checking whether `mobile_log_d` then captures to `/sdcard/mtklog`.
+### The trace route, researched and ready to build
+
+Enabling MediaTek's own logging is the wrong lever. `mtkbt`'s traces are MAUI
+`kal_trace` calls (`FUN_000829ac(level, id, fmt, ...)`) whose ids index a trace
+map like `blueangel/btadp_int/include/bluetooth_trc.h` in the BSP dumps, and the
+sink ships them over MTK's Catcher transport. The device does run `mobile_log_d`
+and `mdlogger` and ships `com.mediatek.mtklogger` (reachable via `*#*#3646633#*#*`,
+logs land in `/sdcard/mtklog`), but MobileLog is just logcat capture -- which
+these traces never reach -- and the Catcher stream needs MediaTek's trace
+database for this exact firmware to decode. Two unknowns chained, for binary
+output.
+
+Redirecting the sink to logcat is better, and every address needed is resolved:
+
+- **Patch point.** `FUN_00082714` (file `0x72714`) is the plain-text trace helper:
+  it formats the message with its own mini-printf into a stack buffer, then calls
+  the sink at file `0x72548` from `0x7283c` (`bl`). Its argument is a struct whose
+  `+0x04` holds the pointer to the formatted text (decompiled as
+  `local_c0 = &local_d0; local_bc = abStack_a4;`). Patch that one call.
+- **Logging is already linked in.** `__android_log_print` has a real PLT stub at
+  `0xb720` (ARM state, so reach it with `blx`), verified against its GOT slot
+  `0x10cc84` -- and 41 existing call sites already use it, so nothing new is
+  needed at link level.
+- **Somewhere to put the thunk.** `.text` has no zero run of even 32 bytes, but
+  the executable segment's last page does: `LOAD1` ends at `0x105e64` while the
+  page maps to `0x106000`, giving **412 bytes of mapped, executable, all-zero
+  space** at vaddr `0x105e64` (this PIE maps vaddr == file offset). No program
+  header edits, because the loader maps whole pages.
+- **Thunk sketch** (Thumb, literals in its own pool inside the cave):
+  `ldr r3,[r0,#4]` (text) / `r2 = "%s"` / `r1 = "MTKBT"` / `movs r0,#3` /
+  `blx 0xb720` / restore / tail-call the original sink at `0x72548`.
+
+That yields every internal `FUN_00065084` trace in logcat with its real arguments
+-- including the JSR82 session paths -- which is exactly what is needed to catch
+the indirect dispatch that static tagging could not reach.
+
+**Do not** hook this in-process from the transport proxy instead; that was tried
+and crashes mtkbt (see the trap notes below).
 
 Or skip the vendor entirely: the proxy sits on the HCI path and can drive the AAP
 handshake on the established channel itself, delivering ear state to the launcher
