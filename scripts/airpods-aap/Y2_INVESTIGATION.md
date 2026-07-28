@@ -1428,3 +1428,62 @@ Leading suspects, in order:
 Next step: reinstall `y2_trace_to_logcat.sh` alongside this fix and watch whether
 inbound data reaches L2CAP (`Notified data`, `L2CAP_RX_DATA_IND`) but is not
 routed to the session — that separates suspect 2 from suspect 3.
+
+## The mtu smuggle is gone, and the send path is now the frontier
+
+The PSM no longer has to be smuggled. `msg->channel` really is at `+0x0e` — the
+field nothing ever read — so a thunk at the original dropped-channel site does
+what the vendor meant to do:
+
+```
+6bdfa (stock): str  r6, [r5, #0x20]     ; ctx.channel = 0   <- the original bug
+       thunk : ldrh r3, [r4, #0x0e]     ; msg->channel
+               str  r3, [r5, #0x20]     ; ctx.channel
+               bl   memcpy              ; (relocated, r0-r2 already set)
+```
+
+With this, **`0x6c4e0` and the HAL are both back to stock** and the wire still
+shows `L2Cap: ConnectReq r-psm:0x1001` followed by `conn_rsp result:0` and
+`enter open state`. `localMtu` is no longer 4097. That retires
+`y2_psm_fix.sh`'s HAL half entirely.
+
+JSR82 now reports the channel properly, which it never did before:
+
+```
+[JSR82]btadp_jsr82_channel_connected :id[210438], conn_id[3], identify[7]
+```
+
+### Where the data actually stops
+
+The Java write reaches L2CAP and then vanishes:
+
+```
+[JSR82]bt_session_upper_data_incoming: session id[210438]
+[JSR82]btadp_jsr82_session_send
+[JSR82]jsr82_session_PutBytes
+c96  BT_JSR82_TX_REQ Find jsr82 channel :3
+c67  BT_JSR82_sendToL2Cap(): remove a free pkt to send data
+[JSR82] jsr82_session_fetchTxPacket <ptr>
+c77  BT_JSR82_sendToL2Cap After jbt_session_DevTX() with PS_L2CAP: get bytes=10
+```
+
+16 bytes (the AAP handshake) are fetched and handed to the L2CAP send — and
+**no `PutByte` ever follows**. Nothing goes out on the air. There is exactly one
+TX attempt in the whole capture, which is consistent with `AapService` sending
+the handshake and then blocking on a read that never completes.
+
+So the remaining defect is in the JSR82 -> L2CAP transmit path, not in the
+connect and not in the AAP payload. Candidates:
+
+- `BtPacket txPacket` in the record context (`jsr82_session.h`) may need fields
+  the client path never fills, so `L2CAP_Send` rejects or drops it.
+- The channel may not be marked transmit-ready — the A2DP channels log
+  `l2cap triggerHciSend` and `Almost empty` around their sends, and our channel
+  logs neither.
+- Flow/mode state: the connect logs `outMode:1 inMode:1` and
+  `Channel->psmInfo->lockStepNeeded:0`; if the packet is queued against a
+  psmInfo the client path did not populate, it would sit forever.
+
+Next: trace inside `BT_JSR82_sendToL2Cap` past the `get bytes` point, and find
+what the server/RFCOMM path does after `fetchTxPacket` that the L2CAP client
+path does not. `L2CAP_Send`'s return value is the thing to capture.
