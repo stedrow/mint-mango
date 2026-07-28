@@ -864,10 +864,75 @@ session was already deinitialised).
 
 The correct fix is therefore in the JSR82 connect path, not in ME: on
 `BT_STATUS_PENDING`, keep the session and wait for the connect callback that ME
-will deliver. `btadp_jsr82_connect_req` (`FUN_0007bd84`, file `0x6bd84`) is where
-the return is consumed, and the teardown it performs is the code to bypass.
+will deliver.
+
+> **Superseded.** This paragraph used to name `btadp_jsr82_connect_req`
+> (`FUN_0007bd84`, file `0x6bd84`) as the place that consumes the return and
+> performs the teardown. Disassembly says otherwise -- see "Where the teardown
+> actually lives" below. Do not spend another session on `0x6bd84`.
 
 Useful for whoever continues: Blue SDK headers (`me.h`, `bttypes.h`,
 `conmgr.h`) circulate in various vendor SDK trees and document these enums and
 the callback contract in full. Matching against them beats further guessing at
 struct offsets.
+
+## Where the teardown actually lives
+
+`btadp_jsr82_connect_req` (`0x6bd84`) consumes no status at all. Read end to
+end it logs the session id, looks up or allocates a session record, copies the
+request into it, and tail-calls `0x6c4a8` -- which only marshals a message and
+posts it via `0x4686c`. Nothing there inspects a `BtStatus`, so there is no
+`return 2` to intercept and no teardown to bypass. Its only failure tail
+(`0x6be2e`, the hardcoded `strb #2` into the confirm at `0x6be5a`) is the site
+the earlier probe already tagged and ruled out.
+
+The teardown is `btadp_jsr82_session_disconnected` at **`0x6cac4`** -- it logs
+the `[JSR82]btadp_jsr82_session_disconnected` line, writes state 4 into the
+record, and calls `bt_session_destroy`. It has exactly two callers:
+
+- **`0x6cf54`**, inside the handler at **`0x6cecc`** (trace id `0xc83`, the
+  channel-connect result). This is the one that matters: it reads the status
+  byte at `event+0x22`, calls the success path `0x6c970` only when it is 1, and
+  otherwise calls the teardown -- then builds the `0xa39` confirm copying that
+  same byte at `0x6cf8e`. That is precisely the shape `y2_force_session_ok.sh`
+  patches, and it is why `msg->result:02` and the disconnect always arrive
+  together.
+- `0x6d012`, in the handler at `0x6cfac` (trace id `0xc7b`), which sends a
+  `0xa45` confirm instead -- not the message the client reports.
+
+Nothing branches into `0x6cee0..0x6cee5`, so that pair of instructions is a safe
+hook site, and `r4` already holds the event pointer there.
+
+So the open question is unchanged from "Ruled out: every event-5 raiser": which
+indirect caller raises the event carrying status 2. `y2_evt5_caller_trace.sh`
+answers it by logging the handler's caller LR, the status byte and the session
+id under tag `MTKEVT5`.
+
+### Traps found while setting that up
+
+- **The revert backups go stale.** Every patch script creates its backup with
+  `[ -f $BACKUP ] || cp`, so a backup made in an earlier session is never
+  refreshed -- `/system/bin/mtkbt.stock.trace` was still holding an old
+  *patched* build (`bf9c69...`) while true stock is `1737c6d3...`
+  (`build/mtkbt_stock`). Reverting through the script would silently have
+  installed the old patched binary. **Always `md5` a backup against
+  `build/mtkbt_stock` before trusting a `--revert`.**
+- **The cave is more crowded than the comments imply.** The second trace thunk
+  at `0x105e94` is 56 bytes, so it runs to `0x105ecc`; `0x105ec8` is not free.
+  `y2_evt5_caller_trace.sh` uses `0x105ed0`. The zero-check in each script
+  catches this, but only if the new thunk is added after the trace one.
+- **`AapService` will not attempt a connect at all if the AirPods were not
+  already connected when it started.** `runLoop` counts `bootstrapFailures` and
+  `break`s out for good after `MAX_BOOTSTRAP_ATTEMPTS`; the service then stays
+  alive purely for the BLE scan, so connecting the AirPods later produces
+  nothing. Any test of the L2CAP path must (re)start the service *after* the
+  ACL link is up -- `am force-stop` plus restarting `MainActivity` is not
+  enough, because the service is started from the `ACL_CONNECTED` receiver, not
+  by the activity. Toggling the AirPods off and on again is the reliable
+  trigger. The first attempt at this trace produced an empty log for exactly
+  this reason.
+- **Do not leave the trace patch installed while listening to music.** With the
+  gates open mtkbt logs tens of thousands of lines per minute; audio stopped
+  during this run. The force-stop of the launcher is a confounder so this is not
+  proven to be the cause, but the trace build is a diagnostic, not something to
+  leave on.
