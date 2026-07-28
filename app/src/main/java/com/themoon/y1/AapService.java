@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelUuid;
@@ -61,6 +62,17 @@ public class AapService extends Service {
 
     private static final int OPCODE_BATTERY = 0x0004;
     private static final int OPCODE_EAR_DETECTION = 0x0006;
+    /**
+     * Settings channel. Both directions carry the same shape -- identifier byte
+     * then value byte -- so the pods report a setting the same way we set it.
+     * Confirmed on-device: 04 00 04 00 09 00 0D 03 00 00 00 arriving unprompted
+     * is "listening mode is currently transparency".
+     */
+    private static final int OPCODE_CONTROL = 0x0009;
+    /** Stem press, once the matching gesture bit is set via CTRL_STEM_GESTURES. */
+    private static final int OPCODE_STEM_PRESS = 0x0019;
+    /** Conversational-awareness speech events (distinct from the on/off setting). */
+    private static final int OPCODE_CONV_AWARENESS = 0x004B;
 
     public static final int EAR_IN_EAR = 0x00;
     public static final int EAR_OUT_OF_EAR = 0x01;
@@ -68,10 +80,70 @@ public class AapService extends Service {
     public static final int EAR_UNKNOWN = -1;
 
     public static final int BATTERY_UNKNOWN = -1;
+    private static final int BATTERY_CHARGING = 0x01;
+    private static final int BATTERY_DISCONNECTED = 0x04;
+    /** Apple's "optimized" charging -- still charging as far as the UI cares. */
+    private static final int BATTERY_CHARGING_OPTIMIZED = 0x05;
+
+    // Settings carried on OPCODE_CONTROL. Identifiers are from LibrePods'
+    // ControlCommandIdentifiers, which were extracted from iOS 19.1's Bluetooth
+    // stack; CTRL_LISTENING_MODE is additionally confirmed on hardware here (an
+    // AirPods Pro 3 reports 0x0D/3 for transparency).
+    public static final int CTRL_LISTENING_MODE = 0x0D;
+    public static final int CTRL_EAR_DETECTION = 0x0A;
+    public static final int CTRL_CONVERSATIONAL_AWARENESS = 0x28;
+    public static final int CTRL_DOUBLE_CLICK_INTERVAL = 0x17;
+    public static final int CTRL_CLICK_HOLD_INTERVAL = 0x18;
+    public static final int CTRL_CLICK_HOLD_MODE = 0x16;
+    public static final int CTRL_STEM_GESTURES = 0x39;
+
+    // Nearly every setting uses this pair. Note the direction: enabled is 1.
+    public static final int CTRL_ON = 0x01;
+    public static final int CTRL_OFF = 0x02;
+
+    // Stem gestures we can ask the pods to hand to us instead of acting on
+    // themselves (identifier 0x39, a bitmask).
+    public static final int STEM_SINGLE = 0x01;
+    public static final int STEM_DOUBLE = 0x02;
+    public static final int STEM_TRIPLE = 0x04;
+    public static final int STEM_LONG = 0x08;
+
+    // ...and how a press is reported back (opcode 0x19). Different numbering
+    // from the bitmask above, which is easy to trip over.
+    public static final int PRESS_SINGLE = 0x05;
+    public static final int PRESS_DOUBLE = 0x06;
+    public static final int PRESS_TRIPLE = 0x07;
+    public static final int PRESS_LONG = 0x08;
+    public static final int BUD_LEFT = 0x01;
+    public static final int BUD_RIGHT = 0x02;
+
+    public static final int NOISE_OFF = 0x01;
+    public static final int NOISE_ANC = 0x02;
+    public static final int NOISE_TRANSPARENCY = 0x03;
+    public static final int NOISE_ADAPTIVE = 0x04;
+    public static final int NOISE_UNKNOWN = -1;
 
     public interface Listener {
         void onAapStateChanged(AapState state);
         void onAapConnectionChanged(boolean connected);
+    }
+
+    /**
+     * Stem presses, delivered only for gestures enabled via
+     * {@link #setStemGestures(int)}. Separate from {@link Listener} so existing
+     * implementors don't have to care.
+     */
+    public interface StemListener {
+        /** @param type a PRESS_* constant, @param bud BUD_LEFT or BUD_RIGHT. */
+        void onStemPress(int type, int bud);
+    }
+
+    public static void addStemListener(StemListener l) {
+        stemListeners.add(l);
+    }
+
+    public static void removeStemListener(StemListener l) {
+        stemListeners.remove(l);
     }
 
     public static final class AapState {
@@ -83,6 +155,10 @@ public class AapService extends Service {
         public boolean chargingCase = false;
         public boolean chargingLeft = false;
         public boolean chargingRight = false;
+        /** One of the NOISE_* constants, or NOISE_UNKNOWN before the pods report it. */
+        public int noiseMode = NOISE_UNKNOWN;
+        public boolean earDetectionEnabled = true;
+        public boolean conversationalAwareness = false;
 
         AapState copy() {
             AapState s = new AapState();
@@ -94,6 +170,9 @@ public class AapService extends Service {
             s.chargingCase = chargingCase;
             s.chargingLeft = chargingLeft;
             s.chargingRight = chargingRight;
+            s.noiseMode = noiseMode;
+            s.earDetectionEnabled = earDetectionEnabled;
+            s.conversationalAwareness = conversationalAwareness;
             return s;
         }
     }
@@ -101,6 +180,12 @@ public class AapService extends Service {
     private static final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<Listener>();
     private static volatile AapState lastState = new AapState();
     private static volatile boolean lastConnected = false;
+    /** The running service, so the static setters below can reach its socket. */
+    private static volatile AapService instance;
+    /** Gestures to intercept; re-applied on every session, 0 = leave the pods alone. */
+    private static volatile int stemGestureMask = 0;
+    private static final CopyOnWriteArrayList<StemListener> stemListeners =
+            new CopyOnWriteArrayList<StemListener>();
 
     public static void addListener(Listener l) {
         listeners.add(l);
@@ -140,6 +225,64 @@ public class AapService extends Service {
         ctx.stopService(new Intent(ctx, AapService.class));
     }
 
+    // --- Settings, all requiring a live AAP session (they have no BLE fallback).
+    // Each returns false if nothing could be sent. The pods echo the change back
+    // as a notification, so callers should render from AapState rather than
+    // assuming the write took effect.
+
+    /** @param mode one of NOISE_OFF / NOISE_ANC / NOISE_TRANSPARENCY / NOISE_ADAPTIVE. */
+    public static boolean setNoiseMode(int mode) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_LISTENING_MODE, mode);
+    }
+
+    public static boolean setEarDetectionEnabled(boolean enabled) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_EAR_DETECTION, enabled ? CTRL_ON : CTRL_OFF);
+    }
+
+    public static boolean setConversationalAwareness(boolean enabled) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_CONVERSATIONAL_AWARENESS,
+                enabled ? CTRL_ON : CTRL_OFF);
+    }
+
+    /** Press-and-hold duration: 0 default, 1 slower, 2 slowest. */
+    public static boolean setClickHoldInterval(int value) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_CLICK_HOLD_INTERVAL, value);
+    }
+
+    /** Double-press speed: 0 default, 1 slower, 2 slowest. */
+    public static boolean setDoubleClickInterval(int value) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_DOUBLE_CLICK_INTERVAL, value);
+    }
+
+    /**
+     * What press-and-hold does on each bud: 0x01 noise control, 0x05 Siri.
+     * This one really is per-bud, and data2 is the left bud.
+     */
+    public static boolean setClickHoldMode(int right, int left) {
+        AapService s = instance;
+        return s != null && s.sendControl(CTRL_CLICK_HOLD_MODE, right, left);
+    }
+
+    /**
+     * Asks the pods to report the given gestures to us instead of acting on them
+     * (bitwise-or of the STEM_* constants; 0 restores their built-in behaviour).
+     *
+     * Off by default and deliberately so: setting a bit *removes* the bud's own
+     * function for that gesture, so nothing is intercepted unless a caller asks.
+     * The pods forget this whenever they connect to another non-iCloud device,
+     * so it is re-sent on every session -- see {@link #stemGestureMask}.
+     */
+    public static boolean setStemGestures(int mask) {
+        AapService s = instance;
+        stemGestureMask = mask;
+        return s != null && s.sendControl(CTRL_STEM_GESTURES, mask);
+    }
+
     private static final int BLE_RSSI_FLOOR = -70;
     // Strongest advert seen lately is tracked for the log only -- it makes the
     // relative strength of a foreign pair obvious when diagnosing on-device.
@@ -171,6 +314,10 @@ public class AapService extends Service {
     private int skippedAdverts = 0;
     private volatile boolean shouldRun = false;
     private volatile BluetoothSocket activeSocket = null;
+    /** Write end of the live session, and the lock serialising writes to it. */
+    private volatile OutputStream activeOut = null;
+    private final Object writeLock = new Object();
+    private volatile boolean sentFollowUp = false;
     private Thread worker;
     private String targetMac;
 
@@ -184,6 +331,7 @@ public class AapService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        instance = this;
         String mac = intent != null ? intent.getStringExtra("mac") : null;
         if (mac == null) {
             stopSelf();
@@ -303,6 +451,10 @@ public class AapService extends Service {
      * scripts/airpods-aap/Y2_INVESTIGATION.md for the capture.
      */
     private void applyAdvert(byte[] p, int rssi, String addr) {
+        // The advert is the fallback, not a second opinion. Its ear state lags by
+        // seconds and its battery levels are 10% nibbles, so while the AAP session
+        // is up it would only overwrite better data with worse.
+        if (activeSocket != null) return;
         int status = p[5] & 0xFF;
         int battery = p[6] & 0xFF;
         int charge = p[7] & 0xFF;
@@ -377,6 +529,7 @@ public class AapService extends Service {
 
     @Override
     public void onDestroy() {
+        if (instance == this) instance = null;
         shouldRun = false;
         stopBleScan();
         BluetoothSocket s = activeSocket;
@@ -432,6 +585,9 @@ public class AapService extends Service {
                     Log.d(TAG, "socket close failed after session end", t);
                 }
                 activeSocket = null;
+                // Drop the write end too, so any handshake retry still pending on
+                // the main thread sees a stale session and does nothing.
+                activeOut = null;
                 setConnected(false);
             }
 
@@ -482,12 +638,11 @@ public class AapService extends Service {
         InputStream in = socket.getInputStream();
         OutputStream out = socket.getOutputStream();
 
-        out.write(AAP_HANDSHAKE);
-        out.flush();
+        activeOut = out;
+        startHandshake(out);
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] readBuf = new byte[1024];
-        boolean sentFollowUp = false;
         while (shouldRun) {
             int n = in.read(readBuf);
             if (n < 0) {
@@ -497,18 +652,104 @@ public class AapService extends Service {
             if (n == 0) continue;
             Log.d(TAG, "AAP rx " + n + " bytes: " + hexPrefix(readBuf, n));
             if (!sentFollowUp && startsWith(readBuf, n, AAP_HANDSHAKE_ACK)) {
-                // Wait for the ack rather than guessing a delay: the pods ignore
-                // anything sent before they have acknowledged the handshake.
                 sentFollowUp = true;
-                out.write(AAP_SET_SPECIFIC_FEATURES);
-                out.flush();
-                out.write(AAP_ENABLE_NOTIFICATIONS);
-                out.flush();
-                Log.i(TAG, "AAP handshake acked; requested notifications");
+                sendOpeningSequence(out, "handshake acked");
             }
             buffer.write(readBuf, 0, n);
             drainPackets(buffer);
         }
+    }
+
+    /**
+     * Sends the handshake and then repeats the whole opening sequence at +200ms
+     * and +5s, as LibrePods' Android client does.
+     *
+     * Waiting only for the handshake ACK is not enough in practice: the pods
+     * sometimes ignore the first handshake entirely, and the features ACK that
+     * would gate the rest is documented upstream as only tested on AirPods Pro 2,
+     * so an ACK-driven state machine can stall on other models. Re-sending is
+     * harmless -- these are idempotent setup packets -- and it turns a silent
+     * dead session into a slightly late one.
+     */
+    private void startHandshake(final OutputStream out) throws Exception {
+        sentFollowUp = false;
+        out.write(AAP_HANDSHAKE);
+        out.flush();
+        for (final int delayMs : new int[]{200, 5000}) {
+            ioHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (activeOut != out) return; // session already replaced
+                    try {
+                        out.write(AAP_HANDSHAKE);
+                        out.flush();
+                        sendOpeningSequence(out, "retry +" + delayMs + "ms");
+                    } catch (Throwable t) {
+                        Log.d(TAG, "AAP handshake retry failed: " + t);
+                    }
+                }
+            }, delayMs);
+        }
+    }
+
+    /**
+     * Writes a settings packet: {@code 04 00 04 00 09 00 <id> <value> 00 00 00 00}.
+     * Same shape the pods use to report a setting back, so a successful write is
+     * echoed as a notification and {@link #applyControlValue} updates the state.
+     *
+     * Returns false when there is no live session -- these settings only exist
+     * over AAP, there is no BLE fallback for them.
+     */
+    private boolean sendControl(int id, int value) {
+        return sendControl(id, value, 0x00);
+    }
+
+    /** Two-value form; only a few settings use data2 (e.g. per-bud click-hold mode). */
+    private boolean sendControl(int id, final int value, final int value2) {
+        final OutputStream out = activeOut;
+        if (out == null) return false;
+        // 11 bytes exactly: header, LE opcode, identifier, then four data bytes.
+        final byte[] pkt = {0x04, 0x00, 0x04, 0x00, 0x09, 0x00,
+                (byte) id, (byte) value, (byte) value2, 0x00, 0x00};
+        final int idForLog = id;
+        // Always off the caller's thread: these come from UI taps, and a blocking
+        // Bluetooth write on the main thread ANRs the launcher. The return value
+        // therefore only means "there was a session to write to" -- the pods echo
+        // the setting back, so callers should render from AapState regardless.
+        ioHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (activeOut != out) return; // session replaced while queued
+                try {
+                    synchronized (writeLock) {
+                        out.write(pkt);
+                        out.flush();
+                    }
+                    Log.i(TAG, "AAP control sent id=0x" + Integer.toHexString(idForLog)
+                            + " value=" + value);
+                } catch (Throwable t) {
+                    Log.w(TAG, "AAP control write failed: " + t);
+                }
+            }
+        });
+        return true;
+    }
+
+    /** Feature flags then the notification request; safe to repeat. */
+    private void sendOpeningSequence(OutputStream out, String why) throws Exception {
+        synchronized (writeLock) {
+            out.write(AAP_SET_SPECIFIC_FEATURES);
+            out.flush();
+            out.write(AAP_ENABLE_NOTIFICATIONS);
+            out.flush();
+        }
+        // The pods forget an intercept mask whenever they attach to a new
+        // non-iCloud host, so it has to be re-asserted per session rather than
+        // set once.
+        if (stemGestureMask != 0) {
+            sendControl(CTRL_STEM_GESTURES, stemGestureMask);
+        }
+        Log.i(TAG, "AAP opening sequence sent (" + why + ")");
     }
 
     /**
@@ -534,6 +775,12 @@ public class AapService extends Service {
 
             if (opcode == OPCODE_EAR_DETECTION) {
                 packetLen = 8;
+            } else if (opcode == OPCODE_STEM_PRESS) {
+                packetLen = 8;
+            } else if (opcode == OPCODE_CONTROL) {
+                packetLen = 11;
+            } else if (opcode == OPCODE_CONV_AWARENESS) {
+                packetLen = 10;
             } else if (opcode == OPCODE_BATTERY) {
                 if (magicAt + 7 > data.length) break; // need the count byte
                 int count = data[magicAt + 6] & 0xFF;
@@ -605,7 +852,11 @@ public class AapService extends Service {
                 int component = data[p] & 0xFF;
                 int level = data[p + 2] & 0xFF;
                 int status = data[p + 3] & 0xFF;
-                boolean charging = status == 0x01;
+                // 0x04 is "disconnected": the entry carries no usable level, so
+                // keep whatever we last knew rather than showing a stale zero.
+                if (status == BATTERY_DISCONNECTED) continue;
+                boolean charging = status == BATTERY_CHARGING
+                        || status == BATTERY_CHARGING_OPTIMIZED;
                 if (component == 0x04) { // left
                     s.batteryLeft = level;
                     s.chargingLeft = charging;
@@ -618,10 +869,61 @@ public class AapService extends Service {
                 }
             }
             publishState(s);
+        } else if (opcode == OPCODE_STEM_PRESS) {
+            if (len < 8) return;
+            int type = data[offset + 6] & 0xFF;
+            int bud = data[offset + 7] & 0xFF;
+            Log.i(TAG, "AAP stem press type=" + type + " bud=" + bud);
+            for (StemListener l : stemListeners) {
+                l.onStemPress(type, bud);
+            }
+        } else if (opcode == OPCODE_CONV_AWARENESS) {
+            if (len < 10) return;
+            // Level ramps rather than toggling; LibrePods' shipping code treats
+            // 1-2 as "started speaking" and 6/8/9 as "stopped", which disagrees
+            // with their own docs -- the code is the tested one.
+            int level = data[offset + 9] & 0xFF;
+            Log.d(TAG, "AAP conversational awareness level=" + level);
+        } else if (opcode == OPCODE_CONTROL) {
+            if (len < 8) return;
+            int id = data[offset + 6] & 0xFF;
+            int value = data[offset + 7] & 0xFF;
+            Log.d(TAG, "AAP control id=0x" + Integer.toHexString(id) + " value=" + value);
+            applyControlValue(id, value);
         }
     }
 
+    /** Records a setting the pods reported, so the UI reflects changes made elsewhere. */
+    private void applyControlValue(int id, int value) {
+        AapState s = lastState.copy();
+        switch (id) {
+            case CTRL_LISTENING_MODE:
+                s.noiseMode = value;
+                break;
+            case CTRL_EAR_DETECTION:
+                s.earDetectionEnabled = value == CTRL_ON;
+                break;
+            case CTRL_CONVERSATIONAL_AWARENESS:
+                s.conversationalAwareness = value == CTRL_ON;
+                break;
+            default:
+                return; // a setting we don't model; the log line above is enough
+        }
+        publishState(s);
+    }
+
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+    /**
+     * Handshake retries run here, never on the main thread: these are blocking
+     * writes to a Bluetooth socket, and doing them on the UI thread froze the
+     * launcher hard enough to ANR.
+     */
+    private static final Handler ioHandler;
+    static {
+        HandlerThread t = new HandlerThread("aap-io");
+        t.start();
+        ioHandler = new Handler(t.getLooper());
+    }
 
     private void handleEarDetectionForAutoPause(AapState s, String source) {
         // The L2CAP session reports ear changes in well under a second, the BLE
