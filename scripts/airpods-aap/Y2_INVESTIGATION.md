@@ -1225,3 +1225,80 @@ So a tidier patch is to read the field that was meant to carry it:
 which keeps the existing `0x6c4e0` patch and makes the HAL patch unnecessary.
 It does not by itself fix `channel+0x84`, so it is a tidy-up, not the fix —
 worth doing only alongside whatever resolves the real gate.
+
+## The decoder needs an offset — and with it, the client path reads clearly
+
+The MT6577 header and the MT6582 firmware do not share one enum alignment:
+eight entries were inserted somewhere between the SDP block and the JSR82 block.
+Ids below roughly `0x800` decode at face value (that is why `0x630` and `0x70f`
+calibrated perfectly), but **ids in the JSR82 block need `-8`**. Decoding them
+at face value reads plausibly and is wrong; that is what produced the previous
+section's "the PSM index is fine, `0x45628` is `Disable_Service`" reading.
+`decode_trace_ids.py` now takes an offset argument.
+
+The `-8` alignment is pinned by three independent anchors:
+
+- `0x47b74` passes four arguments, and the only nearby message taking four is
+  `JSR82 L2CAP Callback: session_inx=%d,l2ChnlId=%d,con_id=%d, event=%d`. So
+  **`0x47b38` is `BTJSR82_L2capCallback`**.
+- `0x47b9a` sits on the branch taken when the session index exceeds `0x13`, and
+  decodes to `JSR82 L2CAP Callback: NO matched index in context`.
+- `0x47f20` sits on the branch taken when the result halfword at `event+0x02`
+  is non-zero, and decodes to `JSR82 L2Cap Open Chnl failed`.
+
+Re-decoded, the failing connect is:
+
+```
+c3c  JSR82 L2CAP Callback: session_inx,l2ChnlId,con_id,event   (entry)
+c43  JSR82 L2CAP CONNECTED with chnl=%08X
+c8a  bt_jsr82_SearchL2capContext                               (0x45628)
+c15  bt_jsr82_SearchL2capContext():inx,status,ps_type,chnl,cli_srv_type
+c16  bt_jsr82_SearchL2capContext():inx,l2cap_con_state,l2capCid
+c17  bt_jsr82_SearchL2capContext():jsr82 find l2cap id,l2capCid
+c44  JSR82 L2CAP Client connected inx=%d                       b=3
+c7b  BT_JSR82_SessionApConnectCfn
+```
+
+So `0x45628` is `bt_jsr82_SearchL2capContext`, not `BT_JSR82_Disable_Service`,
+and the branch reads:
+
+```
+47eb4: cbnz r1, 0x47ed8   ; +0x84 != 0 -> "JSR82 L2Cap Connected con_id=%d" ; raise(ev4, 1)
+47eb8: bl   bt_jsr82_SearchL2capContext(cid)
+47ebc: trace "JSR82 L2CAP Client connected inx=%d"   <- inx = 3, context FOUND
+47ed4: movs r2, #2                                    <- reports failure regardless
+```
+
+The zero branch is explicitly the **client** branch, the context lookup
+succeeds, and the status is then hardcoded to 2. Independent header work
+supports this: `struct _L2CAP_Channel` has no role field in the public v3.x
+generation, but offset-fitting the target's `0x198`-byte record against that
+header reproduces every measured anchor (`state@0x04`, `link@0x08`,
+`psmInfo@0x2c`, `localCid@0x30`), and `+0x84` sits in the block this generation
+appended alongside the `outMode`/`inMode` connection tracking. `0` is the
+correct, permanent value for a locally-initiated channel — nothing in the SDK
+flips it later. So the branch is a legitimate client/server split and only the
+status literal is wrong.
+
+### But the two-byte patch stops the daemon, reproducibly
+
+Controlled, with `bluetooth_on = 1` verified after boot in every row:
+
+| build | `init.svc.mtkbt` |
+|---|---|
+| stock | running |
+| stock + PSM fix + trace | running |
+| stock + PSM fix + trace + `0x47ed4` | **stopped** |
+
+Two boots each. A `movs` literal inside an L2CAP callback cannot plausibly
+affect daemon startup, so something about `0x47ed4` is not what a linear
+disassembly suggests — the surrounding bytes may be reached as data, or the
+instruction boundary may differ from what objdump's sweep shows. **Resolve that
+before using the patch**; an earlier note in this file that blamed the missing
+daemon purely on the Bluetooth-off trap was too quick. The trap is real and did
+cause some of the occurrences, but it does not explain these.
+
+Suggested isolation, one reboot each: install `0x47ed4` **alone** on otherwise
+stock mtkbt (no PSM patch, no trace thunks) and check `init.svc.mtkbt`. If it
+still dies, dump the bytes around `0x47ec0..0x47ef0` from the live binary and
+re-derive the instruction boundaries rather than trusting the sweep.
