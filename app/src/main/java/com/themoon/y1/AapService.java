@@ -724,7 +724,10 @@ public class AapService extends Service {
     /** Two-value form; only a few settings use data2 (e.g. per-bud click-hold mode). */
     private boolean sendControl(int id, final int value, final int value2) {
         final OutputStream out = activeOut;
-        if (out == null) return false;
+        if (out == null) {
+            Log.w(TAG, "AAP control id=0x" + Integer.toHexString(id) + " dropped: no session");
+            return false;
+        }
         // 11 bytes exactly: header, LE opcode, identifier, then four data bytes.
         final byte[] pkt = {0x04, 0x00, 0x04, 0x00, 0x09, 0x00,
                 (byte) id, (byte) value, (byte) value2, 0x00, 0x00};
@@ -736,7 +739,11 @@ public class AapService extends Service {
         ioHandler.post(new Runnable() {
             @Override
             public void run() {
-                if (activeOut != out) return; // session replaced while queued
+                if (activeOut != out) {
+                    Log.w(TAG, "AAP control id=0x" + Integer.toHexString(idForLog)
+                            + " dropped: session replaced before the write ran");
+                    return;
+                }
                 try {
                     synchronized (writeLock) {
                         out.write(pkt);

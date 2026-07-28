@@ -144,7 +144,7 @@ public class ConnectivityScreenManager {
                 for (BluetoothDevice device : pairedDevices) {
                     addPairedBluetoothItemToUI(a, device); // Call the UI dedicated to paired devices
                 }
-                addNoiseControlRow(a);
+                addAirPodsInfoRows(a);
             } else {
                 TextView tvEmpty = new TextView(a);
                 tvEmpty.setText(a.t("No paired devices."));
@@ -186,6 +186,9 @@ public class ConnectivityScreenManager {
         restoreBluetoothFocus(a, targetFocusIndex);
     }
 
+    /** Kept so the info rows can be detached when the screen is rebuilt. */
+    private com.themoon.y1.AapService.Listener aapInfoListener;
+
     private static final int[] NOISE_MODES = {
             com.themoon.y1.AapService.NOISE_OFF,
             com.themoon.y1.AapService.NOISE_ANC,
@@ -203,38 +206,95 @@ public class ConnectivityScreenManager {
         return "--";
     }
 
+    /** "76%", "76% (charging)", or "--" when the pods haven't reported it. */
+    private static String batteryLabel(int percent, boolean charging) {
+        if (percent == com.themoon.y1.AapService.BATTERY_UNKNOWN) return "--";
+        return percent + "%" + (charging ? " \u26A1" : "");
+    }
+
+    private static String earLabel(int ear) {
+        switch (ear) {
+            case com.themoon.y1.AapService.EAR_IN_EAR: return "In ear";
+            case com.themoon.y1.AapService.EAR_OUT_OF_EAR: return "Out";
+            case com.themoon.y1.AapService.EAR_IN_CASE: return "In case";
+            default: return "--";
+        }
+    }
+
     /**
-     * Noise-control selector for AirPods, shown only while the AAP session is up
-     * -- this setting exists solely over L2CAP, there is no BLE fallback for it.
+     * Read-only AirPods status, shown only while the AAP session is up -- none of
+     * this exists over the BLE advert fallback at useful precision.
      *
-     * The label is rendered from the state the pods reported rather than from
-     * what we last sent, so a mode changed on the bud itself (or from a phone)
-     * shows up here correctly.
+     * Deliberately display-only. An earlier version let this cycle the noise mode,
+     * but no write ever demonstrably reached the pods (nothing was logged leaving
+     * the socket) while the tap did coincide with audio dropping out, so the
+     * control is gone until the write path is understood. Reading is solid: these
+     * values update live, including changes made on the bud itself.
      */
-    private void addNoiseControlRow(final MainActivity a) {
+    private void addAirPodsInfoRows(final MainActivity a) {
         if (!com.themoon.y1.AapService.isConnected()) return;
-        com.themoon.y1.AapService.AapState st = com.themoon.y1.AapService.getLastState();
-        final LinearLayout row = a.createSettingRow(a.t("Noise Control"), a.t(noiseLabel(st.noiseMode)));
-        row.setOnClickListener(new View.OnClickListener() {
+
+        // createCategoryHeader() appends to the settings container, not this one,
+        // so the header is built here.
+        TextView header = new TextView(a);
+        header.setText(a.t("AirPods"));
+        header.setTextColor(0xBBFFFFFF);
+        header.setTextSize(14);
+        header.setTypeface(null, android.graphics.Typeface.BOLD);
+        header.setPadding(10, 30, 10, 5);
+        a.containerBtItems.addView(header);
+
+        final LinearLayout rowBuds = infoRow(a, a.t("Earbuds Battery"));
+        final LinearLayout rowCase = infoRow(a, a.t("Case Battery"));
+        final LinearLayout rowNoise = infoRow(a, a.t("Noise Control"));
+        final LinearLayout rowEar = infoRow(a, a.t("Ear Detection"));
+
+        if (aapInfoListener != null) {
+            com.themoon.y1.AapService.removeListener(aapInfoListener);
+        }
+        aapInfoListener = new com.themoon.y1.AapService.Listener() {
             @Override
-            public void onClick(View v) {
-                a.clickFeedback();
-                int current = com.themoon.y1.AapService.getLastState().noiseMode;
-                int idx = 0;
-                for (int i = 0; i < NOISE_MODES.length; i++) {
-                    if (NOISE_MODES[i] == current) { idx = i; break; }
-                }
-                int next = NOISE_MODES[(idx + 1) % NOISE_MODES.length];
-                if (com.themoon.y1.AapService.setNoiseMode(next)) {
-                    // Optimistic: the pods echo the change back and correct us if
-                    // they disagree (e.g. Adaptive is refused on older models).
-                    ((TextView) row.getChildAt(1)).setText(a.t(noiseLabel(next)));
-                } else {
-                    ((TextView) row.getChildAt(1)).setText(a.t("--"));
-                }
+            public void onAapStateChanged(final com.themoon.y1.AapService.AapState st) {
+                a.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (rowBuds.getParent() == null) return; // screen rebuilt since
+                        render(a, st, rowBuds, rowCase, rowNoise, rowEar);
+                    }
+                });
             }
-        });
-        a.containerBtItems.addView(row);
+
+            @Override
+            public void onAapConnectionChanged(boolean connected) {
+            }
+        };
+        com.themoon.y1.AapService.addListener(aapInfoListener);
+
+        render(a, com.themoon.y1.AapService.getLastState(), rowBuds, rowCase, rowNoise, rowEar);
+        a.containerBtItems.addView(rowBuds);
+        a.containerBtItems.addView(rowCase);
+        a.containerBtItems.addView(rowNoise);
+        a.containerBtItems.addView(rowEar);
+    }
+
+    private static void render(MainActivity a, com.themoon.y1.AapService.AapState st,
+                               LinearLayout rowBuds, LinearLayout rowCase,
+                               LinearLayout rowNoise, LinearLayout rowEar) {
+        ((TextView) rowBuds.getChildAt(1)).setText(
+                "L " + batteryLabel(st.batteryLeft, st.chargingLeft)
+                        + "   R " + batteryLabel(st.batteryRight, st.chargingRight));
+        ((TextView) rowCase.getChildAt(1)).setText(batteryLabel(st.batteryCase, st.chargingCase));
+        ((TextView) rowNoise.getChildAt(1)).setText(a.t(noiseLabel(st.noiseMode)));
+        ((TextView) rowEar.getChildAt(1)).setText(
+                a.t(earLabel(st.earLeft)) + " / " + a.t(earLabel(st.earRight)));
+    }
+
+    /** A settings row that displays but doesn't take focus -- the wheel skips it. */
+    private static LinearLayout infoRow(MainActivity a, String label) {
+        LinearLayout row = a.createSettingRow(label, "--");
+        row.setFocusable(false);
+        row.setClickable(false);
+        return row;
     }
 
     @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
