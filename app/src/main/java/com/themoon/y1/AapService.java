@@ -315,7 +315,6 @@ public class AapService extends Service {
     private volatile OutputStream activeOut = null;
     private final Object writeLock = new Object();
     private volatile boolean sentFollowUp = false;
-    private int targetRetries = 0;
     private Thread worker;
     private String targetMac;
 
@@ -330,29 +329,16 @@ public class AapService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         instance = this;
-        // The MAC is a hint, not a requirement. START_STICKY restarts arrive with
-        // a null intent, and gating on the extra meant any restart left the
-        // service permanently dead -- no session, no AirPods panel -- until the
-        // next ACL_CONNECTED broadcast, which had usually already fired. So fall
-        // back to whatever is actually connected, which is the thing we wanted
-        // all along.
         String mac = intent != null ? intent.getStringExtra("mac") : null;
-        if (mac == null) mac = connectedDeviceAddress();
         if (mac == null) {
-            // Don't give up: on a START_STICKY restart there is no intent, and the
-            // A2DP proxy usually isn't bound yet either, so the target is simply
-            // not knowable *yet*. Stopping here left the service dead for the rest
-            // of the boot with nothing to restart it.
-            Log.i(TAG, "no target yet; will retry resolving the connected device");
-            scheduleTargetRetry();
-            return START_STICKY;
+            stopSelf();
+            return START_NOT_STICKY;
         }
         if (shouldRun && mac.equalsIgnoreCase(targetMac)) {
             // Already running against this device.
             return START_STICKY;
         }
         targetMac = mac;
-        targetRetries = 0;
         shouldRun = true;
         startBleScan();
         if (worker == null || !worker.isAlive()) {
@@ -365,49 +351,6 @@ public class AapService extends Service {
             worker.start();
         }
         return START_STICKY;
-    }
-
-    /**
-     * Re-attempts target resolution while the A2DP proxy finishes binding. Gives
-     * up quietly after a while rather than polling forever -- by then there is
-     * genuinely nothing connected, and an ACL_CONNECTED broadcast will start us
-     * properly when something is.
-     */
-    private void scheduleTargetRetry() {
-        if (targetRetries++ > 10) {
-            Log.i(TAG, "no audio device after " + targetRetries + " tries; standing down");
-            stopSelf();
-            return;
-        }
-        ioHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (shouldRun) return; // started properly in the meantime
-                String mac = connectedDeviceAddress();
-                if (mac == null) {
-                    scheduleTargetRetry();
-                    return;
-                }
-                Log.i(TAG, "resolved target " + mac + " on retry " + targetRetries);
-                Intent i = new Intent(AapService.this, AapService.class);
-                i.putExtra("mac", mac);
-                startService(i);
-            }
-        }, 3000);
-    }
-
-    /** Address of the currently connected audio device, or null if there isn't one. */
-    private static String connectedDeviceAddress() {
-        try {
-            java.util.List<BluetoothDevice> connected =
-                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().getConnectedDevices();
-            if (connected != null && !connected.isEmpty()) {
-                return connected.get(0).getAddress();
-            }
-        } catch (Throwable t) {
-            Log.d(TAG, "could not resolve the connected device", t);
-        }
-        return null;
     }
 
     /**
