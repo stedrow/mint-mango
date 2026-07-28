@@ -315,6 +315,7 @@ public class AapService extends Service {
     private volatile OutputStream activeOut = null;
     private final Object writeLock = new Object();
     private volatile boolean sentFollowUp = false;
+    private int targetRetries = 0;
     private Thread worker;
     private String targetMac;
 
@@ -338,14 +339,20 @@ public class AapService extends Service {
         String mac = intent != null ? intent.getStringExtra("mac") : null;
         if (mac == null) mac = connectedDeviceAddress();
         if (mac == null) {
-            stopSelf();
-            return START_NOT_STICKY;
+            // Don't give up: on a START_STICKY restart there is no intent, and the
+            // A2DP proxy usually isn't bound yet either, so the target is simply
+            // not knowable *yet*. Stopping here left the service dead for the rest
+            // of the boot with nothing to restart it.
+            Log.i(TAG, "no target yet; will retry resolving the connected device");
+            scheduleTargetRetry();
+            return START_STICKY;
         }
         if (shouldRun && mac.equalsIgnoreCase(targetMac)) {
             // Already running against this device.
             return START_STICKY;
         }
         targetMac = mac;
+        targetRetries = 0;
         shouldRun = true;
         startBleScan();
         if (worker == null || !worker.isAlive()) {
@@ -358,6 +365,35 @@ public class AapService extends Service {
             worker.start();
         }
         return START_STICKY;
+    }
+
+    /**
+     * Re-attempts target resolution while the A2DP proxy finishes binding. Gives
+     * up quietly after a while rather than polling forever -- by then there is
+     * genuinely nothing connected, and an ACL_CONNECTED broadcast will start us
+     * properly when something is.
+     */
+    private void scheduleTargetRetry() {
+        if (targetRetries++ > 10) {
+            Log.i(TAG, "no audio device after " + targetRetries + " tries; standing down");
+            stopSelf();
+            return;
+        }
+        ioHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (shouldRun) return; // started properly in the meantime
+                String mac = connectedDeviceAddress();
+                if (mac == null) {
+                    scheduleTargetRetry();
+                    return;
+                }
+                Log.i(TAG, "resolved target " + mac + " on retry " + targetRetries);
+                Intent i = new Intent(AapService.this, AapService.class);
+                i.putExtra("mac", mac);
+                startService(i);
+            }
+        }, 3000);
     }
 
     /** Address of the currently connected audio device, or null if there isn't one. */
