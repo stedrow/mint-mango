@@ -248,6 +248,8 @@ public class ConnectivityScreenManager {
         final LinearLayout rowCase = infoRow(a, a.t("Case Battery"));
         final LinearLayout rowNoise = infoRow(a, a.t("Noise Control"));
         final LinearLayout rowEar = infoRow(a, a.t("Ear Detection"));
+        final LinearLayout rowConv = infoRow(a, a.t("Conversation Awareness"));
+        final LinearLayout rowLinks = infoRow(a, a.t("Connected Devices"));
 
         if (aapInfoListener != null) {
             com.themoon.y1.AapService.removeListener(aapInfoListener);
@@ -259,7 +261,7 @@ public class ConnectivityScreenManager {
                     @Override
                     public void run() {
                         if (rowBuds.getParent() == null) return; // screen rebuilt since
-                        render(a, st, rowBuds, rowCase, rowNoise, rowEar);
+                        render(a, st, rowBuds, rowCase, rowNoise, rowEar, rowConv, rowLinks);
                     }
                 });
             }
@@ -270,16 +272,20 @@ public class ConnectivityScreenManager {
         };
         com.themoon.y1.AapService.addListener(aapInfoListener);
 
-        render(a, com.themoon.y1.AapService.getLastState(), rowBuds, rowCase, rowNoise, rowEar);
+        render(a, com.themoon.y1.AapService.getLastState(),
+                rowBuds, rowCase, rowNoise, rowEar, rowConv, rowLinks);
         a.containerBtItems.addView(rowBuds);
         a.containerBtItems.addView(rowCase);
         a.containerBtItems.addView(rowNoise);
         a.containerBtItems.addView(rowEar);
+        a.containerBtItems.addView(rowConv);
+        a.containerBtItems.addView(rowLinks);
     }
 
     private static void render(MainActivity a, com.themoon.y1.AapService.AapState st,
                                LinearLayout rowBuds, LinearLayout rowCase,
-                               LinearLayout rowNoise, LinearLayout rowEar) {
+                               LinearLayout rowNoise, LinearLayout rowEar,
+                               LinearLayout rowConv, LinearLayout rowLinks) {
         ((TextView) rowBuds.getChildAt(1)).setText(
                 "L " + batteryLabel(st.batteryLeft, st.chargingLeft)
                         + "   R " + batteryLabel(st.batteryRight, st.chargingRight));
@@ -287,6 +293,14 @@ public class ConnectivityScreenManager {
         ((TextView) rowNoise.getChildAt(1)).setText(a.t(noiseLabel(st.noiseMode)));
         ((TextView) rowEar.getChildAt(1)).setText(
                 a.t(earLabel(st.earLeft)) + " / " + a.t(earLabel(st.earRight)));
+        // The pods report this once after the notification request rather than on
+        // change, so it can legitimately sit at the default until they do.
+        ((TextView) rowConv.getChildAt(1)).setText(
+                st.conversationalAwareness ? a.t("On") : a.t("Off"));
+        // More than one means the pods are also attached to something else --
+        // the usual explanation for audio ending up somewhere unexpected.
+        ((TextView) rowLinks.getChildAt(1)).setText(
+                st.connectedDevices < 0 ? "--" : String.valueOf(st.connectedDevices));
     }
 
     /** A settings row that displays but doesn't take focus -- the wheel skips it. */

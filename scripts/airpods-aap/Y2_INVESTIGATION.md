@@ -1656,3 +1656,44 @@ the reasoning ever needs re-checking:
 
 `y2_trace_to_logcat.sh` and `decode_trace_ids.py` are kept: they are general
 tooling, not tied to this bug.
+
+## Opcodes decoded from captures on this device
+
+LibrePods' `docs/opcodes.md` table stops at `0x53`, so several opcodes the
+AirPods Pro 3 sends unprompted are undocumented there. Decoded here from live
+captures, cross-referenced against known addresses (the Y2's own Bluetooth
+address is `F6:23:46:65:82:48`, the AirPods' is `74:77:86:77:FC:A4`; MACs are
+little-endian on the wire).
+
+| Opcode | Payload observed | Reading |
+|---|---|---|
+| `0x002E` | `01 00 02` + `6cb133a01848` + flags + `f62346658248` + flags | **Connected-devices list**: `01 00 <count>`, then 6-byte MAC + 2 flag bytes per device. One entry is the Y2 itself. Implemented. |
+| `0x000C` | `<mac> 01 01`, `<mac> 01 02` | **Audio-source change**, MAC little-endian. Seen carrying the Y2, the AirPods, and one other Apple address. LibrePods names `0x0C` twice (`TIPI_3`, `AUDIO_SOURCE_2`) and documents neither. |
+| `0x000E` | `<mac>`, or all zeros | Audio-source response; zeros = no source. Matches LibrePods' table. |
+| `0x001D` | `02 f8 00 04 00` + UTF-8 | **Device information**, carries the device name. |
+| `0x004E` | `02 00 00 00 00 00 00 00`, invariant across 5 captures | Almost certainly the **ACK for `0x4D`**, the host-capabilities/feature-flags packet we send. Undocumented upstream. |
+| `0x0017` | 20 bytes, high rate, varying | Head tracking. We receive a live stream of it and ignore it. |
+| `0x0052` | `03 00 02 01 00` / `03 00 02 01 01` | A boolean that toggles; 19 samples split ~evenly. **Unidentified.** |
+| `0x0055` | `01 01 00 32` / `01 01 00 19` | A 0-100 level (50 and 25 observed). Shape suggests volume. **Unidentified.** |
+| `0x0008` | `01 00 01 00`, `02 00 01 01`, `02 00 01 00` | **Unidentified.** |
+
+Two cautions for anyone extending this. The log helper truncates to 24 bytes, so
+longer packets (notably `0x2E` with two devices) are cut short in captures --
+parse in code, not from logcat. And several reads arrive coalesced, so packet
+lengths must be explicit per opcode rather than found by scanning for the next
+`04 00 04 00`.
+
+### The noise-control write, unresolved
+
+Sending is implemented (`sendControl`, identifiers confirmed against LibrePods)
+but **no write was ever observed leaving the socket** -- across three captures
+with logging on both the queueing and the writing side, `AAP control sent
+id=0xd` never appeared, while the tap did coincide once with audio dropping out
+until the pods were re-toggled. The UI control was therefore removed and the
+panel made read-only. Reading is unaffected and works, including settings
+changed on the bud itself.
+
+Next time: log at the top of the row's click handler, since the evidence so far
+cannot distinguish "the handler never ran" from "the write was silently
+discarded" -- the wheel-driven UI may not deliver taps through
+`OnClickListener` the way the settings rows assume.

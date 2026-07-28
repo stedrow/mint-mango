@@ -73,6 +73,14 @@ public class AapService extends Service {
     private static final int OPCODE_STEM_PRESS = 0x0019;
     /** Conversational-awareness speech events (distinct from the on/off setting). */
     private static final int OPCODE_CONV_AWARENESS = 0x004B;
+    /**
+     * List of devices the pods are connected to: {@code 01 00 <count>} then
+     * {@code <6-byte MAC little-endian> <2 flag bytes>} per device. Decoded from
+     * captures on this device -- one of the MACs is the Y2's own address.
+     * Useful because multipoint is a common explanation for audio going
+     * somewhere unexpected.
+     */
+    private static final int OPCODE_CONNECTED_DEVICES = 0x002E;
 
     public static final int EAR_IN_EAR = 0x00;
     public static final int EAR_OUT_OF_EAR = 0x01;
@@ -159,6 +167,8 @@ public class AapService extends Service {
         public int noiseMode = NOISE_UNKNOWN;
         public boolean earDetectionEnabled = true;
         public boolean conversationalAwareness = false;
+        /** How many hosts the pods are attached to, or -1 before they say. */
+        public int connectedDevices = -1;
 
         AapState copy() {
             AapState s = new AapState();
@@ -173,6 +183,7 @@ public class AapService extends Service {
             s.noiseMode = noiseMode;
             s.earDetectionEnabled = earDetectionEnabled;
             s.conversationalAwareness = conversationalAwareness;
+            s.connectedDevices = connectedDevices;
             return s;
         }
     }
@@ -803,6 +814,9 @@ public class AapService extends Service {
                 packetLen = 8;
             } else if (opcode == OPCODE_CONTROL) {
                 packetLen = 11;
+            } else if (opcode == OPCODE_CONNECTED_DEVICES) {
+                if (magicAt + 9 > data.length) break; // need the count byte
+                packetLen = 9 + (data[magicAt + 8] & 0xFF) * 8;
             } else if (opcode == OPCODE_CONV_AWARENESS) {
                 packetLen = 10;
             } else if (opcode == OPCODE_BATTERY) {
@@ -902,6 +916,20 @@ public class AapService extends Service {
                 l.onStemPress(type, bud);
             }
             handleStemPress(type, bud);
+        } else if (opcode == OPCODE_CONNECTED_DEVICES) {
+            if (len < 9) return;
+            int count = data[offset + 8] & 0xFF;
+            Log.d(TAG, "AAP connected devices=" + count);
+            AapState s = lastState.copy();
+            s.connectedDevices = count;
+            publishState(s);
+        } else if (opcode == OPCODE_CONNECTED_DEVICES) {
+            if (len < 9) return;
+            int count = data[offset + 8] & 0xFF;
+            Log.d(TAG, "AAP connected devices=" + count);
+            AapState cs = lastState.copy();
+            cs.connectedDevices = count;
+            publishState(cs);
         } else if (opcode == OPCODE_CONV_AWARENESS) {
             if (len < 10) return;
             // Level ramps rather than toggling; LibrePods' shipping code treats
