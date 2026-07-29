@@ -64,7 +64,10 @@ PY
 fi
 
 echo "==> [3/3] Removing the stock power dialog from android.policy.jar"
-if adb shell "ls /system/framework/android.policy.odex.bak" 2>/dev/null | grep -q odex.bak; then
+# Patched state is "the plain .odex is gone" (it gets renamed to .bak below). Don't probe for
+# the .bak by name: `ls` on a missing file echoes the name back in its error message, so any
+# grep for it matches whether or not the file is there.
+if ! adb shell ls /system/framework 2>/dev/null | tr -d '\r' | grep -qx "android.policy.odex"; then
   echo "    already patched, skipping"
 else
   for dep in "org/smali/baksmali/$SMALI_VERSION/baksmali-$SMALI_VERSION.jar" \

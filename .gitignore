@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Stock system files pulled off a device by scripts/patch-device-power-menu.sh
+/scripts/backups
