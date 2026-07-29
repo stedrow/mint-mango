@@ -81,6 +81,14 @@ public class AapService extends Service {
      * somewhere unexpected.
      */
     private static final int OPCODE_CONNECTED_DEVICES = 0x002E;
+    /**
+     * Audio-source change: 6-byte MAC (little-endian) then 2 flag bytes.
+     * Undocumented upstream; decoded from captures here. This is the best
+     * candidate for a signal that the pods stopped rendering *our* audio --
+     * the failure that previously had no signal at all and could only be
+     * recovered by removing and reinserting a bud.
+     */
+    private static final int OPCODE_AUDIO_SOURCE = 0x000C;
 
     public static final int EAR_IN_EAR = 0x00;
     public static final int EAR_OUT_OF_EAR = 0x01;
@@ -169,6 +177,8 @@ public class AapService extends Service {
         public boolean conversationalAwareness = false;
         /** How many hosts the pods are attached to, or -1 before they say. */
         public int connectedDevices = -1;
+        /** Last audio source the pods announced, or null. */
+        public String audioSource = null;
 
         AapState copy() {
             AapState s = new AapState();
@@ -184,6 +194,7 @@ public class AapService extends Service {
             s.earDetectionEnabled = earDetectionEnabled;
             s.conversationalAwareness = conversationalAwareness;
             s.connectedDevices = connectedDevices;
+            s.audioSource = audioSource;
             return s;
         }
     }
@@ -744,6 +755,7 @@ public class AapService extends Service {
                                 + " batt=" + st.batteryLeft + "/" + st.batteryRight
                                 + " noise=" + st.noiseMode
                                 + " links=" + st.connectedDevices
+                                + " src=" + st.audioSource
                                 + " quietMs=" + quietMs);
                     }
                 } catch (Throwable t) {
@@ -798,6 +810,8 @@ public class AapService extends Service {
                 packetLen = 8;
             } else if (opcode == OPCODE_CONTROL) {
                 packetLen = 11;
+            } else if (opcode == OPCODE_AUDIO_SOURCE) {
+                packetLen = 14;
             } else if (opcode == OPCODE_CONNECTED_DEVICES) {
                 if (magicAt + 9 > data.length) break; // need the count byte
                 packetLen = 9 + (data[magicAt + 8] & 0xFF) * 8;
@@ -900,6 +914,17 @@ public class AapService extends Service {
                 l.onStemPress(type, bud);
             }
             handleStemPress(type, bud);
+        } else if (opcode == OPCODE_AUDIO_SOURCE) {
+            if (len < 12) return;
+            StringBuilder mac = new StringBuilder();
+            for (int i = 5; i >= 0; i--) { // little-endian on the wire
+                if (mac.length() > 0) mac.append(':');
+                mac.append(String.format("%02X", data[offset + 6 + i] & 0xFF));
+            }
+            AapState as = lastState.copy();
+            as.audioSource = mac.toString();
+            Log.i("AapDiag", "audio source -> " + as.audioSource);
+            publishState(as);
         } else if (opcode == OPCODE_CONNECTED_DEVICES) {
             if (len < 9) return;
             int count = data[offset + 8] & 0xFF;
@@ -907,13 +932,6 @@ public class AapService extends Service {
             AapState s = lastState.copy();
             s.connectedDevices = count;
             publishState(s);
-        } else if (opcode == OPCODE_CONNECTED_DEVICES) {
-            if (len < 9) return;
-            int count = data[offset + 8] & 0xFF;
-            Log.d(TAG, "AAP connected devices=" + count);
-            AapState cs = lastState.copy();
-            cs.connectedDevices = count;
-            publishState(cs);
         } else if (opcode == OPCODE_CONV_AWARENESS) {
             if (len < 10) return;
             // Level ramps rather than toggling; LibrePods' shipping code treats
