@@ -5,7 +5,7 @@
 #   1. Move the launcher to /system/priv-app. Since Android 4.3 a signature|system permission is
 #      only granted to privileged apps, and /system/app is not privileged -- that is why REBOOT,
 #      SHUTDOWN and WRITE_MEDIA_STORAGE were silently ungranted before.
-#   2/3. platform.xml and android.policy.jar -- see patch-power-menu-files.sh, which does both
+#   2/3. platform.xml and android.policy.jar -- see patch-system-files.sh, which does both
 #      edits and is shared with the ROM build. Plus moving android.policy.odex aside, since a
 #      stale .odex wins over the patched classes.dex.
 #
@@ -44,7 +44,7 @@ for f in platform.xml android.policy.jar; do
   fi
 done
 
-"$ROOT/scripts/patch-power-menu-files.sh" "$WORKDIR"
+"$ROOT/scripts/patch-system-files.sh" "$WORKDIR"
 
 adb push "$WORKDIR/platform.xml" /system/etc/permissions/platform.xml
 adb push "$WORKDIR/android.policy.jar" /system/framework/android.policy.jar

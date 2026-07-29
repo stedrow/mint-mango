@@ -4,7 +4,7 @@
 # AirPods RTP fix (libbluetoothdrv.so) + AAP in-ear-detection patch
 # (libextjsr82.so), both built against each base image's own stock libs so no
 # physical device is needed, plus the long-press-power-menu patches (platform.xml
-# + android.policy.jar) that patch-device-power-menu.sh applies to a live unit.
+# + android.policy.jar) that patch-device.sh applies to a live unit.
 set -euo pipefail
 
 TAG="${1:?usage: build-rom.sh <tag> <apk-path>}"
@@ -76,7 +76,7 @@ for TYPE in a b; do
   mkdir -p "$PM_DIR"
   cp "$MNT/etc/permissions/platform.xml" "$PM_DIR/platform.xml"
   cp "$MNT/framework/android.policy.jar" "$PM_DIR/android.policy.jar"
-  "$ROOT/scripts/patch-power-menu-files.sh" "$PM_DIR"
+  "$ROOT/scripts/patch-system-files.sh" "$PM_DIR"
   sudo cp "$PM_DIR/platform.xml" "$MNT/etc/permissions/platform.xml"
   sudo cp "$PM_DIR/android.policy.jar" "$MNT/framework/android.policy.jar"
   sudo chmod 644 "$MNT/etc/permissions/platform.xml" "$MNT/framework/android.policy.jar"

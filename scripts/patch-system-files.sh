@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Applies the two file-level halves of the long-press-power-menu patch, in place, to a directory
-# holding copies of a device's platform.xml and android.policy.jar:
+# Applies the system-file patches the launcher needs, in place, to a directory holding copies of
+# a device's platform.xml and android.policy.jar:
 #
-#   <workdir>/platform.xml         -- gains gid "input" on WRITE_MEDIA_STORAGE, so the launcher's
-#                                     uid can read /dev/input/event0 and time the power key
-#                                     itself (KEYCODE_POWER never reaches an app)
+#   <workdir>/platform.xml         -- gains gids "input" and "media" on WRITE_MEDIA_STORAGE.
+#                                     "input" lets the launcher read /dev/input/event0 and time
+#                                     the power key itself (KEYCODE_POWER never reaches an app);
+#                                     "media" lets it open /dev/fm (system:media 0660) for the FM
+#                                     radio, which otherwise fails with permission denied
 #   <workdir>/android.policy.jar   -- loses the showGlobalActionsDialog() call in
 #                                     PhoneWindowManager, so the stock Power off / Restart dialog
 #                                     never appears. Only that call goes: mPowerKeyHandled is set
@@ -16,11 +18,11 @@
 # classes.dex), and installing the launcher into /system/priv-app -- since Android 4.3 only
 # privileged apps are granted the signature|system permission that carries the gid above.
 #
-# Used by patch-device-power-menu.sh (live device, over adb) and build-rom.sh (offline, inside a
+# Used by patch-device.sh (live device, over adb) and build-rom.sh (offline, inside a
 # mounted system.img).
 set -euo pipefail
 
-WORKDIR="${1:?usage: patch-power-menu-files.sh <workdir-with-platform.xml-and-android.policy.jar>}"
+WORKDIR="${1:?usage: patch-system-files.sh <workdir-with-platform.xml-and-android.policy.jar>}"
 # Absolute, since the jar work cds into a staging dir before touching these paths.
 WORKDIR="$(cd "$WORKDIR" && pwd)"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,23 +37,43 @@ POLICY_JAR="$WORKDIR/android.policy.jar"
 [ -f "$POLICY_JAR" ] || { echo "missing $POLICY_JAR" >&2; exit 1; }
 
 # --- platform.xml -----------------------------------------------------------------------------
-if grep -q 'mint-mango' "$PLATFORM_XML"; then
-  echo "    platform.xml already patched"
-else
-  python3 - "$PLATFORM_XML" <<'PY'
+# Per-gid rather than "has this file been touched": a unit patched before the radio fix carries
+# the marker comment but only the "input" group, and a whole-file check would skip it forever.
+set +e
+python3 - "$PLATFORM_XML" <<'PY'
+import re
 import sys
+
 path = sys.argv[1]
 src = open(path).read()
-anchor = '''    <permission name="android.permission.WRITE_MEDIA_STORAGE" >
-        <group gid="media_rw" />'''
-assert src.count(anchor) == 1, "WRITE_MEDIA_STORAGE block not found as expected"
-open(path, 'w').write(src.replace(anchor, anchor + '''
-        <!-- mint-mango: lets the launcher read /dev/input and time the power key itself.
-             WRITE_MEDIA_STORAGE is signature|system, so only priv-app holders get this. -->
-        <group gid="input" />'''))
+start = src.find('<permission name="android.permission.WRITE_MEDIA_STORAGE" >')
+if start < 0:
+    sys.stderr.write("WRITE_MEDIA_STORAGE block not found\n")
+    sys.exit(1)
+end = src.index("</permission>", start)
+# rstrip so appended lines don't inherit the closing tag's indent; it's put back below.
+block = src[start:end].rstrip() + "\n"
+
+# "input": /dev/input/event0, for timing the power key. "media": /dev/fm, for the radio.
+missing = [gid for gid in ("input", "media") if '<group gid="%s" />' % gid not in block]
+if not missing:
+    sys.exit(3)
+
+if "mint-mango" not in block:
+    block += '''        <!-- mint-mango: "input" lets the launcher read /dev/input and time the power key
+             itself; "media" lets it open /dev/fm for the radio. WRITE_MEDIA_STORAGE is
+             signature|system, so only priv-app holders get these. -->\n'''
+block += "".join('        <group gid="%s" />\n' % gid for gid in missing)
+open(path, "w").write(src[:start] + block + "    " + src[end:])
+sys.stderr.write("added gid(s): %s\n" % ", ".join(missing))
 PY
-  echo "    platform.xml patched"
-fi
+STATUS=$?
+set -e
+case "$STATUS" in
+  0) echo "    platform.xml patched" ;;
+  3) echo "    platform.xml already patched" ;;
+  *) echo "platform.xml isn't shaped as expected -- not patching" >&2; exit 1 ;;
+esac
 
 # --- android.policy.jar -----------------------------------------------------------------------
 [ -x "$JAVA" ] || { echo "java not found at $JAVA -- set JAVA_HOME" >&2; exit 1; }

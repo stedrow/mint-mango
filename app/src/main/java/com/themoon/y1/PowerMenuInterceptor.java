@@ -17,7 +17,7 @@ import java.nio.ByteOrder;
  * KEYCODE_POWER never reaches an app -- PhoneWindowManager swallows it in
  * interceptKeyBeforeQueueing -- so we time the key ourselves off the raw evdev node. That needs
  * gid 1004 (input) and the launcher living in /system/priv-app; both come from
- * scripts/patch-device-power-menu.sh, which also strips the stock dialog out of
+ * scripts/patch-device.sh, which also strips the stock dialog out of
  * PhoneWindowManager. Without that script this class simply never opens the node and the
  * long-press menu doesn't appear.
  */

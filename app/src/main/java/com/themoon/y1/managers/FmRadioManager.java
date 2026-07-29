@@ -107,6 +107,11 @@ public class FmRadioManager {
                 android.util.Log.d(TAG, "STREAM_FM field not found, defaulting to index 10", e);
             }
 
+            // FM audio comes out the speaker even with Bluetooth connected, and switching this to
+            // STREAM_MUSIC when A2DP is up (tried, reverted) doesn't move it -- so something below
+            // AudioFlinger is pinning the route, most likely the HAL's own FM path
+            // (AudioFMController::SetFmDirectConnection in libaudio.primary.default.so) rather
+            // than the stream type. Next lever to try is setForceUse/that direct connection.
             fmPlayer.setAudioStreamType(streamFm);
             fmPlayer.prepare();
             fmPlayer.start();
@@ -147,6 +152,22 @@ public class FmRadioManager {
                 mainHandler.post(() -> callback.onResult(result));
             }
         }).start();
+    }
+
+    /**
+     * Best-effort root command. Firmware without an su binary (every Y2 seen so far) throws
+     * IOException straight out of exec(), and this used to run uncaught inside powerUp's try --
+     * so the radio failed with "Exception: IOException" before it ever touched the hardware, no
+     * matter what the permissions were. These commands were always opportunistic: the chmod is
+     * unnecessary once the launcher's uid holds gid "media" (see scripts/patch-system-files.sh),
+     * and the killalls only matter if a stock radio app is actually holding the chipset.
+     */
+    private void trySu(String command) {
+        try {
+            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", command}));
+        } catch (Throwable t) {
+            android.util.Log.d(TAG, "su unavailable, skipping: " + command, t);
+        }
     }
 
     // Drain a short-lived "su -c ..." process's output/error and reap it, so it doesn't
@@ -191,12 +212,12 @@ public class FmRadioManager {
         }
         try {
             // 🚀 1. Reliably kill any stock radio apps hiding in the background to release their hold on the hardware.
-            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"}));
-            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"}));
-            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"}));
+            trySu("killall com.mediatek.FMRadio");
+            trySu("killall com.innioasis.fm");
+            trySu("killall com.android.fmradio");
 
             // 🚀 2. [most critical!] Force-open (chmod 666) permissions on the FM hardware chipset (/dev/fm) that the system holds tightly, so any app can use it!
-            reap(Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"}));
+            trySu("chmod 666 /dev/fm");
 
             Thread.sleep(300); // 💡 Give it 0.3s for the permission change to apply and the chipset to settle
 

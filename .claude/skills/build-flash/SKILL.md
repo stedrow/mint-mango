@@ -67,7 +67,7 @@ The long-press-power menu needs three device-side changes the APK can't make its
 stripped out of `android.policy.jar`). Run once per unit, after a normal flash:
 
 ```bash
-bash scripts/patch-device-power-menu.sh
+bash scripts/patch-device.sh
 ```
 
 It backs up every file it replaces to `scripts/backups/` and `/data/local/tmp`. Without
