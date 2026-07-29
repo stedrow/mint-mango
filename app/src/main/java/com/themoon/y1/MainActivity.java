@@ -807,6 +807,8 @@ public class MainActivity extends Activity {
                 if (state == WifiManager.WIFI_STATE_ENABLED) {
                     ivStatusWifi.setVisibility(View.VISIBLE);
                     ivStatusWifi.setColorFilter(0xFFFFBB00);
+                    // Whoever was being asked to turn Wi-Fi on has their answer now.
+                    com.themoon.y1.managers.SongContextMenuManager.getInstance().dismissWifiOffDialog();
                 } else {
                     ivStatusWifi.setVisibility(View.GONE);
                 }

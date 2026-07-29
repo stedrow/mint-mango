@@ -105,7 +105,29 @@ public class KeyEventRouter {
             // are made to completely vanish here, never reaching lower views (like the radio option buttons)!
             return true;
         }
+
+        // Wheel steps on a scrolling list have to be claimed here, before the view hierarchy sees
+        // them. A Button doesn't consume DPAD_UP/DOWN, so the key bubbles to the enclosing
+        // ScrollView, whose arrowScroll() pages the viewport whenever the next focusable isn't
+        // already visible -- which is most of the time in a long list like Navidrome's artists,
+        // and leaves the highlighted row scrolled off screen. onKeyDown's own row-walk only runs
+        // on keys nothing else consumed, so it never got a turn on these screens.
+        if (event.getAction() == KeyEvent.ACTION_DOWN && isScrollingListScreen(a)
+                && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
+                        || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            return a.onKeyDown(event.getKeyCode(), event);
+        }
+
         return a.superDispatchKeyEvent(event);
+    }
+
+    /** Screens whose rows live in a ScrollView and are walked by onKeyDown's own focus logic. */
+    private boolean isScrollingListScreen(MainActivity a) {
+        return a.currentScreenState == MainActivity.STATE_NAVIDROME
+                || a.currentScreenState == MainActivity.STATE_SETTINGS
+                || a.currentScreenState == MainActivity.STATE_BROWSER
+                || a.currentScreenState == MainActivity.STATE_BLUETOOTH
+                || a.currentScreenState == MainActivity.STATE_WIFI;
     }
 
     @SuppressLint("ResourceType") // 10000 is a dynamically-assigned view id, not an XML resource

@@ -45,6 +45,12 @@ public class NavidromeManager {
     private static NavidromeManager instance;
 
     private SubsonicAlbum selectedNavidromeAlbum;
+    /**
+     * Artist whose row the wheel was left on. Backing out of an artist rebuilds the whole list
+     * from scratch, so without this the user lands back at the top -- a long walk when they were
+     * somewhere down in the Ms.
+     */
+    private String lastFocusedArtistId;
     private List<SubsonicSong> lastNavidromeSongs = new ArrayList<>();
     private boolean isNavidromeLoading = false;
     private int lastSeenNavidromeConfigVersion = 0; // detects a server/user/pass change made via the Web Server web UI
@@ -279,12 +285,18 @@ public class NavidromeManager {
                 @Override
                 public void onClick(View v) {
                     a.selectedNavidromeArtist = artist;
+                    lastFocusedArtistId = artist.id;
                     a.navidromeBrowseDepth = a.NAV_ALBUMS;
                     buildNavidromeUI(a);
                 }
             });
             a.containerNavidromeItems.addView(btn);
-            if (focusTarget == null && focusLetter != null && focusLetter.equals(artist.indexLetter)) {
+            // A letter jump is an explicit request and wins; otherwise land back on whichever
+            // artist we last went into.
+            boolean wanted = focusLetter != null
+                    ? focusLetter.equals(artist.indexLetter)
+                    : artist.id != null && artist.id.equals(lastFocusedArtistId);
+            if (focusTarget == null && wanted) {
                 focusTarget = btn;
             }
         }

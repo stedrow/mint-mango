@@ -75,6 +75,21 @@ public class SongContextMenuManager {
                 });
     }
 
+    /** The "Wi-Fi Off" prompt, while it's up -- see showWifiOffDialog/dismissWifiOffDialog. */
+    private android.app.Dialog wifiOffDialog;
+
+    /** Wi-Fi came up, so the prompt asking for it has nothing left to ask. */
+    public void dismissWifiOffDialog() {
+        if (wifiOffDialog != null && wifiOffDialog.isShowing()) {
+            try {
+                wifiOffDialog.dismiss();
+            } catch (Exception e) {
+                Log.d(TAG, "dismissing the Wi-Fi Off dialog failed", e);
+            }
+        }
+        wifiOffDialog = null;
+    }
+
     public boolean isWifiEnabled(MainActivity a) {
         android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
                 a.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE);
@@ -88,7 +103,12 @@ public class SongContextMenuManager {
     /** Shared "turn it on for me" prompt for any screen that needs Wi-Fi -- also used by
      *  NavidromeManager when Wi-Fi is off. */
     public void showWifiOffDialog(final MainActivity a, String message) {
-        showThemedOptionsDialog(a, a.t("Wi-Fi Off"), message,
+        // One at a time. The Navidrome screen rebuilds on every Wi-Fi state change, and the
+        // ENABLING one arrives while isWifiEnabled() is still false -- which used to stack a
+        // second prompt that nothing ever dismissed, left sitting over a list that had already
+        // loaded behind it.
+        if (wifiOffDialog != null && wifiOffDialog.isShowing()) return;
+        wifiOffDialog = showThemedOptionsDialog(a, a.t("Wi-Fi Off"), message,
                 new String[]{ a.t("Turn On Wi-Fi"), a.t("Go to Wi-Fi Settings") },
                 new Runnable[]{
                         new Runnable() { @Override public void run() {
@@ -381,13 +401,13 @@ public class SongContextMenuManager {
      * swallow keys before MainActivity.onKeyDown, and the wheel's 21/22 codes
      * only move focus between HORIZONTAL neighbours natively.
      */
-    public void showThemedOptionsDialog(MainActivity a, String title, String subtitle, String[] options, final Runnable[] actions) {
-        showThemedOptionsDialog(a, title, subtitle, null, options, actions);
+    public android.app.Dialog showThemedOptionsDialog(MainActivity a, String title, String subtitle, String[] options, final Runnable[] actions) {
+        return showThemedOptionsDialog(a, title, subtitle, null, options, actions);
     }
 
     /** Same as above but each row can carry a Material Icons codepoint (index-matched to options);
      *  pass null in the icons slot to fall back to the plain text row. */
-    public void showThemedOptionsDialog(final MainActivity a, String title, String subtitle, String[] icons, String[] options, final Runnable[] actions) {
+    public android.app.Dialog showThemedOptionsDialog(final MainActivity a, String title, String subtitle, String[] icons, String[] options, final Runnable[] actions) {
         float d = a.getResources().getDisplayMetrics().density;
         final android.app.Dialog dialog = new android.app.Dialog(a);
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -471,6 +491,9 @@ public class SongContextMenuManager {
                 int count = root.getChildCount();
                 int i = index == -1 ? (dir == 1 ? 0 : count - 1) : index + dir;
                 for (int steps = 0; steps < count; steps++, i += dir) {
+                    // Same Wheel Loop Scroll setting the lists obey -- off means the first and
+                    // last option are dead ends here too.
+                    if ((i < 0 || i >= count) && !a.isLoopScrollOn) break;
                     if (i < 0) i += count;
                     if (i >= count) i -= count;
                     View n = root.getChildAt(i);
@@ -501,5 +524,6 @@ public class SongContextMenuManager {
                 }
             }
         });
+        return dialog;
     }
 }
