@@ -746,7 +746,7 @@ public class AapService extends Service {
         // flag left set by a previous session made startDiagnostics() a silent
         // no-op for the rest of the process, which is exactly what happened the
         // first time this shipped.
-        ioHandler.postDelayed(new Runnable() {
+        diagHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!shouldRun || activeSocket != socket) return; // session gone
@@ -772,7 +772,7 @@ public class AapService extends Service {
                 } catch (Throwable t) {
                     Log.d("AapDiag", "snapshot failed", t);
                 }
-                ioHandler.postDelayed(this, 10000);
+                diagHandler.postDelayed(this, 10000);
             }
         }, 10000);
     }
@@ -1026,10 +1026,21 @@ public class AapService extends Service {
      * launcher hard enough to ANR.
      */
     private static final Handler ioHandler;
+    /**
+     * Diagnostics run on their own thread. They used to share ioHandler, which
+     * is a FIFO queue that also carries blocking socket writes -- one write that
+     * never returned starved every snapshot behind it, so the tracer went silent
+     * exactly when something was wrong, which is the worst possible time. A
+     * monitor must not queue behind the thing it monitors.
+     */
+    private static final Handler diagHandler;
     static {
         HandlerThread t = new HandlerThread("aap-io");
         t.start();
         ioHandler = new Handler(t.getLooper());
+        HandlerThread d = new HandlerThread("aap-diag");
+        d.start();
+        diagHandler = new Handler(d.getLooper());
     }
 
     private void handleEarDetectionForAutoPause(AapState s, String source) {
