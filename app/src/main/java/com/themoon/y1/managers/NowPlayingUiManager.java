@@ -461,7 +461,11 @@ public class NowPlayingUiManager {
         a.playerScrubMarker.setVisibility(View.VISIBLE);
         int barWidth = a.playerProgress.getWidth();
         if (barWidth > 0) {
-            a.playerScrubMarker.setTranslationX(fraction * barWidth);
+            // The marker is a dot now, so centre it on the target instead of hanging it off to
+            // the right, and keep the whole dot on the bar at both ends.
+            int markerWidth = a.playerScrubMarker.getWidth();
+            float x = fraction * barWidth - markerWidth / 2f;
+            a.playerScrubMarker.setTranslationX(Math.max(0f, Math.min(x, barWidth - markerWidth)));
         }
         a.tvPlayerTimeCurrent.setText(formatTime((int) a.scrubTargetMs));
     }

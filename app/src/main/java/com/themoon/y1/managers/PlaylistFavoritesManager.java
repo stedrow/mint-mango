@@ -48,7 +48,7 @@ public class PlaylistFavoritesManager {
         if (a.scrollViewBrowser != null) a.scrollViewBrowser.setVisibility(View.VISIBLE);
         if (a.listVirtualSongs != null) a.listVirtualSongs.setVisibility(View.GONE);
         a.containerBrowserItems.removeAllViews();
-        a.tvBrowserPath.setText(a.t("Library") + ": " + a.t("Playlists"));
+        a.setBrowserPath(a.t("Library") + ": " + a.t("Playlists"));
 
         // Set up a dedicated playlist storage bin
         File playlistDir = new File("/storage/sdcard0/Y1_Playlists");
@@ -161,7 +161,7 @@ public class PlaylistFavoritesManager {
     public void buildM3uSongsUI(final MainActivity a, File m3uFile) {
         a.scrollViewBrowser.setVisibility(View.GONE);
         a.listVirtualSongs.setVisibility(View.VISIBLE);
-        a.tvBrowserPath.setText(a.t("Playlist") + ": " + m3uFile.getName().substring(0, m3uFile.getName().lastIndexOf(".")));
+        a.setBrowserPath(a.t("Playlist") + ": " + m3uFile.getName().substring(0, m3uFile.getName().lastIndexOf(".")));
 
         a.virtualSongList.clear();
         a.currentScrollIndexList.clear();

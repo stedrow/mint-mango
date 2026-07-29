@@ -77,7 +77,7 @@ public class MusicBrowserManager {
 
             // Music library mode
             if (!a.isAudiobookLibraryMode) {
-                a.tvBrowserPath.setText(a.t("Library") + ": " + a.t("Music"));
+                a.setBrowserPath(a.t("Library") + ": " + a.t("Music"));
 
                 java.util.LinkedHashMap<String, android.view.View> items = new java.util.LinkedHashMap<>();
 
@@ -150,7 +150,7 @@ public class MusicBrowserManager {
             }
             // 📚 [Audiobook library mode]
             else {
-                a.tvBrowserPath.setText(a.t("Library") + ": " + a.t("Audiobooks"));
+                a.setBrowserPath(a.t("Library") + ": " + a.t("Audiobooks"));
 
 //                Button btnFolder = createListButton("📁 " + t("Folders"));
                 android.view.View btnFolder = a.createListButtonWithIcon("\uE2C7", a.t("Folders"));
@@ -240,9 +240,9 @@ public class MusicBrowserManager {
 
         // 🚀 [Fix] Corrected so the top title syncs correctly for both the music library (Artists/Albums) and the audiobook library (Authors/Books)!
         if (a.isAudiobookLibraryMode) {
-            a.tvBrowserPath.setText(a.t("Library") + ": " + (type.equals("ARTIST") ? a.t("Authors") : a.t("Books")));
+            a.setBrowserPath(a.t("Library") + ": " + (type.equals("ARTIST") ? a.t("Authors") : a.t("Books")));
         } else {
-            a.tvBrowserPath.setText(a.t("Library") + ": " + (type.equals("ARTIST") ? a.t("Artists") : a.t("Albums")));
+            a.setBrowserPath(a.t("Library") + ": " + (type.equals("ARTIST") ? a.t("Artists") : a.t("Albums")));
         }
 
         // 🚀 Swap the bucket to search through depending on the switch!
@@ -326,6 +326,10 @@ public class MusicBrowserManager {
 
     public void buildCoverFlowUI(MainActivity a) {
         a.currentBrowserMode = a.BROWSER_COVER_FLOW;
+        // The path row said "Cover Flow (3/40)" over art that already shows the album -- drop it
+        // and give the covers the height. Every other browser screen sets its path through
+        // MainActivity.setBrowserPath, which puts the row back.
+        if (a.tvBrowserPath != null) a.tvBrowserPath.setVisibility(View.GONE);
         if (a.scrollViewBrowser != null) a.scrollViewBrowser.setVisibility(View.VISIBLE);
         if (a.listVirtualSongs != null) a.listVirtualSongs.setVisibility(View.GONE);
         a.containerBrowserItems.removeAllViews();
@@ -366,16 +370,19 @@ public class MusicBrowserManager {
             ((android.view.ViewGroup) a.scrollViewBrowser).setClipToPadding(false);
         }
 
-        int height = (int)(320 * a.getResources().getDisplayMetrics().density);
+        // The cards used to be a flat 320dp tall (plus a 15dp margin on the container), sized for
+        // the Y1. A Y2's browser viewport is only ~289px, so the whole cover flow ended up inside
+        // a vertical scrollbar. Measure what's actually available and scale the card to it -- the
+        // ScrollView measures the card, not the container, so the container alone can't fix this.
+        int available = coverFlowAvailableHeight(a);
         android.widget.LinearLayout.LayoutParams containerLp = new android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, height);
-        containerLp.topMargin = (int)(15 * a.getResources().getDisplayMetrics().density);
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, available);
         a.coverFlowContainer.setLayoutParams(containerLp);
 
         // 🚀 [Key] Dynamically spawns as many slots as the configured variable (visibleCoversCount)!
         a.cfViews = new android.view.View[a.visibleCoversCount];
         for(int i = 0; i < a.visibleCoversCount; i++) {
-            a.cfViews[i] = createSingleCoverView(a);
+            a.cfViews[i] = createSingleCoverView(a, available);
             a.coverFlowContainer.addView(a.cfViews[i]);
         }
 
@@ -417,7 +424,6 @@ public class MusicBrowserManager {
             setCardTitleAlpha(a, a.cfViews[i], i == centerIdx, 0);
         }
 
-        a.tvBrowserPath.setText(a.t("Cover Flow") + " (" + (a.currentCoverFlowIndex + 1) + "/" + total + ")");
     }
 
     public float getTransXForDist(MainActivity a, int dist, float d) {
@@ -556,14 +562,49 @@ public class MusicBrowserManager {
     }
 
     @SuppressLint("ResourceType") // 1001-1004 are dynamically-assigned view ids, not XML resources
-    public View createSingleCoverView(MainActivity a) {
+    /**
+     * Height the cover flow gets to work with: the browser ScrollView once it's been laid out,
+     * or the screen minus layout_browser_mode's padding and the path row before that.
+     */
+    private int coverFlowAvailableHeight(MainActivity a) {
+        // Measure the ScrollView's parent, not the ScrollView: the path row was just hidden and
+        // the ScrollView hasn't been re-laid-out yet, so its own height is still the old, shorter
+        // one. The parent's height minus its padding is what the covers actually get.
+        if (a.scrollViewBrowser != null && a.scrollViewBrowser.getParent() instanceof android.view.ViewGroup) {
+            android.view.ViewGroup parent = (android.view.ViewGroup) a.scrollViewBrowser.getParent();
+            int usable = parent.getHeight() - parent.getPaddingTop() - parent.getPaddingBottom();
+            if (usable > 0) return usable;
+        }
         float d = a.getResources().getDisplayMetrics().density;
+        int chrome = (int)((36 + 10) * d); // layout_browser_mode's top + bottom padding
+        return Math.max((int)(120 * d), a.getResources().getDisplayMetrics().heightPixels - chrome);
+    }
+
+    /** Artwork block at the original Y1 sizes: 200 cover + 2 + 50 reflection, title pulled up 40. */
+    private static final float COVER_ARTWORK_DP = 212f;
+    /** Height kept back for the title and artist lines, which are sp-sized and don't scale. */
+    private static final float COVER_TEXT_RESERVE_DP = 60f;
+    /**
+     * Slack left under the text. Line heights depend on the theme's font, so the reserve above is
+     * an estimate -- without this the artist line clipped off the bottom of the screen. Raise it
+     * if a font ever pushes the text down again; lower it for bigger covers.
+     */
+    private static final float COVER_FILL = 0.95f;
+
+    public View createSingleCoverView(MainActivity a, int cardHeight) {
+        float d = a.getResources().getDisplayMetrics().density;
+        // Every measurement below was drawn for the Y1. Scale the artwork to whatever is left
+        // after the text rows, which keep their sp sizes and so can't be scaled along with it.
+        float scale = ((cardHeight - COVER_TEXT_RESERVE_DP * d) / (COVER_ARTWORK_DP * d)) * COVER_FILL;
+
         android.widget.LinearLayout card = new android.widget.LinearLayout(a);
         card.setOrientation(android.widget.LinearLayout.VERTICAL);
-        card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        // Centre vertically too: any slack left over from rounding is split above and below
+        // rather than all pooling under the artist line.
+        card.setGravity(android.view.Gravity.CENTER);
 
         android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                (int)(350 * d), (int)(320 * d));
+                (int)(350 * d * scale), cardHeight);
         lp.gravity = android.view.Gravity.CENTER;
 
         // 🚀 [Core fix] Changed the existing -25 value to '0'! This stops the cover image from being forced to bounce upward.
@@ -571,9 +612,10 @@ public class MusicBrowserManager {
 
         card.setLayoutParams(lp);
 
+        int coverSize = (int)(200 * d * scale);
         ImageView ivCover = new ImageView(a);
         ivCover.setId(1001);
-        android.widget.LinearLayout.LayoutParams imgLp = new android.widget.LinearLayout.LayoutParams((int)(200 * d), (int)(200 * d));
+        android.widget.LinearLayout.LayoutParams imgLp = new android.widget.LinearLayout.LayoutParams(coverSize, coverSize);
         imgLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
         ivCover.setLayoutParams(imgLp);
         ivCover.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -581,16 +623,17 @@ public class MusicBrowserManager {
 
         ImageView ivReflection = new ImageView(a);
         ivReflection.setId(1004);
-        android.widget.LinearLayout.LayoutParams refLp = new android.widget.LinearLayout.LayoutParams((int)(200 * d), (int)(50 * d));
+        android.widget.LinearLayout.LayoutParams refLp = new android.widget.LinearLayout.LayoutParams(
+                coverSize, (int)(50 * d * scale));
         refLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        refLp.topMargin = (int)(2 * d);
+        refLp.topMargin = (int)(2 * d * scale);
         ivReflection.setLayoutParams(refLp);
         ivReflection.setScaleType(ImageView.ScaleType.CENTER_CROP);
 
         TextView tvTitle = new TextView(a);
         tvTitle.setId(1002);
         tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
-        tvTitle.setTextSize(18f);
+        tvTitle.setTextSize(18f * Math.min(1f, scale));
         tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
         tvTitle.setGravity(android.view.Gravity.CENTER);
         tvTitle.setSingleLine(true);
@@ -601,14 +644,14 @@ public class MusicBrowserManager {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
 
         // 🚀 Positions the album title with a nice gap directly under the reflection image only.
-        titleLp.topMargin = (int)(-40 * d);
+        titleLp.topMargin = (int)(-40 * d * scale);
         titleLp.bottomMargin = (int)(0 * d);
         tvTitle.setLayoutParams(titleLp);
 
         TextView tvArtist = new TextView(a);
         tvArtist.setId(1003);
         tvArtist.setTextColor(ThemeManager.getTextColorSecondary());
-        tvArtist.setTextSize(14f);
+        tvArtist.setTextSize(14f * Math.min(1f, scale));
         tvArtist.setGravity(android.view.Gravity.CENTER);
         tvArtist.setSingleLine(true);
         tvArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -616,7 +659,7 @@ public class MusicBrowserManager {
 
         android.widget.LinearLayout.LayoutParams artistLp = new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        artistLp.topMargin = (int)(2 * d);
+        artistLp.topMargin = (int)(2 * d * scale);
         tvArtist.setLayoutParams(artistLp);
 
         card.addView(ivCover);
@@ -775,7 +818,6 @@ public class MusicBrowserManager {
             animateTransform(a, a.cfViews[i], transX, rotY, scale, alpha, duration);
         }
 
-        a.tvBrowserPath.setText(a.t("Cover Flow") + " (" + (a.currentCoverFlowIndex + 1) + "/" + total + ")");
     }
 
     public void buildVirtualSongs(MainActivity a) {
@@ -793,9 +835,9 @@ public class MusicBrowserManager {
 
         // 🚀 [Fix] Changed so the top header title displays correctly for both all-music and all-audiobooks mode!
         if (a.virtualQueryType.equals("ALL")) {
-            a.tvBrowserPath.setText(a.t("Library") + ": " + (a.isAudiobookLibraryMode ? a.t("All Audiobooks") : a.t("All Songs")));
+            a.setBrowserPath(a.t("Library") + ": " + (a.isAudiobookLibraryMode ? a.t("All Audiobooks") : a.t("All Songs")));
         } else {
-            a.tvBrowserPath.setText(a.t("Library") + ": " + a.virtualQueryValue); // Output the artist/album name as-is
+            a.setBrowserPath(a.t("Library") + ": " + a.virtualQueryValue); // Output the artist/album name as-is
         }
         a.virtualSongList.clear();
         a.currentScrollIndexList.clear(); // 🚀 [Added] Reset the existing index
@@ -930,7 +972,7 @@ public class MusicBrowserManager {
 
     public void buildFolderBrowserUI(MainActivity a) {
         a.containerBrowserItems.removeAllViews();
-        a.tvBrowserPath.setText(a.t("Path") + ": " + a.currentFolder.getAbsolutePath().replace("/storage/sdcard0", ""));
+        a.setBrowserPath(a.t("Path") + ": " + a.currentFolder.getAbsolutePath().replace("/storage/sdcard0", ""));
         File[] files = a.currentFolder.listFiles();
 
         if (files == null || files.length == 0) {

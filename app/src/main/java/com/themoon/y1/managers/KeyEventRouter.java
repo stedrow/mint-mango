@@ -243,8 +243,14 @@ public class KeyEventRouter {
             }
 
             if (keyCode == KeyEvent.KEYCODE_BACK) {
+                // Back out of a pending scrub first -- leaving the player entirely is a surprising
+                // amount to undo for someone who just wants out of the scrub they started.
+                if (a.isScrubbing) {
+                    NowPlayingUiManager.getInstance().cancelScrub(a);
+                    a.clickFeedback();
+                    return true;
+                }
                 // 🚀 [Return-path specified] Always go back precisely to the screen we came from, not the browser!
-                NowPlayingUiManager.getInstance().cancelScrub(a);
                 a.changeScreen(a.backTargetForPlayer);
                 a.clickFeedback();
                 return true;

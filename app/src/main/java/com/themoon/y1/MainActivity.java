@@ -2930,7 +2930,7 @@ public class MainActivity extends Activity {
         scrollViewBrowser.setVisibility(View.GONE);
         listVirtualSongs.setVisibility(View.VISIBLE);
 
-        tvBrowserPath.setText(t("Library") + ": " + t("My Favorites"));
+        setBrowserPath(t("Library") + ": " + t("My Favorites"));
 
         virtualSongList.clear();
         currentScrollIndexList.clear();
@@ -2987,6 +2987,16 @@ public class MainActivity extends Activity {
 
     public android.graphics.Bitmap getScaledThemedIcon(String iconFileName, int size) {
         return com.themoon.y1.managers.MusicBrowserManager.getInstance().getScaledThemedIcon(this, iconFileName, size);
+    }
+
+    /**
+     * Sets the browser's path/title row, un-hiding it first. Cover flow is the one screen that
+     * hides the row (it has nothing to say there and the covers want the height), so every other
+     * screen has to put it back -- going through here means none of them can forget.
+     */
+    public void setBrowserPath(String text) {
+        tvBrowserPath.setVisibility(View.VISIBLE);
+        tvBrowserPath.setText(text);
     }
 
     public void buildCoverFlowUI() {

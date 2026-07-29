@@ -260,7 +260,7 @@
                 <TextView android:id="@+id/tv_player_time_current" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="00:00" android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" android:layout_marginRight="8dp"/>
                 <FrameLayout android:layout_width="0dp" android:layout_height="20dp" android:layout_weight="1" android:layout_marginTop="3dp">
                     <ProgressBar android:id="@+id/player_progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="match_parent" android:max="100" android:progress="0"/>
-                    <View android:id="@+id/player_scrub_marker" android:layout_width="3dp" android:layout_height="match_parent" android:layout_gravity="start" android:background="#FFFFFF" android:visibility="gone"/>
+                    <View android:id="@+id/player_scrub_marker" android:layout_width="12dp" android:layout_height="12dp" android:layout_gravity="start|center_vertical" android:background="@drawable/scrub_marker" android:visibility="gone"/>
                 </FrameLayout>
                 <TextView android:id="@+id/tv_player_time_total" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="00:00" android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" android:layout_marginLeft="8dp"/>
             </LinearLayout>
