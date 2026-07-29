@@ -395,8 +395,12 @@ public class AapService extends Service {
      * from Apple's proximity-pairing BLE advertisement instead -- the same
      * broadcast the Apple Continuity protocol uses, no connection needed.
      */
+    // BLE scanning arrived in API 18 and minSdk here is 17, so guard rather than silence: on a
+    // 17 device there is no scan to start, and the AAP L2CAP path doesn't depend on this anyway.
     @SuppressLint("MissingPermission")
+    @android.annotation.TargetApi(18)
     private void startBleScan() {
+        if (android.os.Build.VERSION.SDK_INT < 18) return;
         if (leScan != null) return;
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null) return;
@@ -419,8 +423,9 @@ public class AapService extends Service {
 
 
     @SuppressLint("MissingPermission")
+    @android.annotation.TargetApi(18)
     private void stopBleScan() {
-        if (leScan == null) return;
+        if (leScan == null) return; // only ever set on 18+, so nothing to stop below that
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter != null) adapter.stopLeScan(leScan);
         leScan = null;

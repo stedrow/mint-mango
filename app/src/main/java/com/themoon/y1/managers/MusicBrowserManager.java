@@ -591,6 +591,7 @@ public class MusicBrowserManager {
      */
     private static final float COVER_FILL = 0.95f;
 
+    @SuppressLint("ResourceType") // 1001-1004 are dynamically-assigned view ids, not XML resources
     public View createSingleCoverView(MainActivity a, int cardHeight) {
         float d = a.getResources().getDisplayMetrics().density;
         // Every measurement below was drawn for the Y1. Scale the artwork to whatever is left

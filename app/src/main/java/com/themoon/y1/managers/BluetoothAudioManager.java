@@ -296,6 +296,7 @@ public class BluetoothAudioManager {
      * the strict direction would stop headphones connecting, which is far worse than the retry
      * storm it's here to prevent.
      */
+    @android.annotation.SuppressLint("MissingPermission") // system app; BT permissions are granted at install
     static boolean canSinkAudio(BluetoothDevice device) {
         java.util.List<java.util.UUID> uuids = new java.util.ArrayList<java.util.UUID>();
         try {

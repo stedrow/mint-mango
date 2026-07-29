@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
 
+# Creating the release needs write access to contents; the default GITHUB_TOKEN is read-only,
+# which failed the upload step with "Resource not accessible by integration" after a clean build.
+permissions:
+  contents: write
+
 jobs:
   build-rom:
     runs-on: ubuntu-latest
