@@ -317,7 +317,6 @@ public class AapService extends Service {
     private volatile boolean sentFollowUp = false;
     /** When the pods last said anything, for the diagnostic snapshot below. */
     private volatile long lastRxAtMs = 0;
-    private volatile boolean diagRunning = false;
     private Thread worker;
     private String targetMac;
 
@@ -600,7 +599,7 @@ public class AapService extends Service {
 
         activeOut = out;
         lastRxAtMs = android.os.SystemClock.elapsedRealtime();
-        startDiagnostics();
+        startDiagnostics(socket);
         startHandshake(out);
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -720,16 +719,16 @@ public class AapService extends Service {
      * Only ticks while a session is up, and only logs when something is playing or
      * the ear state isn't plain both-in, so an idle device stays quiet.
      */
-    private void startDiagnostics() {
-        if (diagRunning) return;
-        diagRunning = true;
+    private void startDiagnostics(final BluetoothSocket socket) {
+        // Tied to the socket it was started for, rather than a "running" flag: a
+        // flag left set by a previous session made startDiagnostics() a silent
+        // no-op for the rest of the process, which is exactly what happened the
+        // first time this shipped.
         ioHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (!shouldRun || activeSocket == null) {
-                    diagRunning = false;
-                    return;
-                }
+                if (!shouldRun || activeSocket != socket) return; // session gone
+
                 try {
                     AapState st = lastState;
                     boolean playing = com.themoon.y1.managers.AudioPlayerManager
