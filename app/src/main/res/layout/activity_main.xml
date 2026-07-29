@@ -301,6 +301,10 @@
             <ImageView android:id="@+id/iv_status_headphone" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_headphone" android:visibility="gone" android:layout_marginRight="8dp"/>
             <ImageView android:id="@+id/iv_status_wifi" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_wifi" android:visibility="gone" android:layout_marginRight="8dp"/>
             <ImageView android:id="@+id/iv_status_bluetooth" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_bluetooth" android:visibility="gone" android:layout_marginRight="12dp"/>
+            <LinearLayout android:id="@+id/layout_status_buds" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone" android:layout_marginRight="10dp">
+                <TextView android:id="@+id/tv_status_buds_icon" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="17sp" android:layout_marginRight="3dp" android:shadowColor="#FF000000" android:shadowDx="1" android:shadowDy="1" android:shadowRadius="3"/>
+                <TextView android:id="@+id/tv_status_buds" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:shadowColor="#FF000000" android:shadowDx="1" android:shadowDy="1" android:shadowRadius="3"/>
+            </LinearLayout>
             <TextView android:id="@+id/tv_status_battery" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="100%" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:shadowColor="#FF000000" android:shadowDx="1" android:shadowDy="1" android:shadowRadius="3"/>
         </LinearLayout>
     </RelativeLayout>

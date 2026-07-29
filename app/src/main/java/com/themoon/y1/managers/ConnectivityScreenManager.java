@@ -144,7 +144,6 @@ public class ConnectivityScreenManager {
                 for (BluetoothDevice device : pairedDevices) {
                     addPairedBluetoothItemToUI(a, device); // Call the UI dedicated to paired devices
                 }
-                addAirPodsInfoRows(a);
             } else {
                 TextView tvEmpty = new TextView(a);
                 tvEmpty.setText(a.t("No paired devices."));
@@ -187,7 +186,6 @@ public class ConnectivityScreenManager {
     }
 
     /** Kept so the info rows can be detached when the screen is rebuilt. */
-    private com.themoon.y1.AapService.Listener aapInfoListener;
 
     private static final int[] NOISE_MODES = {
             com.themoon.y1.AapService.NOISE_OFF,
@@ -212,103 +210,34 @@ public class ConnectivityScreenManager {
         return percent + "%" + (charging ? " \u26A1" : "");
     }
 
-    private static String earLabel(int ear) {
-        switch (ear) {
-            case com.themoon.y1.AapService.EAR_IN_EAR: return "In ear";
-            case com.themoon.y1.AapService.EAR_OUT_OF_EAR: return "Out";
-            case com.themoon.y1.AapService.EAR_IN_CASE: return "In case";
-            default: return "--";
-        }
-    }
-
     /**
-     * Read-only AirPods status, shown only while the AAP session is up -- none of
-     * this exists over the BLE advert fallback at useful precision.
+     * Read-only AirPods detail, shown on demand from the connected device's row rather than
+     * spread across the Bluetooth screen: that screen is a device picker, and six unfocusable
+     * rows the wheel skipped past crowded out the list it exists to show. Battery -- the only
+     * part worth glancing at -- lives in the status bar now.
      *
-     * Deliberately display-only. An earlier version let this cycle the noise mode,
-     * but no write ever demonstrably reached the pods (nothing was logged leaving
-     * the socket) while the tap did coincide with audio dropping out, so the
-     * control is gone until the write path is understood. Reading is solid: these
-     * values update live, including changes made on the bud itself.
+     * Deliberately display-only. An earlier version let this cycle the noise mode, but no write
+     * ever demonstrably reached the pods (nothing was logged leaving the socket) while the tap
+     * did coincide with audio dropping out, so the control is gone until the write path is
+     * understood. Reading is solid: these values update live, including changes made on the bud
+     * itself -- this is a snapshot taken when the dialog opens, so reopen it to refresh.
      */
-    private void addAirPodsInfoRows(final MainActivity a) {
-        if (!com.themoon.y1.AapService.isConnected()) return;
-
-        // createCategoryHeader() appends to the settings container, not this one,
-        // so the header is built here.
-        TextView header = new TextView(a);
-        header.setText(a.t("AirPods"));
-        header.setTextColor(0xBBFFFFFF);
-        header.setTextSize(14);
-        header.setTypeface(null, android.graphics.Typeface.BOLD);
-        header.setPadding(10, 30, 10, 5);
-        a.containerBtItems.addView(header);
-
-        final LinearLayout rowBuds = infoRow(a, a.t("Earbuds Battery"));
-        final LinearLayout rowCase = infoRow(a, a.t("Case Battery"));
-        final LinearLayout rowNoise = infoRow(a, a.t("Noise Control"));
-        final LinearLayout rowEar = infoRow(a, a.t("Ear Detection"));
-        final LinearLayout rowConv = infoRow(a, a.t("Conversation Awareness"));
-        final LinearLayout rowLinks = infoRow(a, a.t("Connected Devices"));
-
-        if (aapInfoListener != null) {
-            com.themoon.y1.AapService.removeListener(aapInfoListener);
-        }
-        aapInfoListener = new com.themoon.y1.AapService.Listener() {
-            @Override
-            public void onAapStateChanged(final com.themoon.y1.AapService.AapState st) {
-                a.runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (rowBuds.getParent() == null) return; // screen rebuilt since
-                        render(a, st, rowBuds, rowCase, rowNoise, rowEar, rowConv, rowLinks);
-                    }
-                });
-            }
-
-            @Override
-            public void onAapConnectionChanged(boolean connected) {
-            }
+    private void showAirPodsInfo(MainActivity a) {
+        com.themoon.y1.AapService.AapState st = com.themoon.y1.AapService.getLastState();
+        String[] labels = {
+                a.t("Earbuds Battery") + ":  L " + batteryLabel(st.batteryLeft, st.chargingLeft)
+                        + "   R " + batteryLabel(st.batteryRight, st.chargingRight),
+                a.t("Case Battery") + ":  " + batteryLabel(st.batteryCase, st.chargingCase),
+                a.t("Noise Control") + ":  " + a.t(noiseLabel(st.noiseMode)),
+                a.t("Conversation Awareness") + ":  "
+                        + (st.conversationalAwareness ? a.t("On") : a.t("Off")),
+                // More than one means the pods are also attached to something else -- the usual
+                // explanation for audio ending up somewhere unexpected.
+                a.t("Connected Devices") + ":  "
+                        + (st.connectedDevices < 0 ? "--" : String.valueOf(st.connectedDevices)),
         };
-        com.themoon.y1.AapService.addListener(aapInfoListener);
-
-        render(a, com.themoon.y1.AapService.getLastState(),
-                rowBuds, rowCase, rowNoise, rowEar, rowConv, rowLinks);
-        a.containerBtItems.addView(rowBuds);
-        a.containerBtItems.addView(rowCase);
-        a.containerBtItems.addView(rowNoise);
-        a.containerBtItems.addView(rowEar);
-        a.containerBtItems.addView(rowConv);
-        a.containerBtItems.addView(rowLinks);
-    }
-
-    private static void render(MainActivity a, com.themoon.y1.AapService.AapState st,
-                               LinearLayout rowBuds, LinearLayout rowCase,
-                               LinearLayout rowNoise, LinearLayout rowEar,
-                               LinearLayout rowConv, LinearLayout rowLinks) {
-        ((TextView) rowBuds.getChildAt(1)).setText(
-                "L " + batteryLabel(st.batteryLeft, st.chargingLeft)
-                        + "   R " + batteryLabel(st.batteryRight, st.chargingRight));
-        ((TextView) rowCase.getChildAt(1)).setText(batteryLabel(st.batteryCase, st.chargingCase));
-        ((TextView) rowNoise.getChildAt(1)).setText(a.t(noiseLabel(st.noiseMode)));
-        ((TextView) rowEar.getChildAt(1)).setText(
-                a.t(earLabel(st.earLeft)) + " / " + a.t(earLabel(st.earRight)));
-        // The pods report this once after the notification request rather than on
-        // change, so it can legitimately sit at the default until they do.
-        ((TextView) rowConv.getChildAt(1)).setText(
-                st.conversationalAwareness ? a.t("On") : a.t("Off"));
-        // More than one means the pods are also attached to something else --
-        // the usual explanation for audio ending up somewhere unexpected.
-        ((TextView) rowLinks.getChildAt(1)).setText(
-                st.connectedDevices < 0 ? "--" : String.valueOf(st.connectedDevices));
-    }
-
-    /** A settings row that displays but doesn't take focus -- the wheel skips it. */
-    private static LinearLayout infoRow(MainActivity a, String label) {
-        LinearLayout row = a.createSettingRow(label, "--");
-        row.setFocusable(false);
-        row.setClickable(false);
-        return row;
+        SongContextMenuManager.getInstance().showThemedOptionsDialog(
+                a, a.t("AirPods"), null, labels, new Runnable[labels.length]);
     }
 
     @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
@@ -351,6 +280,18 @@ public class ConnectivityScreenManager {
 
         // 🚀 [Hybrid engine integration] Inject the trash-can unicode ("\uE872") and red (0xFFFF5555).
         // (Note: the return type changes from Button to android.view.View)
+        // Only the connected pods have anything to report, so this row only exists for them.
+        final boolean hasAapInfo = isConnected && com.themoon.y1.AapService.isConnected();
+        final android.view.View btnAapInfo = a.createListButtonWithIcon("\uE1B1", a.t("AirPods Info"), 0xFFFFFFFF);
+        btnAapInfo.setVisibility(View.GONE);
+        btnAapInfo.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                showAirPodsInfo(a);
+            }
+        });
+
         final android.view.View btnUnpair = a.createListButtonWithIcon("\uE872", a.t("Delete Device"), 0xFFFF5555);
 
         btnUnpair.setVisibility(View.GONE); // Hidden initially.
@@ -378,6 +319,7 @@ public class ConnectivityScreenManager {
                 a.clickFeedback();
                 if (btnConnect.getVisibility() == View.GONE) {
                     btnConnect.setVisibility(View.VISIBLE);
+                    if (hasAapInfo) btnAapInfo.setVisibility(View.VISIBLE);
                     btnUnpair.setVisibility(View.VISIBLE);
 
                     // 💡 Makes the wheel cursor naturally land on the 'Connect Audio' button as soon as the sub-menu opens!
@@ -388,6 +330,7 @@ public class ConnectivityScreenManager {
                     });
                 } else {
                     btnConnect.setVisibility(View.GONE);
+                    btnAapInfo.setVisibility(View.GONE);
                     btnUnpair.setVisibility(View.GONE);
                 }
             }
@@ -396,6 +339,7 @@ public class ConnectivityScreenManager {
         // 🚀 To prevent index tangling, just stack them up in order when building the screen structure.
         a.containerBtItems.addView(btnDevice);
         a.containerBtItems.addView(btnConnect);
+        a.containerBtItems.addView(btnAapInfo);
         a.containerBtItems.addView(btnUnpair);
     }
 

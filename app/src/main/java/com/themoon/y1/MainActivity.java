@@ -320,7 +320,8 @@ public class MainActivity extends Activity {
     public LinearLayout containerSettingsItems;
     public LinearLayout containerBtItems, containerWifiItems;
 
-    private TextView tvStatusClock, tvStatusBattery;
+    private TextView tvStatusClock, tvStatusBattery, tvStatusBuds, tvStatusBudsIcon;
+    private View layoutStatusBuds;
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivStatusCast, ivMainBg;
 
     public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
@@ -1019,6 +1020,7 @@ public class MainActivity extends Activity {
         usbFocusHelper = new Y1UsbFocusHelper(this);
         powerMenuInterceptor = new PowerMenuInterceptor(this);
         AapService.addListener(com.themoon.y1.managers.BluetoothAudioManager.getInstance().aapEarListener);
+        AapService.addListener(statusBudsListener);
         // 🚀 [Ultra-fast cache engine activated] Allocates 1/8 of the device's max memory as a vault dedicated to album art!
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
         final int cacheSize = maxMemory / 8; // (e.g. allocates 16MB)
@@ -1474,6 +1476,9 @@ public class MainActivity extends Activity {
 
         tvStatusClock = findViewById(R.id.tv_status_clock);
         tvStatusBattery = findViewById(R.id.tv_status_battery);
+        tvStatusBuds = findViewById(R.id.tv_status_buds);
+        tvStatusBudsIcon = findViewById(R.id.tv_status_buds_icon);
+        layoutStatusBuds = findViewById(R.id.layout_status_buds);
         tvStatusClock.setShadowLayer(0, 0, 0, 0);
         // 🚀 [Add here!] Hide the existing battery number (text) and insert a flat icon in its place.
         tvStatusBattery.setVisibility(View.GONE);
@@ -3099,6 +3104,78 @@ public class MainActivity extends Activity {
     // changed) -- ear-detection stays dead until the user manually toggles Bluetooth. Re-checking
     // on resume (and right after the A2DP proxy first binds) self-heals that without needing a
     // manual reconnect.
+    /**
+     * Bud battery in the status bar. It's the one AirPods figure worth having at a glance, and it
+     * used to mean walking into Settings > Bluetooth to read it. Only shown while the AAP session
+     * is up -- the BLE advert fallback reports battery in coarse tens and not at all reliably.
+     */
+    private final AapService.Listener statusBudsListener = new AapService.Listener() {
+        @Override
+        public void onAapStateChanged(final AapService.AapState st) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    renderBudsStatus(st);
+                }
+            });
+        }
+
+        @Override
+        public void onAapConnectionChanged(final boolean connected) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (!connected && layoutStatusBuds != null) {
+                        layoutStatusBuds.setVisibility(View.GONE);
+                    }
+                }
+            });
+        }
+    };
+
+    /** Material Icons "headset" -- the font this build ships predates a dedicated earbuds glyph. */
+    private static final String BUDS_GLYPH = "\uE310";
+    private static final int BUDS_LOW_PERCENT = 20;
+    private static final int BUDS_CRITICAL_PERCENT = 10;
+
+    private void renderBudsStatus(AapService.AapState st) {
+        if (layoutStatusBuds == null) return;
+        boolean haveLeft = st.batteryLeft != AapService.BATTERY_UNKNOWN;
+        boolean haveRight = st.batteryRight != AapService.BATTERY_UNKNOWN;
+        if (!AapService.isConnected() || (!haveLeft && !haveRight)) {
+            layoutStatusBuds.setVisibility(View.GONE);
+            return;
+        }
+
+        // The lower bud, because that's the one that ends the listening -- which side it is
+        // matters much less than how long is left, and both figures are a press away under
+        // Bluetooth > AirPods Info. Reads as one value beside the device's own battery rather
+        // than a row of digits competing with it.
+        int worst = !haveRight ? st.batteryLeft
+                : !haveLeft ? st.batteryRight
+                : Math.min(st.batteryLeft, st.batteryRight);
+
+        int color = worst <= BUDS_CRITICAL_PERCENT ? 0xFFFF5555
+                : worst <= BUDS_LOW_PERCENT ? 0xFFFFBB00
+                : ThemeManager.getTextColorPrimary();
+
+        if (materialIconFont == null) {
+            try {
+                materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(),
+                        "fonts/MaterialIcons-Regular.ttf");
+            } catch (Exception e) {
+                Log.d(TAG, "material icon font unavailable for the status bar", e);
+            }
+        }
+        if (materialIconFont != null) tvStatusBudsIcon.setTypeface(materialIconFont);
+        tvStatusBudsIcon.setText(BUDS_GLYPH);
+        tvStatusBudsIcon.setTextColor(color);
+
+        tvStatusBuds.setText(worst + "%");
+        tvStatusBuds.setTextColor(color);
+        layoutStatusBuds.setVisibility(View.VISIBLE);
+    }
+
     private void resyncAapWithConnectedDevice() {
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().resyncAapWithConnectedDevice(this);
     }
@@ -3132,6 +3209,7 @@ public class MainActivity extends Activity {
         resyncAapWithConnectedDevice();
         if (usbFocusHelper != null) usbFocusHelper.onResume();
         if (powerMenuInterceptor != null) powerMenuInterceptor.onResume();
+        renderBudsStatus(AapService.getLastState()); // pods may already be connected
         updateCastStatusIndicator();
     }
 

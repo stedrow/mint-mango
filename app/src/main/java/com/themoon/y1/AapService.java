@@ -69,6 +69,13 @@ public class AapService extends Service {
      * is "listening mode is currently transparency".
      */
     private static final int OPCODE_CONTROL = 0x0009;
+    /**
+     * Apple's "Bud Role": {@code 01} = left bud is primary, {@code 02} = right. Sent unprompted
+     * when the role swaps, which is the only way to keep primary/secondary reports pointed at the
+     * right ear while the L2CAP link is up -- the BLE adverts that otherwise carry that bit are
+     * ignored once connected. Named in CApod's AapMessageType, matching our own captures.
+     */
+    private static final int OPCODE_BUD_ROLE = 0x0008;
     /** Stem press, once the matching gesture bit is set via CTRL_STEM_GESTURES. */
     private static final int OPCODE_STEM_PRESS = 0x0019;
     /** Conversational-awareness speech events (distinct from the on/off setting). */
@@ -331,6 +338,13 @@ public class AapService extends Service {
 
     private BluetoothAdapter.LeScanCallback leScan;
     private int lastAdvertKey = -1;
+    /**
+     * Which physical bud the pods are currently calling "primary". Everything they report is
+     * ordered primary-then-secondary, not left-then-right, and the role follows whichever bud is
+     * doing the work -- so it flips when one is stowed. Learned from the BLE adverts'
+     * STATUS_PRIMARY_IS_LEFT bit and kept current over L2CAP by OPCODE_BUD_ROLE.
+     */
+    private volatile boolean primaryIsLeft = true;
     private volatile boolean shouldRun = false;
     private volatile BluetoothSocket activeSocket = null;
     /** Write end of the live session, and the lock serialising writes to it. */
@@ -437,6 +451,7 @@ public class AapService extends Service {
                 + " model=" + Integer.toHexString(((p[3] & 0xFF) << 8) | (p[4] & 0xFF)));
 
         boolean primaryLeft = (status & STATUS_PRIMARY_IS_LEFT) != 0;
+        primaryIsLeft = primaryLeft; // the L2CAP path has no status bit of its own to read
         int primaryEar = (status & STATUS_PRIMARY_IN_EAR) != 0 ? EAR_IN_EAR : EAR_OUT_OF_EAR;
         int secondaryEar = (status & STATUS_SECONDARY_IN_EAR) != 0 ? EAR_IN_EAR : EAR_OUT_OF_EAR;
 
@@ -774,6 +789,9 @@ public class AapService extends Service {
                 packetLen = 9 + (data[magicAt + 8] & 0xFF) * 8;
             } else if (opcode == OPCODE_CONV_AWARENESS) {
                 packetLen = 10;
+            } else if (opcode == OPCODE_BUD_ROLE) {
+                packetLen = 10; // 6 header + the 4-byte payload seen in every capture
+
             } else if (opcode == OPCODE_BATTERY) {
                 if (magicAt + 7 > data.length) break; // need the count byte
                 int count = data[magicAt + 6] & 0xFF;
@@ -831,12 +849,21 @@ public class AapService extends Service {
             int secondary = data[offset + 7] & 0xFF;
             // Tagged distinctly from the "AAP-BLE" advert path so it's obvious which
             // source drove a pause -- the L2CAP notifications are the sub-second one.
-            Log.d(TAG, "AAP-L2CAP ear primary=" + primary + " secondary=" + secondary);
+            Log.d(TAG, "AAP-L2CAP ear primary=" + primary + " secondary=" + secondary
+                    + " primaryIsLeft=" + primaryIsLeft);
             AapState s = lastState.copy();
-            s.earLeft = primary;
-            s.earRight = secondary;
+            // primary/secondary are roles, not sides. Mapping primary straight onto the left bud
+            // showed the wrong ear whenever the right one happened to be primary.
+            s.earLeft = primaryIsLeft ? primary : secondary;
+            s.earRight = primaryIsLeft ? secondary : primary;
             publishState(s);
             handleEarDetectionForAutoPause(s, AAP_L2CAP_SOURCE);
+        } else if (opcode == OPCODE_BUD_ROLE) {
+            int role = data[offset + 6] & 0xFF;
+            if (role == 0x01 || role == 0x02) {
+                primaryIsLeft = role == 0x01;
+                Log.d(TAG, "AAP-L2CAP bud role: primary is " + (primaryIsLeft ? "left" : "right"));
+            }
         } else if (opcode == OPCODE_BATTERY) {
             int count = data[offset + 6] & 0xFF;
             AapState s = lastState.copy();
