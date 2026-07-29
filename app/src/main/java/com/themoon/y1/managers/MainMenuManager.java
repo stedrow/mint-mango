@@ -31,6 +31,9 @@ import java.util.List;
  */
 public class MainMenuManager {
     private static final String TAG = "MainMenuManager";
+    /** Theme actions the main menu no longer draws -- they're on the long-press power menu. */
+    private static final java.util.Set<String> POWER_MENU_ACTIONS = new java.util.HashSet<>(
+            java.util.Arrays.asList("OPEN_WIFI", "OPEN_BLUETOOTH", "OPEN_SETTINGS"));
     private static MainMenuManager instance;
 
     private MainMenuManager() {}
@@ -150,6 +153,10 @@ public class MainMenuManager {
         List<ThemeManager.MenuElement> widgetElements = new ArrayList<>();
 
         for (ThemeManager.MenuElement el : elements) {
+            // These three live on the power-button menu now (SettingsUiManager.showPowerMenu), so
+            // they're dropped here rather than from every theme's config.json -- this also covers
+            // themes already sitting on a device's SD card.
+            if (POWER_MENU_ACTIONS.contains(el.action)) continue;
             if (el.type.equals("button")) buttonElements.add(el);
             else widgetElements.add(el);
         }

@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     // Bluetooth A2DP proxy, target device, connecting-state, and reconnect-backoff state all live
     // in BluetoothAudioManager now -- see that class for the field-level rationale.
     private Y1UsbFocusHelper usbFocusHelper;
+    private PowerMenuInterceptor powerMenuInterceptor;
     // 🚀 [New] Zero-delay, ultra-fast album-art RAM cache memory. Initialized in onCreate(),
     // read by MusicBrowserManager's Cover Flow binding.
     public android.util.LruCache<String, android.graphics.Bitmap> albumArtCache;
@@ -993,6 +994,7 @@ public class MainActivity extends Activity {
         // 🚀 Registers itself in a variable when the app launches.
         instance = this;
         usbFocusHelper = new Y1UsbFocusHelper(this);
+        powerMenuInterceptor = new PowerMenuInterceptor(this);
         AapService.addListener(com.themoon.y1.managers.BluetoothAudioManager.getInstance().aapEarListener);
         // 🚀 [Ultra-fast cache engine activated] Allocates 1/8 of the device's max memory as a vault dedicated to album art!
         final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
@@ -3092,6 +3094,7 @@ public class MainActivity extends Activity {
         super.onResume();
         resyncAapWithConnectedDevice();
         if (usbFocusHelper != null) usbFocusHelper.onResume();
+        if (powerMenuInterceptor != null) powerMenuInterceptor.onResume();
         updateCastStatusIndicator();
     }
 
@@ -3132,6 +3135,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (usbFocusHelper != null) usbFocusHelper.onDestroy();
+        if (powerMenuInterceptor != null) powerMenuInterceptor.onDestroy();
         clockHandler.removeCallbacks(clockTask);
         progressHandler.removeCallbacks(updateProgressTask);
         volumeHandler.removeCallbacks(hideVolumeTask);

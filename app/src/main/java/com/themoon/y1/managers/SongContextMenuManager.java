@@ -40,8 +40,9 @@ public class SongContextMenuManager {
         return instance;
     }
 
-    /** Double-click center on Now Playing: playback/queue/Wi-Fi/Bluetooth shortcuts without
-     *  leaving the player screen (center long-press is already claimed by screen-off there). */
+    /** Double-click center on Now Playing: playback/queue/cast shortcuts without leaving the
+     *  player screen (center long-press is already claimed by screen-off there). Wi-Fi and
+     *  Bluetooth moved to the long-press power menu. */
     public void showQuickMenu(final MainActivity a) {
         String favPath = a.getCurrentTrackPathForFavorites();
         final boolean isFav = favPath != null && a.favoritePaths.contains(favPath);
@@ -51,16 +52,12 @@ public class SongContextMenuManager {
                 new String[]{
                         null,
                         "", // format_list_bulleted
-                        "", // cast
-                        "", // wifi
-                        ""  // bluetooth
+                        ""  // cast
                 },
                 new String[]{
                         isFav ? "♥  " + a.t("Remove Favorite") : "♡  " + a.t("Add Favorite"),
                         a.t("Playlist"),
-                        isCasting ? a.t("Stop Casting") : a.t("Cast"),
-                        a.t("Wi-Fi"),
-                        a.t("Bluetooth")
+                        isCasting ? a.t("Stop Casting") : a.t("Cast")
                 },
                 new Runnable[]{
                         new Runnable() { @Override public void run() { a.toggleFavorite(); } },
@@ -74,9 +71,7 @@ public class SongContextMenuManager {
                             } else {
                                 showCastMenu(a);
                             }
-                        } },
-                        new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_WIFI); } },
-                        new Runnable() { @Override public void run() { a.changeScreen(MainActivity.STATE_BLUETOOTH); } }
+                        } }
                 });
     }
 
@@ -416,12 +411,16 @@ public class SongContextMenuManager {
         scroll.addView(root, new android.widget.ScrollView.LayoutParams(
                 android.widget.ScrollView.LayoutParams.MATCH_PARENT, android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
 
-        TextView tvTitle = new TextView(a);
-        tvTitle.setText(title);
-        tvTitle.setTextSize(18f);
-        tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-        tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
-        root.addView(tvTitle);
+        // A null/empty title means the options speak for themselves (the power menu) -- skip the
+        // row entirely rather than leaving an empty line above the first option.
+        if (title != null && !title.isEmpty()) {
+            TextView tvTitle = new TextView(a);
+            tvTitle.setText(title);
+            tvTitle.setTextSize(18f);
+            tvTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+            tvTitle.setTextColor(ThemeManager.getTextColorPrimary());
+            root.addView(tvTitle);
+        }
 
         if (subtitle != null && !subtitle.isEmpty()) {
             TextView tvSub = new TextView(a);
@@ -435,9 +434,11 @@ public class SongContextMenuManager {
             root.addView(tvSub);
         }
 
-        android.view.View spacer = new android.view.View(a);
-        spacer.setLayoutParams(new LinearLayout.LayoutParams(1, (int) (10 * d)));
-        root.addView(spacer);
+        if (root.getChildCount() > 0) {
+            android.view.View spacer = new android.view.View(a);
+            spacer.setLayoutParams(new LinearLayout.LayoutParams(1, (int) (10 * d)));
+            root.addView(spacer);
+        }
 
         for (int i = 0; i < options.length; i++) {
             final Runnable action = actions[i];
@@ -460,10 +461,13 @@ public class SongContextMenuManager {
             @Override
             public boolean onKey(DialogInterface di, int keyCode, KeyEvent event) {
                 if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-                if (keyCode != 21 && keyCode != 22) return false;
+                // 19/20 are the wheel, 21/22 the side skip buttons. Without the wheel pair the
+                // rows still moved -- on Android's default focus search, which neither wraps at
+                // the ends nor gives the click feedback the rest of the launcher does.
+                if (keyCode != 19 && keyCode != 20 && keyCode != 21 && keyCode != 22) return false;
                 View cur = root.findFocus();
                 int index = cur != null ? root.indexOfChild(cur) : -1;
-                int dir = keyCode == 22 ? 1 : -1;
+                int dir = (keyCode == 22 || keyCode == 20) ? 1 : -1;
                 int count = root.getChildCount();
                 int i = index == -1 ? (dir == 1 ? 0 : count - 1) : index + dir;
                 for (int steps = 0; steps < count; steps++, i += dir) {

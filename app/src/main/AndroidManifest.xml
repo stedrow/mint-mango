@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.SHUTDOWN" tools:ignore="ProtectedPermissions" />
+    <!-- Not for media storage: this device's patched platform.xml maps this permission to gid
+         "input", which is what lets PowerMenuInterceptor read /dev/input/event0 and time the
+         power key itself. Only granted because the launcher lives in /system/priv-app. -->
+    <uses-permission android:name="android.permission.WRITE_MEDIA_STORAGE" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />

@@ -32,15 +32,19 @@ on the first run or after touching Gradle files.
 
 ## Flash
 
-**This is a system app** (`applicationId com.themoon.y1`, installed at
-`/system/app/com.themoon.y1.apk`) — a plain `adb install` does not work here.
+**This is a privileged system app** (`applicationId com.themoon.y1`, installed at
+`/system/priv-app/com.themoon.y1.apk`) — a plain `adb install` does not work here.
+It lives in `priv-app`, not `app`: since Android 4.3 only privileged apps are granted
+`signature|system` permissions (REBOOT, SHUTDOWN, and the WRITE_MEDIA_STORAGE that
+carries gid `input` for the power-key menu). If a unit still has the APK at
+`/system/app/com.themoon.y1.apk`, delete that copy — otherwise both are scanned.
 It requires remounting `/system` read-write and overwriting the system APK
 directly, then rebooting:
 
 ```bash
 adb shell mount -o remount,rw /system
-adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk
-adb shell chmod 644 /system/app/com.themoon.y1.apk
+adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.themoon.y1.apk
+adb shell chmod 644 /system/priv-app/com.themoon.y1.apk
 adb reboot
 ```
 
@@ -51,10 +55,23 @@ One-liner for repeat builds:
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && \
 bash gradlew assembleDebug && \
 adb shell mount -o remount,rw /system && \
-adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk && \
-adb shell chmod 644 /system/app/com.themoon.y1.apk && \
+adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.themoon.y1.apk && \
+adb shell chmod 644 /system/priv-app/com.themoon.y1.apk && \
 adb reboot
 ```
+
+### One-time per device: power-menu system patches
+
+The long-press-power menu needs three device-side changes the APK can't make itself
+(priv-app install, gid `input` via platform.xml, and the stock global-actions dialog
+stripped out of `android.policy.jar`). Run once per unit, after a normal flash:
+
+```bash
+bash scripts/patch-device-power-menu.sh
+```
+
+It backs up every file it replaces to `scripts/backups/` and `/data/local/tmp`. Without
+it the launcher still runs — long-pressing power just gets the stock Android menu.
 
 ### Y2 units: disable the stock launcher
 

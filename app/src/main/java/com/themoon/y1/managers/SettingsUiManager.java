@@ -669,6 +669,38 @@ public class SettingsUiManager {
         if (a.containerSettingsItems.getChildCount() > 0) a.containerSettingsItems.getChildAt(0).requestFocus();
     }
 
+    /**
+     * Our stand-in for the framework's long-press-power menu -- see PowerMenuInterceptor for how
+     * it gets triggered. Same two power entries the stock menu has, plus the two radios, since
+     * those are what anyone actually reaches for on this device.
+     */
+    public void showPowerMenu(final MainActivity a) {
+        // ponytail: no confirmation step -- the stock menu it replaces doesn't have one either.
+        com.themoon.y1.managers.SongContextMenuManager.getInstance().showThemedOptionsDialog(
+                a, null, null,
+                new String[]{
+                        "", // power_settings_new
+                        "", // refresh
+                        "", // wifi
+                        "", // bluetooth
+                        "" // settings
+                },
+                new String[]{ a.t("Power Off"), a.t("Reboot"), a.t("Wi-Fi"), "Bluetooth", a.t("Settings") },
+                new Runnable[]{
+                        new Runnable() { @Override public void run() {
+                            powerAction(a, "reboot -p", "android.intent.action.ACTION_REQUEST_SHUTDOWN",
+                                    a.t("System security prevents powering off directly from the app."));
+                        } },
+                        new Runnable() { @Override public void run() {
+                            powerAction(a, "reboot", "android.intent.action.ACTION_REQUEST_REBOOT",
+                                    a.t("System security prevents rebooting directly from the app."), true);
+                        } },
+                        new Runnable() { @Override public void run() { a.changeScreen(a.STATE_WIFI); } },
+                        new Runnable() { @Override public void run() { a.changeScreen(a.STATE_BLUETOOTH); } },
+                        new Runnable() { @Override public void run() { a.changeScreen(a.STATE_SETTINGS); } }
+                });
+    }
+
     private void powerAction(final MainActivity a, final String suCommand, final String fallbackAction,
             final String failureMessage) {
         powerAction(a, suCommand, fallbackAction, failureMessage, false);
