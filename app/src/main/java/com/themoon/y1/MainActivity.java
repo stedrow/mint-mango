@@ -436,11 +436,32 @@ public class MainActivity extends Activity {
 
     private Y1WebServer webServer;
     public boolean isServerRunning = false;
-    public int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
-    // 🚀 Append parentheses to fully separate this into a key distinct from the equalizer's Normal!
-    public final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
-    // 💡 Key: 10ms (very short pulse), 25ms (normal wheel), 50ms (heavy rumble)
-    private final int[] VIBE_DURATIONS = {10, 25, 50};
+    public int vibrationStrengthLevel = 2; // index into VIBE_DURATIONS; 2 is the original default
+    // This hardware has no amplitude control (VibrationEffect is API 26, this is 19), so strength
+    // is pulse length and nothing else. The old three settings -- 10/25/50ms -- are still in here
+    // at indices 1, 2 and 4, with the gaps filled in either side of the default.
+    public final int[] VIBE_DURATIONS = {6, 10, 25, 36, 50};
+
+    /** "3 / 5" -- a position on the scale, which names like Weak/Firm/Strong never made obvious. */
+    public String vibrationStrengthLabel() {
+        return (vibrationStrengthLevel + 1) + " / " + VIBE_DURATIONS.length;
+    }
+
+    /**
+     * Buzz at the current strength, ignoring clickFeedback's debounce. Picking a new strength
+     * should always be felt, and the center press that picked it has just used up the debounce
+     * window -- so routing this through clickFeedback() silently dropped the very buzz the user
+     * changed the setting to feel.
+     */
+    public void previewVibration() {
+        if (!isVibrationEnabled) return;
+        try {
+            Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null) v.vibrate(VIBE_DURATIONS[vibrationStrengthLevel]);
+        } catch (Exception e) {
+            Log.d(TAG, "previewVibration failed", e);
+        }
+    }
     // Pre-built so the once-a-second clock tick (and refreshWidgets, called from the same tick)
     // don't construct a new SimpleDateFormat every second forever -- pattern parsing on every
     // tick was pure waste since only two patterns are ever used, chosen by is24HourFormat.
@@ -1174,7 +1195,11 @@ public class MainActivity extends Activity {
 
         try {
             isVibrationEnabled = prefs.getBoolean("vibrate", true);
-            vibrationStrengthLevel = prefs.getInt("vibrate_strength", 1);
+            // Stored under a new key since the scale changed from 3 levels to 5: someone who had
+            // picked Strong (old 2) should stay on Strong (now 4), not land on the middle.
+            int saved = prefs.getInt("vibrate_strength_5", -1);
+            if (saved < 0) saved = prefs.getInt("vibrate_strength", 1) * 2;
+            vibrationStrengthLevel = Math.max(0, Math.min(saved, VIBE_DURATIONS.length - 1));
         } catch (Exception e) {
             Log.d(TAG, "onCreate failed", e);
         }

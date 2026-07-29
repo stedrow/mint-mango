@@ -1080,18 +1080,17 @@ public class SettingsUiManager {
         a.containerSettingsItems.addView(btnToggle);
 
         // 2. Vibration intensity switch (cycles Weak -> Normal -> Strong)
-        final LinearLayout btnStrength = a.createSettingRow("Vibration Strength", a.t(a.VIBE_STRENGTH_NAMES[a.vibrationStrengthLevel]));
+        final LinearLayout btnStrength = a.createSettingRow("Vibration Strength", a.vibrationStrengthLabel());
         btnStrength.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                a.vibrationStrengthLevel = (a.vibrationStrengthLevel + 1) % 3; // cycles 0, 1, 2
+                a.vibrationStrengthLevel = (a.vibrationStrengthLevel + 1) % a.VIBE_DURATIONS.length;
 
-                // 💡 Since a vibration at the new intensity fires immediately on press, you can feel the change right away!
-                a.clickFeedback();
+                // 💡 Buzz at the level just selected, so each step can be felt as you cycle through.
+                a.previewVibration();
 
-                // 🚀 [Fix complete] Make sure the text is always passed through the translator t() when it changes on button press too!
-                ((TextView) btnStrength.getChildAt(1)).setText(a.t(a.VIBE_STRENGTH_NAMES[a.vibrationStrengthLevel]));
-                try { a.prefs.edit().putInt("vibrate_strength", a.vibrationStrengthLevel).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
+                ((TextView) btnStrength.getChildAt(1)).setText(a.vibrationStrengthLabel());
+                try { a.prefs.edit().putInt("vibrate_strength_5", a.vibrationStrengthLevel).apply(); } catch (Exception e) { Log.d(TAG, "buildVibrationSettingsUI failed", e); }
             }
         });
         a.containerSettingsItems.addView(btnStrength);
