@@ -337,10 +337,6 @@ public class AapService extends Service {
     private volatile OutputStream activeOut = null;
     private final Object writeLock = new Object();
     private volatile boolean sentFollowUp = false;
-    /** When the pods last said anything, for the diagnostic snapshot below. */
-    private volatile long lastRxAtMs = 0;
-    /** When the pods last said they were rendering for nobody; 0 = they are. */
-    private volatile long sinkNoneSinceMs = 0;
     private Thread worker;
     private String targetMac;
 
@@ -622,8 +618,6 @@ public class AapService extends Service {
         OutputStream out = socket.getOutputStream();
 
         activeOut = out;
-        lastRxAtMs = android.os.SystemClock.elapsedRealtime();
-        startDiagnostics(socket);
         startHandshake(out);
 
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -635,7 +629,6 @@ public class AapService extends Service {
                 return;
             }
             if (n == 0) continue;
-            lastRxAtMs = android.os.SystemClock.elapsedRealtime();
             Log.d(TAG, "AAP rx " + n + " bytes: " + hexPrefix(readBuf, n));
             if (!sentFollowUp && startsWith(readBuf, n, AAP_HANDSHAKE_ACK)) {
                 sentFollowUp = true;
@@ -726,95 +719,6 @@ public class AapService extends Service {
             }
         });
         return true;
-    }
-
-    /**
-     * Periodic one-line snapshot, tagged {@code AapDiag} so it can be filtered on
-     * its own: {@code adb logcat -s AapDiag}.
-     *
-     * Exists for the silent-mute failure -- the AirPods stop producing sound while
-     * everything else looks healthy: still connected, still "playing", position
-     * still advancing. There is nothing to detect in software at the moment it
-     * happens, so the point is to have a timeline afterwards. Given a rough time
-     * of day, these lines say whether the player kept advancing (pods muted
-     * themselves), whether the pods went quiet on the AAP channel (link trouble),
-     * and what the ear state claimed at the time.
-     *
-     * Only ticks while a session is up, and only logs when something is playing or
-     * the ear state isn't plain both-in, so an idle device stays quiet.
-     */
-    private void startDiagnostics(final BluetoothSocket socket) {
-        // Tied to the socket it was started for, rather than a "running" flag: a
-        // flag left set by a previous session made startDiagnostics() a silent
-        // no-op for the rest of the process, which is exactly what happened the
-        // first time this shipped.
-        diagHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!shouldRun || activeSocket != socket) return; // session gone
-                // ExoPlayer may only be touched from the thread it was created
-                // on, so the player half of the snapshot hops to main. The tick
-                // itself stays here, off the I/O thread, so a stuck socket write
-                // can't starve it -- the whole point of the separate thread.
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            AapState st = lastState;
-                            boolean playing = com.themoon.y1.managers.AudioPlayerManager
-                                    .getInstance().isPlaying();
-                            long pos = com.themoon.y1.managers.AudioPlayerManager
-                                    .getInstance().getCurrentPosition();
-                            long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
-
-                            // Log-only detector for the silent-mute failure. Every
-                            // NONE observed so far has had a legitimate cause and
-                            // fails at least one of these clauses: a bud out of an
-                            // ear, A2DP actually disconnected, or a sub-second blip
-                            // during a normal removal (0.9s measured). This asks
-                            // for the combination that has never been seen -- the
-                            // pods claiming to render for nobody while both buds
-                            // are in, audio is connected, and playback is still
-                            // advancing.
-                            //
-                            // Deliberately does not act. Whether the failure emits
-                            // this at all is exactly what is unknown; acting on an
-                            // unverified rule risks restarting the audio pipeline
-                            // underneath healthy playback.
-                            long noneSince = sinkNoneSinceMs;
-                            if (playing && noneSince != 0
-                                    && st.earLeft == EAR_IN_EAR && st.earRight == EAR_IN_EAR) {
-                                long noneMs = android.os.SystemClock.elapsedRealtime() - noneSince;
-                                boolean a2dp = false;
-                                try {
-                                    java.util.List<BluetoothDevice> c = com.themoon.y1.managers
-                                            .BluetoothAudioManager.getInstance().getConnectedDevices();
-                                    a2dp = c != null && !c.isEmpty();
-                                } catch (Throwable ignored) {
-                                }
-                                if (a2dp && noneMs > 5000) {
-                                    Log.w("AapDiag", "SUSPECT silent-mute: sink NONE for "
-                                            + noneMs + "ms while playing, both buds in,"
-                                            + " a2dp connected, pos=" + pos);
-                                }
-                            }
-
-                            Log.i("AapDiag", "playing=" + playing
-                                    + " pos=" + pos
-                                    + " ear=" + st.earLeft + "/" + st.earRight
-                                    + " batt=" + st.batteryLeft + "/" + st.batteryRight
-                                    + " noise=" + st.noiseMode
-                                    + " links=" + st.connectedDevices
-                                    + " src=" + st.audioSource
-                                    + " quietMs=" + quietMs);
-                        } catch (Throwable t) {
-                            Log.d("AapDiag", "snapshot failed: " + t);
-                        }
-                    }
-                });
-                diagHandler.postDelayed(this, 10000);
-            }
-        }, 10000);
     }
 
     /** Feature flags then the notification request; safe to repeat. */
@@ -990,7 +894,6 @@ public class AapService extends Service {
             }
             AapState rs = lastState.copy();
             rs.audioSource = none ? null : mac.toString();
-            sinkNoneSinceMs = none ? android.os.SystemClock.elapsedRealtime() : 0;
             Log.i("AapDiag", "audio sink -> " + (none ? "NONE" : rs.audioSource));
             publishState(rs);
         } else if (opcode == OPCODE_CONNECTED_DEVICES) {
@@ -1067,21 +970,10 @@ public class AapService extends Service {
      * launcher hard enough to ANR.
      */
     private static final Handler ioHandler;
-    /**
-     * Diagnostics run on their own thread. They used to share ioHandler, which
-     * is a FIFO queue that also carries blocking socket writes -- one write that
-     * never returned starved every snapshot behind it, so the tracer went silent
-     * exactly when something was wrong, which is the worst possible time. A
-     * monitor must not queue behind the thing it monitors.
-     */
-    private static final Handler diagHandler;
     static {
         HandlerThread t = new HandlerThread("aap-io");
         t.start();
         ioHandler = new Handler(t.getLooper());
-        HandlerThread d = new HandlerThread("aap-diag");
-        d.start();
-        diagHandler = new Handler(d.getLooper());
     }
 
     private void handleEarDetectionForAutoPause(AapState s, String source) {
