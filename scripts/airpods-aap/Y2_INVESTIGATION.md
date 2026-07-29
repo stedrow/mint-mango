@@ -1673,9 +1673,53 @@ little-endian on the wire).
 | `0x001D` | `02 f8 00 04 00` + UTF-8 | **Device information**, carries the device name. |
 | `0x004E` | `02 00 00 00 00 00 00 00`, invariant across 5 captures | Almost certainly the **ACK for `0x4D`**, the host-capabilities/feature-flags packet we send. Undocumented upstream. |
 | `0x0017` | 20 bytes, high rate, varying | Head tracking. We receive a live stream of it and ignore it. |
-| `0x0052` | `03 00 02 01 00` / `03 00 02 01 01` | A boolean that toggles; 19 samples split ~evenly. **Unidentified.** |
-| `0x0055` | `01 01 00 32` / `01 01 00 19` | A 0-100 level (50 and 25 observed). Shape suggests volume. **Unidentified.** |
-| `0x0008` | `01 00 01 00`, `02 00 01 01`, `02 00 01 00` | **Unidentified.** |
+| `0x0052` | `03 00 02 01 00` / `03 00 02 01 01` | **"Source Context"** (Apple's own name). Payload undecoded anywhere. |
+| `0x0055` | `01 01 00 32` / `01 01 00 19` | Unnamed. Tracks the audio sink (25 none / 50 present). |
+| `0x0008` | `01 00 01 00`, `02 00 01 01`, `02 00 01 00` | **"Bud Role"**: `01` = left primary, `02` = right primary. |
+
+### Identified since, from better sources than LibrePods
+
+LibrePods' opcode table stops at `0x53`. Two public sources go further and should
+be preferred:
+
+- **[pabloaul/apple-wireshark](https://github.com/pabloaul/apple-wireshark)** --
+  an AACP Wireshark dissector, and the upstream naming source for the others.
+- **[d4rken-org/capod](https://github.com/d4rken-org/capod)**
+  (`AapMessageType.kt`) -- the largest public opcode table, running to `0x0060`.
+
+`0x0008` is **solved**: Apple calls it *Bud Role*, `01` = left primary, `02` =
+right primary, and CApod ships a decoder for it. Its notes even single out this
+hardware -- "Pro 3: byte[2]=0x01 always; Pro 1: byte[2]=0x00 on initial, 0x01 on
+swap" -- which matches our captures exactly.
+
+`0x0052` is **named but not decoded**: Apple's *Source Context*, corroborated by
+`sendSourceContextMessage` in a decompiled iOS 26.1 `bluetoothd`. The Wireshark
+dissector reads its five payload bytes and decodes none of them. An independent
+capture in `thelok1s/orchestra` records the identical bytes `03 00 02 01 00` as
+unidentified. Apple's naming implies host->accessory, which does not obviously
+fit the direction we see it in.
+
+`0x0055` remains unnamed, but our reading has independent support: the Wireshark
+dissector comments "almost always after Audio Source. some form of audio state
+bools?", which matches the lockstep-with-`0x000E` behaviour measured here.
+`orchestra` instead guesses a volume level. Both are guesses; neither is shipping
+code that acts on the value.
+
+### The silent mute is undocumented everywhere, and unsignalled
+
+No public source documents this failure mode -- link up, host streaming, zero
+output, cured by re-seating a bud -- and **three independent opcode catalogues
+agree there is no accessory->host mute or output-state notification.** Control
+`0x27` "Software Mute" exists but is host->accessory with no read-back, and AAP
+has no read-setting primitive at all. That matches what the traces here show
+directly: during a real drop the protocol reads entirely healthy.
+
+One adjacent, *differently caused* case is worth knowing:
+[open-vela#386](https://github.com/open-vela/frameworks_bluetooth/pull/386)
+"Fix AirPods silent issue" -- the audio gateway never pushed an HFP `VGS`
+(speaker gain), leaving the buds sitting at volume 0 with the link up. Same
+symptom, different layer, and it lines up with the standing note to check stem
+volume on the Y2 before assuming a mute.
 
 Two cautions for anyone extending this. The log helper truncates to 24 bytes, so
 longer packets (notably `0x2E` with two devices) are cut short in captures --
