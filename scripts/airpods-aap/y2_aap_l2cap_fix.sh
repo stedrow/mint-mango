@@ -43,16 +43,25 @@
 # Usage:
 #   ./y2_aap_l2cap_fix.sh          # patch and reboot
 #   ./y2_aap_l2cap_fix.sh --revert # restore stock and reboot
+#
+# MTKBT_FILE=/path/to/mtkbt ./y2_aap_l2cap_fix.sh
+#   Patch that file in place instead of a live device -- how build-rom.sh bakes
+#   the fix into a mounted system.img, with no Y2 plugged in.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$HERE/build"
 TARGET="/system/bin/mtkbt"
+OFFLINE="${MTKBT_FILE:-}"
 
-adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device." >&2; exit 1; }
-adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root." >&2; exit 1; }
-[ "$(adb shell getprop ro.product.device | tr -d '\r\n')" = "Y2" ] || {
-  echo "ERROR: Y2-only." >&2; exit 1; }
+if [ -z "$OFFLINE" ]; then
+  adb get-state >/dev/null 2>&1 || { echo "ERROR: no adb device (or set MTKBT_FILE)." >&2; exit 1; }
+  adb shell 'id' | grep -q 'uid=0' || { echo "ERROR: adb shell is not root." >&2; exit 1; }
+  [ "$(adb shell getprop ro.product.device | tr -d '\r\n')" = "Y2" ] || {
+    echo "ERROR: Y2-only." >&2; exit 1; }
+else
+  [ -f "$OFFLINE" ] || { echo "ERROR: MTKBT_FILE not found: $OFFLINE" >&2; exit 1; }
+fi
 
 mkdir -p "$BUILD"
 
@@ -72,8 +81,13 @@ install() {
   adb reboot
 }
 
-echo ">> Pulling live mtkbt"
-adb pull "$TARGET" "$BUILD/mtkbt_live.bin" >/dev/null
+if [ -n "$OFFLINE" ]; then
+  echo ">> Patching $OFFLINE in place"
+  cp "$OFFLINE" "$BUILD/mtkbt_live.bin"
+else
+  echo ">> Pulling live mtkbt"
+  adb pull "$TARGET" "$BUILD/mtkbt_live.bin" >/dev/null
+fi
 
 python3 - "$BUILD/mtkbt_live.bin" "$BUILD/mtkbt_aapfix.bin" "${1:-patch}" <<'PY'
 import struct, sys
@@ -161,6 +175,14 @@ d[SITE + 4:SITE + 10] = struct.pack('<H', 0xBF00) * 3
 print("   3/3 TX uses real CID     thunk %d B @ %#x" % (len(t), CAVE))
 open(dst, 'wb').write(bytes(d))
 PY
+
+if [ -n "$OFFLINE" ]; then
+  # No device to install to or reboot -- the caller owns the file (build-rom.sh
+  # copies it back into the mounted image).
+  cp "$BUILD/mtkbt_aapfix.bin" "$OFFLINE"
+  echo ">> Wrote $OFFLINE"
+  exit 0
+fi
 
 if [ "${1:-}" = "--revert" ]; then
   echo ">> Restoring stock mtkbt (un-patching in place)"

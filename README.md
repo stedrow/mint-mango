@@ -193,7 +193,7 @@ adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS  # fi
 
 ## 📦 ROM Releases
 
-Pushing a tag matching `v*` triggers [`.github/workflows/build-rom.yml`](.github/workflows/build-rom.yml), which builds flashable `rom.zip` (type A) and `rom_type_b.zip` (type B) images and attaches them to the GitHub release: the launcher APK, the AirPods RTP fix, and the AAP in-ear-detection patch are all baked into the [rockbox-y1](https://github.com/rockbox-y1/rockbox) base firmware — no manual adb install steps needed after flashing. See [`scripts/build-rom.sh`](scripts/build-rom.sh).
+Pushing a tag matching `v*` triggers [`.github/workflows/build-rom.yml`](.github/workflows/build-rom.yml), which builds a flashable `rom_y2.zip` for the Innioasis Y2 and attaches it to the GitHub release: the launcher APK, the AirPods RTP fix, the AAP in-ear-detection patch, and the system patches behind the long-press power menu and the FM radio are all baked into the [y1-community stock ROM](https://github.com/y1-community/y1-stock-rom) base image — no manual adb install steps needed after flashing. See [`scripts/build-rom.sh`](scripts/build-rom.sh).
 
 ---
 

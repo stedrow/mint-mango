@@ -20,18 +20,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1
-        id: ndk
-        with:
-          ndk-version: r29
-          add-to-path: false
-
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip zip e2fsprogs
-          python3 -m pip install --quiet --break-system-packages keystone-engine lief
 
       - name: Build launcher APK
         run: |
@@ -44,11 +36,9 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
-      - name: Build ROM images
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+      - name: Build ROM image
         run: |
-          chmod +x scripts/build-rom.sh scripts/airpods-rtpfix/build.sh scripts/airpods-aap/build.sh
+          chmod +x scripts/build-rom.sh scripts/patch-system-files.sh scripts/airpods-aap/y2_aap_l2cap_fix.sh
           scripts/build-rom.sh "${{ github.ref_name }}" app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload release assets
