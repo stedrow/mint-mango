@@ -3,7 +3,8 @@
 # injects the launcher APK into the rockbox-y1 base firmware, and bakes in the
 # AirPods RTP fix (libbluetoothdrv.so) + AAP in-ear-detection patch
 # (libextjsr82.so), both built against each base image's own stock libs so no
-# physical device is needed.
+# physical device is needed, plus the long-press-power-menu patches (platform.xml
+# + android.policy.jar) that patch-device-power-menu.sh applies to a live unit.
 set -euo pipefail
 
 TAG="${1:?usage: build-rom.sh <tag> <apk-path>}"
@@ -50,9 +51,14 @@ for TYPE in a b; do
   STOCK_LIB="$MNT/lib/libextjsr82.so" "$AAP_DIR/build.sh"
 
   echo "==> [$TYPE] Injecting launcher APK + AirPods patches"
-  sudo cp "$APK_PATH" "$MNT/app/com.themoon.y1.apk"
-  sudo chmod 644 "$MNT/app/com.themoon.y1.apk"
-  sudo chown root:root "$MNT/app/com.themoon.y1.apk"
+  # priv-app, not app: since Android 4.3 only privileged apps are granted signature|system
+  # permissions -- REBOOT, SHUTDOWN, and the WRITE_MEDIA_STORAGE that carries gid "input" for
+  # the long-press power menu.
+  sudo mkdir -p "$MNT/priv-app"
+  sudo rm -f "$MNT/app/com.themoon.y1.apk"
+  sudo cp "$APK_PATH" "$MNT/priv-app/com.themoon.y1.apk"
+  sudo chmod 644 "$MNT/priv-app/com.themoon.y1.apk"
+  sudo chown root:root "$MNT/priv-app/com.themoon.y1.apk"
 
   sudo cp "$MNT/lib/libbluetoothdrv.so" "$MNT/lib/libbluetoothdrv_real.so"
   sudo cp "$RTPFIX_DIR/build/libbluetoothdrv.so" "$MNT/lib/libbluetoothdrv.so"
@@ -63,6 +69,22 @@ for TYPE in a b; do
   sudo cp "$AAP_DIR/build/libextjsr82_patched.so" "$MNT/lib/libextjsr82.so"
   sudo chmod 644 "$MNT/lib/libextjsr82.so" "$MNT/lib/libextjsr82_real.so"
   sudo chown root:root "$MNT/lib/libextjsr82.so" "$MNT/lib/libextjsr82_real.so"
+
+  echo "==> [$TYPE] Baking in the power-menu patches"
+  # Patch copies rather than the mounted files themselves, so the shared patcher never needs sudo.
+  PM_DIR="$TYPE_DIR/power-menu"
+  mkdir -p "$PM_DIR"
+  cp "$MNT/etc/permissions/platform.xml" "$PM_DIR/platform.xml"
+  cp "$MNT/framework/android.policy.jar" "$PM_DIR/android.policy.jar"
+  "$ROOT/scripts/patch-power-menu-files.sh" "$PM_DIR"
+  sudo cp "$PM_DIR/platform.xml" "$MNT/etc/permissions/platform.xml"
+  sudo cp "$PM_DIR/android.policy.jar" "$MNT/framework/android.policy.jar"
+  sudo chmod 644 "$MNT/etc/permissions/platform.xml" "$MNT/framework/android.policy.jar"
+  sudo chown root:root "$MNT/etc/permissions/platform.xml" "$MNT/framework/android.policy.jar"
+  # A stale .odex wins over the patched classes.dex, so it has to go; Dalvik dexopts the jar into
+  # /data/dalvik-cache on first boot instead.
+  [ -f "$MNT/framework/android.policy.odex" ] && \
+    sudo mv "$MNT/framework/android.policy.odex" "$MNT/framework/android.policy.odex.bak"
 
   sudo umount "$MNT"
 
