@@ -72,8 +72,18 @@ public class BluetoothAudioManager {
     // that falls back to a full BT disconnect+reconnect (nudgeAudioReconnectForAirpods(), the
     // confirmed-but-heavier fix) only when there's no simple local file to reload (Navidrome).
     private static final long AUDIO_NUDGE_COOLDOWN_MS = 20000;
+    /**
+     * A removal shorter than this is the AirPods' sensor flapping, not a person.
+     * Measured on-device: spurious blips last ~0.9s, while deliberate removals
+     * were 2.7s and 4.2s. A deliberate removal bypasses the cooldown, because
+     * repeating it is precisely what someone does when the first attempt did not
+     * fix the audio -- and that retry was the one the cooldown threw away.
+     */
+    private static final long DELIBERATE_REMOVAL_MS = 1500;
     private long lastAudioNudgeAtMs = 0;
     private boolean aapLastBothInEar = true;
+    private long earsOutSinceMs = 0;
+    private volatile long lastRemovalDurationMs = 0;
 
     private BluetoothAudioManager() {}
 
@@ -88,7 +98,13 @@ public class BluetoothAudioManager {
         @Override
         public void onAapStateChanged(AapService.AapState state) {
             boolean nowBothInEar = state.earLeft == AapService.EAR_IN_EAR && state.earRight == AapService.EAR_IN_EAR;
+            if (aapLastBothInEar && !nowBothInEar) {
+                earsOutSinceMs = android.os.SystemClock.elapsedRealtime();
+            }
             if (!aapLastBothInEar && nowBothInEar) {
+                lastRemovalDurationMs = earsOutSinceMs == 0 ? 0
+                        : android.os.SystemClock.elapsedRealtime() - earsOutSinceMs;
+                earsOutSinceMs = 0;
                 // AapService.publishState() calls listeners straight from its own read-loop
                 // worker thread, not main -- same signal AapService's own handleEarDetectionForAutoPause
                 // hops to mainHandler for. onEarsReinserted() reaches ExoPlayer via
@@ -137,13 +153,18 @@ public class BluetoothAudioManager {
         }
 
         long now = System.currentTimeMillis();
-        if (now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) {
+        long outMs = lastRemovalDurationMs;
+        boolean deliberate = outMs >= DELIBERATE_REMOVAL_MS;
+        if (!deliberate && now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS) {
             android.util.Log.i("AapDiag", "ears reinserted, no nudge: cooling down ("
-                    + (now - lastAudioNudgeAtMs) + "ms of " + AUDIO_NUDGE_COOLDOWN_MS + ")");
+                    + (now - lastAudioNudgeAtMs) + "ms of " + AUDIO_NUDGE_COOLDOWN_MS
+                    + "), removal was only " + outMs + "ms");
             return;
         }
 
-        android.util.Log.i("AapDiag", "ears reinserted -> restarting the audio pipeline");
+        android.util.Log.i("AapDiag", "ears reinserted -> restarting the audio pipeline (out for "
+                + outMs + "ms" + (deliberate && now - lastAudioNudgeAtMs < AUDIO_NUDGE_COOLDOWN_MS
+                ? ", cooldown bypassed" : "") + ")");
         lastAudioNudgeAtMs = now;
         AudioPlayerManager.getInstance().restartAudioPipelineQuietly();
     }
