@@ -746,18 +746,18 @@ public class AapService extends Service {
                             .getInstance().isPlaying();
                     long pos = com.themoon.y1.managers.AudioPlayerManager
                             .getInstance().getCurrentPosition();
-                    boolean bothIn = st.earLeft == EAR_IN_EAR && st.earRight == EAR_IN_EAR;
-                    if (playing || !bothIn) {
-                        long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
-                        Log.i("AapDiag", "playing=" + playing
-                                + " pos=" + pos
-                                + " ear=" + st.earLeft + "/" + st.earRight
-                                + " batt=" + st.batteryLeft + "/" + st.batteryRight
-                                + " noise=" + st.noiseMode
-                                + " links=" + st.connectedDevices
-                                + " src=" + st.audioSource
-                                + " quietMs=" + quietMs);
-                    }
+                    // Unconditional on purpose. Gating this on "playing" made an
+                    // idle device indistinguishable from broken tracing, which is
+                    // the wrong failure mode for a trace left running unattended.
+                    long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
+                    Log.i("AapDiag", "playing=" + playing
+                            + " pos=" + pos
+                            + " ear=" + st.earLeft + "/" + st.earRight
+                            + " batt=" + st.batteryLeft + "/" + st.batteryRight
+                            + " noise=" + st.noiseMode
+                            + " links=" + st.connectedDevices
+                            + " src=" + st.audioSource
+                            + " quietMs=" + quietMs);
                 } catch (Throwable t) {
                     Log.d("AapDiag", "snapshot failed", t);
                 }
