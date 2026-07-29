@@ -1697,3 +1697,44 @@ Next time: log at the top of the row's click handler, since the evidence so far
 cannot distinguish "the handler never ran" from "the write was silently
 discarded" -- the wheel-driven UI may not deliver taps through
 `OnClickListener` the way the settings rows assume.
+
+## Found: a signal for the silent-mute failure (opcode 0x0E)
+
+The AirPods sometimes stop producing sound while everything looks healthy --
+still connected, still "playing", position still advancing. An audio drop is not
+a Bluetooth drop, so nothing in the stack reports it, and the only recovery was
+a human pulling a bud out and putting it back (which the launcher reacts to by
+rebuilding the local audio pipeline). There was no signal to trigger on.
+
+There is one. Captured across a deliberate bud-out/bud-in cycle:
+
+```
+00:46:44.260  ear primary=0 secondary=1                 bud out
+00:46:47.597  04 00 04 00 0E 00 | 000000000000 | 00     audio source = ALL ZEROS
+00:46:47.601  04 00 04 00 55 00 | 01 01 00 19           0x55 -> 25
+00:46:48.164  ear primary=0 secondary=0                 bud back in
+00:46:49.004  04 00 04 00 0E 00 | 4882654623f6 | 02     audio source = F6:23:46:65:82:48 (this Y2)
+00:46:49.005  04 00 04 00 55 00 | 01 01 00 32           0x55 -> 50
+```
+
+**Opcode `0x0E` carries the current audio sink as a little-endian MAC, and goes
+all-zero when the pods are rendering for nobody.** It is 13 bytes. LibrePods'
+table lists `0x000E` as "Audio source resp" but documents no payload; the layout
+and the all-zero-means-none convention are from these captures.
+
+`0x55` -- one of the three opcodes this file previously listed as unidentified --
+moves in lockstep (25 with no sink, 50 with one), so it belongs to the same state
+change. Its exact meaning is still unknown.
+
+**Why this matters:** if the silent-mute failure also produces an all-zero
+`0x0E`, recovery can be triggered automatically -- watch for the sink going to
+NONE while A2DP is still connected and playback is still advancing, then call the
+same `restartAudioPipelineQuietly()` the reinsertion path uses. That would close
+the one failure mode with no automatic recovery.
+
+**Not yet established:** whether the failure actually emits it. The capture above
+is a *legitimate* ear-out, where the pods correctly drop the sink. The tracing
+(`adb logcat -s AapDiag`, `src=` in each snapshot) is in place to answer that the
+next time the failure happens. Do not build the auto-recovery until a real
+occurrence shows the signal -- a false trigger would restart the audio pipeline
+underneath healthy playback.

@@ -89,6 +89,17 @@ public class AapService extends Service {
      * recovered by removing and reinserting a bud.
      */
     private static final int OPCODE_AUDIO_SOURCE = 0x000C;
+    /**
+     * Audio-source *response*: 6-byte MAC (little-endian) then a flag byte, 13
+     * bytes total. All zeros means the pods are rendering for nobody.
+     *
+     * Captured on-device across a bud-out/bud-in cycle: zeros the moment audio
+     * stopped, this device's address the moment it resumed. That makes it the
+     * signal the silent-mute failure never had -- an audio drop is not a
+     * Bluetooth drop, so until now there was nothing to trigger recovery on
+     * except a human pulling a bud out.
+     */
+    private static final int OPCODE_AUDIO_SOURCE_RESP = 0x000E;
 
     public static final int EAR_IN_EAR = 0x00;
     public static final int EAR_OUT_OF_EAR = 0x01;
@@ -812,6 +823,8 @@ public class AapService extends Service {
                 packetLen = 11;
             } else if (opcode == OPCODE_AUDIO_SOURCE) {
                 packetLen = 14;
+            } else if (opcode == OPCODE_AUDIO_SOURCE_RESP) {
+                packetLen = 13;
             } else if (opcode == OPCODE_CONNECTED_DEVICES) {
                 if (magicAt + 9 > data.length) break; // need the count byte
                 packetLen = 9 + (data[magicAt + 8] & 0xFF) * 8;
@@ -925,6 +938,20 @@ public class AapService extends Service {
             as.audioSource = mac.toString();
             Log.i("AapDiag", "audio source -> " + as.audioSource);
             publishState(as);
+        } else if (opcode == OPCODE_AUDIO_SOURCE_RESP) {
+            if (len < 12) return;
+            boolean none = true;
+            StringBuilder mac = new StringBuilder();
+            for (int i = 5; i >= 0; i--) { // little-endian on the wire
+                int b = data[offset + 6 + i] & 0xFF;
+                if (b != 0) none = false;
+                if (mac.length() > 0) mac.append(':');
+                mac.append(String.format("%02X", b));
+            }
+            AapState rs = lastState.copy();
+            rs.audioSource = none ? null : mac.toString();
+            Log.i("AapDiag", "audio sink -> " + (none ? "NONE" : rs.audioSource));
+            publishState(rs);
         } else if (opcode == OPCODE_CONNECTED_DEVICES) {
             if (len < 9) return;
             int count = data[offset + 8] & 0xFF;
