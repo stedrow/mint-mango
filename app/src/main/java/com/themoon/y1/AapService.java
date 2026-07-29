@@ -750,28 +750,33 @@ public class AapService extends Service {
             @Override
             public void run() {
                 if (!shouldRun || activeSocket != socket) return; // session gone
-
-                try {
-                    AapState st = lastState;
-                    boolean playing = com.themoon.y1.managers.AudioPlayerManager
-                            .getInstance().isPlaying();
-                    long pos = com.themoon.y1.managers.AudioPlayerManager
-                            .getInstance().getCurrentPosition();
-                    // Unconditional on purpose. Gating this on "playing" made an
-                    // idle device indistinguishable from broken tracing, which is
-                    // the wrong failure mode for a trace left running unattended.
-                    long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
-                    Log.i("AapDiag", "playing=" + playing
-                            + " pos=" + pos
-                            + " ear=" + st.earLeft + "/" + st.earRight
-                            + " batt=" + st.batteryLeft + "/" + st.batteryRight
-                            + " noise=" + st.noiseMode
-                            + " links=" + st.connectedDevices
-                            + " src=" + st.audioSource
-                            + " quietMs=" + quietMs);
-                } catch (Throwable t) {
-                    Log.d("AapDiag", "snapshot failed", t);
-                }
+                // ExoPlayer may only be touched from the thread it was created
+                // on, so the player half of the snapshot hops to main. The tick
+                // itself stays here, off the I/O thread, so a stuck socket write
+                // can't starve it -- the whole point of the separate thread.
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            AapState st = lastState;
+                            boolean playing = com.themoon.y1.managers.AudioPlayerManager
+                                    .getInstance().isPlaying();
+                            long pos = com.themoon.y1.managers.AudioPlayerManager
+                                    .getInstance().getCurrentPosition();
+                            long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
+                            Log.i("AapDiag", "playing=" + playing
+                                    + " pos=" + pos
+                                    + " ear=" + st.earLeft + "/" + st.earRight
+                                    + " batt=" + st.batteryLeft + "/" + st.batteryRight
+                                    + " noise=" + st.noiseMode
+                                    + " links=" + st.connectedDevices
+                                    + " src=" + st.audioSource
+                                    + " quietMs=" + quietMs);
+                        } catch (Throwable t) {
+                            Log.d("AapDiag", "snapshot failed: " + t);
+                        }
+                    }
+                });
                 diagHandler.postDelayed(this, 10000);
             }
         }, 10000);
