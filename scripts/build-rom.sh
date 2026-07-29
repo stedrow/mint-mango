@@ -100,6 +100,14 @@ sudo cp "$PATCH_DIR/mtkbt" "$MNT/bin/mtkbt"
 sudo chown 0:2000 "$MNT/bin/mtkbt"
 sudo chmod 755 "$MNT/bin/mtkbt"
 
+echo "==> Turning adb back on in boot.img"
+# Stock 3.1.7 ships no /sbin/adbd at all and default.prop locked down (ro.secure=1,
+# ro.adb.secure=1, USB as mass_storage), so a flash of the untouched boot image leaves a device
+# nothing can be pushed to -- and no way to run patch-device.sh or install the next build.
+BOOT_IMG="$(find "$BUILD_DIR" -maxdepth 1 -name 'boot.img' | head -1)"
+[ -n "$BOOT_IMG" ] || { echo "boot.img not found in the Y2 base image" >&2; exit 1; }
+python3 "$ROOT/scripts/patch-boot-adb.py" "$BOOT_IMG" "$ROOT/scripts/y2-boot/adbd"
+
 echo "==> Baking in the system patches"
 cp "$MNT/etc/permissions/platform.xml" "$PATCH_DIR/platform.xml"
 cp "$MNT/framework/android.policy.jar" "$PATCH_DIR/android.policy.jar"

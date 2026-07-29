@@ -17,3 +17,6 @@ local.properties
 # Stock system files pulled off a device by scripts/patch-device-power-menu.sh
 /scripts/backups
 /scripts/.smali-cache
+
+# Python bytecode from the build scripts
+__pycache__/
