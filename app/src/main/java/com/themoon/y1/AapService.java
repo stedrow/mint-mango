@@ -339,6 +339,8 @@ public class AapService extends Service {
     private volatile boolean sentFollowUp = false;
     /** When the pods last said anything, for the diagnostic snapshot below. */
     private volatile long lastRxAtMs = 0;
+    /** When the pods last said they were rendering for nobody; 0 = they are. */
+    private volatile long sinkNoneSinceMs = 0;
     private Thread worker;
     private String targetMac;
 
@@ -764,6 +766,39 @@ public class AapService extends Service {
                             long pos = com.themoon.y1.managers.AudioPlayerManager
                                     .getInstance().getCurrentPosition();
                             long quietMs = android.os.SystemClock.elapsedRealtime() - lastRxAtMs;
+
+                            // Log-only detector for the silent-mute failure. Every
+                            // NONE observed so far has had a legitimate cause and
+                            // fails at least one of these clauses: a bud out of an
+                            // ear, A2DP actually disconnected, or a sub-second blip
+                            // during a normal removal (0.9s measured). This asks
+                            // for the combination that has never been seen -- the
+                            // pods claiming to render for nobody while both buds
+                            // are in, audio is connected, and playback is still
+                            // advancing.
+                            //
+                            // Deliberately does not act. Whether the failure emits
+                            // this at all is exactly what is unknown; acting on an
+                            // unverified rule risks restarting the audio pipeline
+                            // underneath healthy playback.
+                            long noneSince = sinkNoneSinceMs;
+                            if (playing && noneSince != 0
+                                    && st.earLeft == EAR_IN_EAR && st.earRight == EAR_IN_EAR) {
+                                long noneMs = android.os.SystemClock.elapsedRealtime() - noneSince;
+                                boolean a2dp = false;
+                                try {
+                                    java.util.List<BluetoothDevice> c = com.themoon.y1.managers
+                                            .BluetoothAudioManager.getInstance().getConnectedDevices();
+                                    a2dp = c != null && !c.isEmpty();
+                                } catch (Throwable ignored) {
+                                }
+                                if (a2dp && noneMs > 5000) {
+                                    Log.w("AapDiag", "SUSPECT silent-mute: sink NONE for "
+                                            + noneMs + "ms while playing, both buds in,"
+                                            + " a2dp connected, pos=" + pos);
+                                }
+                            }
+
                             Log.i("AapDiag", "playing=" + playing
                                     + " pos=" + pos
                                     + " ear=" + st.earLeft + "/" + st.earRight
@@ -955,6 +990,7 @@ public class AapService extends Service {
             }
             AapState rs = lastState.copy();
             rs.audioSource = none ? null : mac.toString();
+            sinkNoneSinceMs = none ? android.os.SystemClock.elapsedRealtime() : 0;
             Log.i("AapDiag", "audio sink -> " + (none ? "NONE" : rs.audioSource));
             publishState(rs);
         } else if (opcode == OPCODE_CONNECTED_DEVICES) {
