@@ -112,6 +112,21 @@ public class BluetoothAudioManager {
 
     private void onEarsReinserted() {
         BluetoothDevice target = targetDeviceForAudio;
+        if (target == null) {
+            // targetDeviceForAudio is only set when the user connects through the
+            // launcher UI, or by resyncAapWithConnectedDevice() on resume/proxy
+            // bind. AirPods that auto-connect while the app is backgrounded hit
+            // neither, so this recovery was disarmed exactly when it was wanted:
+            // an on-device trace caught it declining twice in a row during a real
+            // silent-mute, while the user pulled a bud out and back in to fix it
+            // by hand. Fall back to whatever is actually connected, as resync does.
+            List<BluetoothDevice> connected = getConnectedDevices();
+            if (connected != null && !connected.isEmpty()) {
+                target = connected.get(0);
+                targetDeviceForAudio = target;
+                android.util.Log.i("AapDiag", "ears reinserted: adopted connected device as target");
+            }
+        }
         // Logged either way: when the silent-mute failure is reported, the first
         // question is whether this recovery path ran at all, and previously a
         // no-op here was indistinguishable from never being called.
