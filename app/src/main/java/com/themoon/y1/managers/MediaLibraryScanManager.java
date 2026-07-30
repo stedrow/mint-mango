@@ -227,7 +227,13 @@ public class MediaLibraryScanManager {
     /** @param silent Skip the blocking "Scanning..." popup — used when the cache already
      *  populated the library instantly and this run is just reconciling with disk in the background. */
     public void startMediaLibraryScan(final MainActivity a, final boolean silent) {
-        if (a.isCustomScanning) return;
+        // Logged unconditionally: whether the boot reconcile scan actually runs is otherwise
+        // invisible, and "the library is stale" looks identical to "the scan found nothing".
+        if (a.isCustomScanning) {
+            Log.d(TAG, "scan requested (silent=" + silent + ") but one is already running");
+            return;
+        }
+        Log.d(TAG, "scan starting (silent=" + silent + ")");
         a.isCustomScanning = true;
 
         if (!silent) {
