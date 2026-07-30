@@ -180,8 +180,49 @@ public class LibraryCacheDb extends SQLiteOpenHelper {
         return result;
     }
 
-    /** Replaces the whole cache with exactly the entries found in the latest scan. */
+    /**
+     * True when the cache already holds exactly these entries. Compares path, mtime and size --
+     * the same fields the scanner uses to decide a file is unchanged, so anything it would have
+     * re-read has a different value here too.
+     */
+    private boolean matchesCache(List<CachedSong> entries) {
+        try {
+            SQLiteDatabase db = getReadableDatabase();
+            Cursor c = db.query(TABLE, new String[]{"path", "mtime", "size"},
+                    null, null, null, null, null);
+            try {
+                if (c.getCount() != entries.size()) return false;
+                Map<String, long[]> existing = new HashMap<>(entries.size() * 2);
+                while (c.moveToNext()) {
+                    existing.put(c.getString(0), new long[]{c.getLong(1), c.getLong(2)});
+                }
+                for (CachedSong s : entries) {
+                    long[] was = existing.get(s.path);
+                    if (was == null || was[0] != s.mtime || was[1] != s.size) return false;
+                }
+                return true;
+            } finally {
+                c.close();
+            }
+        } catch (Exception e) {
+            // Can't tell -- fall through to the rewrite, which is always correct if slower.
+            android.util.Log.w(TAG, "matchesCache failed", e);
+            return false;
+        }
+    }
+
+    /**
+     * Replaces the whole cache with exactly the entries found in the latest scan.
+     *
+     * A scan that found nothing new writes nothing: the common case is a boot scan over an
+     * unchanged library, and rewriting every row costs a delete plus one insert per file on
+     * eMMC that is slow enough for it to be felt.
+     */
     public void replaceAll(List<CachedSong> entries) {
+        if (matchesCache(entries)) {
+            android.util.Log.d(TAG, "library unchanged (" + entries.size() + " files), skipping rewrite");
+            return;
+        }
         try {
             SQLiteDatabase db = getWritableDatabase();
             db.beginTransaction();

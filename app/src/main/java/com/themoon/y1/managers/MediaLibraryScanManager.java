@@ -192,7 +192,7 @@ public class MediaLibraryScanManager {
                     public void run() {
                         if (a.pbLoadingProgress != null) a.pbLoadingProgress.setProgress(progress);
                         if (a.tvLoadingProgress != null) {
-                            a.tvLoadingProgress.setText("Scanning Media: " + progress + "%\n(" + a.scannedAudioFiles + " / " + a.totalAudioFiles + ")\nDo not turn off the screen.");
+                            a.tvLoadingProgress.setText("Scanning Media: " + progress + "%\n(" + a.scannedAudioFiles + " / " + a.totalAudioFiles + ")");
                         }
                     }
                 });
@@ -244,6 +244,21 @@ public class MediaLibraryScanManager {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                // A scan over a few thousand files outlives the screen timeout, and the UI used to
+                // just ask the user not to let the screen go off. Hold the CPU for the duration
+                // instead -- released in the finally below, so it never outlives the scan.
+                android.os.PowerManager.WakeLock scanLock = null;
+                try {
+                    android.os.PowerManager pm = (android.os.PowerManager)
+                            a.getSystemService(android.content.Context.POWER_SERVICE);
+                    if (pm != null) {
+                        scanLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "y1:LibraryScan");
+                        scanLock.acquire();
+                    }
+                } catch (Exception e) {
+                    Log.d(TAG, "could not take a wake lock for the scan", e);
+                }
+                try {
                 List<SongItem> newCustomLibrary = new ArrayList<>();
                 List<SongItem> newAudiobookLibrary = new ArrayList<>();
                 java.util.HashMap<String, Integer> newTrackNumberMap = new java.util.HashMap<>();
@@ -316,6 +331,15 @@ public class MediaLibraryScanManager {
                         }
                     }
                 });
+                } finally {
+                    if (scanLock != null && scanLock.isHeld()) {
+                        try {
+                            scanLock.release();
+                        } catch (Exception e) {
+                            Log.d(TAG, "releasing the scan wake lock failed", e);
+                        }
+                    }
+                }
             }
         }).start();
     }
