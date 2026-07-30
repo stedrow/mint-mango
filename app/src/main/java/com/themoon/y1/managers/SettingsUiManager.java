@@ -1256,6 +1256,28 @@ public class SettingsUiManager {
         }
     }
 
+    /** Whether the framework is syncing the clock itself (Settings.Global.AUTO_TIME). */
+    private static boolean isAutoTimeOn(MainActivity a) {
+        try {
+            return android.provider.Settings.Global.getInt(
+                    a.getContentResolver(), android.provider.Settings.Global.AUTO_TIME, 0) != 0;
+        } catch (Exception e) {
+            Log.d(TAG, "could not read auto_time", e);
+            return false;
+        }
+    }
+
+    /** Writing Global settings needs WRITE_SECURE_SETTINGS, held because this is a priv-app. */
+    private static boolean setAutoTime(MainActivity a, boolean on) {
+        try {
+            return android.provider.Settings.Global.putInt(
+                    a.getContentResolver(), android.provider.Settings.Global.AUTO_TIME, on ? 1 : 0);
+        } catch (Exception e) {
+            Log.w(TAG, "could not write auto_time", e);
+            return false;
+        }
+    }
+
     /**
      * Zones offered by the picker. A full tzdata list is hundreds of entries to wheel through on a
      * device with no keyboard; these are the common ones, and the current zone is always shown
@@ -1348,6 +1370,24 @@ public class SettingsUiManager {
         // but that is NITZ, which arrives over a cellular network this device does not have. So a
         // fresh unit sits on GMT with a correct clock displaying the wrong time -- which reads as
         // "the clock is broken" and sent us looking for an NTP problem that did not exist.
+        // Automatic time is the framework's own NTP sync (NetworkTimeUpdateService), which keeps
+        // this device within a second of UTC over Wi-Fi. Setting the clock by hand switches it off,
+        // and until now nothing could switch it back -- so a manual set was a one-way door.
+        final boolean autoTime = isAutoTimeOn(a);
+        final LinearLayout rowAuto = a.createSettingRow("Automatic Time", autoTime ? a.t("ON") : a.t("OFF"));
+        rowAuto.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                if (!setAutoTime(a, !autoTime)) {
+                    Toast.makeText(a, a.t("Could not change automatic time."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                buildDateTimeUI(a);
+            }
+        });
+        a.containerSettingsItems.addView(rowAuto);
+
         final LinearLayout rowZone = a.createSettingRow("Time Zone", shortZoneLabel());
         rowZone.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1357,6 +1397,15 @@ public class SettingsUiManager {
             }
         });
         a.containerSettingsItems.addView(rowZone);
+
+        if (autoTime) {
+            // Nothing else to offer: entering a date NTP will overwrite in minutes is a worse
+            // outcome than not showing the rows at all.
+            if (a.containerSettingsItems.getChildCount() > 0) {
+                a.containerSettingsItems.getChildAt(0).requestFocus();
+            }
+            return;
+        }
 
         final LinearLayout rowYear = a.createSettingRow("Year", String.valueOf(a.dtYear));
         rowYear.setOnClickListener(new View.OnClickListener() {
@@ -1432,12 +1481,7 @@ public class SettingsUiManager {
 
                     // The framework re-syncs over NTP whenever auto_time is on, which would undo
                     // this within minutes; a manual set is a statement that the clock is ours.
-                    try {
-                        android.provider.Settings.Global.putInt(
-                                a.getContentResolver(), android.provider.Settings.Global.AUTO_TIME, 0);
-                    } catch (Exception e) {
-                        Log.d(TAG, "could not turn auto_time off", e);
-                    }
+                    setAutoTime(a, false);
 
                     // No TIME_CHANGED broadcast from here: it's a protected broadcast only the
                     // system may send, and trying threw a SecurityException *after* the clock had
