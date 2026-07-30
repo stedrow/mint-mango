@@ -16,6 +16,7 @@ What it changes:
   * /framework/android.policy.jar   stock power dialog removed
   * /framework/android.policy.odex  renamed aside so Dalvik uses the patched jar
   * /bin/mtkbt                      AAP L2CAP fix
+  * /build.prop                    persist.sys.timezone, so a fresh flash isn't on GMT
 
 usage: patch-system-image.py --image system.img --apk app.apk --scripts <repo>/scripts
 """
@@ -33,6 +34,7 @@ POLICY_JAR = "android.policy.jar"
 POLICY_ODEX = "android.policy.odex"
 PLATFORM_XML = "platform.xml"
 MTKBT = "mtkbt"
+BUILD_PROP = "build.prop"
 
 # Fallback only. Every replacement copies the label off the file it replaces; this is used when
 # a file is created where none existed, and matches what stock /system/priv-app carries.
@@ -61,7 +63,8 @@ def debugfs(image, commands, write=False, check=True):
         raise SystemExit("debugfs failed:\n%s\n%s" % (result.stdout, result.stderr))
     # debugfs reports most per-command problems on stdout with a zero exit status, so the
     # output has to be read rather than trusted.
-    for noise in ("File not found", "Invalid", "error while", "Illegal"):
+    for noise in ("File not found", "Invalid", "error while", "Illegal", "File exists",
+                  "Permission denied", "Filesystem not open"):
         if noise.lower() in result.stdout.lower():
             raise SystemExit("debugfs reported a problem:\n%s" % result.stdout.strip())
     return result.stdout
@@ -92,6 +95,12 @@ def context_of(image, path):
     return data if data.endswith(b"\x00") else data + b"\x00"
 
 
+def join(directory, name):
+    """Join without doubling the slash -- "//build.prop" makes debugfs stat fail, which made
+    install() believe the file was absent, skip the rm, and then silently fail to write it."""
+    return "%s/%s" % (directory.rstrip("/"), name)
+
+
 def install(image, directory, name, source, mode, uid, gid, context):
     """Replace or create <directory>/<name>, carrying mode, owner and SELinux label."""
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -99,7 +108,7 @@ def install(image, directory, name, source, mode, uid, gid, context):
         ctx_file = handle.name
     try:
         commands = ["cd %s" % directory]
-        if exists(image, "%s/%s" % (directory, name)):
+        if exists(image, join(directory, name)):
             commands.append("rm %s" % name)
         commands += [
             "write %s %s" % (os.path.abspath(source), name),
@@ -119,7 +128,7 @@ def rename_aside(image, directory, name):
     debugfs has no mv: link the inode under the new name, then drop the old entry. The link
     count is untouched by both halves, so it stays correct at 1.
     """
-    path = "%s/%s" % (directory, name)
+    path = join(directory, name)
     if not exists(image, path):
         return False
     debugfs(image, [
@@ -128,6 +137,36 @@ def rename_aside(image, directory, name):
         "unlink %s" % name,
     ], write=True)
     return True
+
+
+def set_default_timezone(image, work, timezone):
+    """Give build.prop a persist.sys.timezone.
+
+    Stock ships without one, so a fresh device falls back to GMT: the clock is right (the
+    framework syncs it over Wi-Fi) but displays hours off, which reads as a broken clock.
+    auto_time_zone doesn't help -- that's NITZ, which needs the cellular network this hardware
+    hasn't got.
+
+    A persist.* property in build.prop is only the initial value: once the user picks a zone in
+    Settings it is written to /data and wins from then on. So this sets the first-boot default
+    without overriding anyone's choice.
+    """
+    local = os.path.join(work, BUILD_PROP)
+    dump(image, "/" + BUILD_PROP, local)
+    lines = open(local).read().splitlines()
+    out, replaced = [], False
+    for line in lines:
+        if line.startswith("persist.sys.timezone="):
+            out.append("persist.sys.timezone=" + timezone)
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append("persist.sys.timezone=" + timezone)
+    open(local, "w").write("\n".join(out) + "\n")
+    install(image, "/", BUILD_PROP, local, "0100644", 0, 0,
+            context_of(image, "/" + BUILD_PROP))
+    print("    persist.sys.timezone=%s" % timezone)
 
 
 def pad_to_declared_size(image):
@@ -164,6 +203,8 @@ def main():
     parser.add_argument("--image", required=True, help="raw ext4 system.img, edited in place")
     parser.add_argument("--apk", required=True, help="launcher APK to install")
     parser.add_argument("--scripts", required=True, help="repo scripts/ directory")
+    parser.add_argument("--timezone", default="America/New_York",
+                        help="first-boot persist.sys.timezone (stock has none, so it lands on GMT)")
     args = parser.parse_args()
 
     image, scripts = args.image, os.path.abspath(args.scripts)
@@ -212,6 +253,9 @@ def main():
         # mtkbt is root:shell (AID_SHELL is 2000) and carries its own label, not system_file.
         install(image, "/bin", MTKBT, os.path.join(work, MTKBT), "0100755", 0, 2000,
                 context_of(image, "/bin/%s" % MTKBT))
+
+        print("==> Setting the first-boot time zone")
+        set_default_timezone(image, work, args.timezone)
 
         print("==> Reconciling the filesystem")
         fsck(image)

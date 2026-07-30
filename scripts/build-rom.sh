@@ -7,6 +7,7 @@
 #     the same ones patch-device.sh applies over adb
 #   * adbd and its properties in boot.img, without which a flashed device has no
 #     adb at all and nothing can be pushed to it
+#   * a first-boot time zone, since stock ships none and lands on GMT
 # -- with no physical device involved.
 #
 # The system image is edited with debugfs rather than a loop mount, so this needs
@@ -20,6 +21,7 @@
 # changes nothing. The Y1's libextjsr82.so isn't in this firmware at all.
 #
 # usage: build-rom.sh <tag> <apk-path>
+#   ROM_TIMEZONE=Europe/London build-rom.sh ...   # first-boot zone, default America/New_York
 set -euo pipefail
 
 TAG="${1:?usage: build-rom.sh <tag> <apk-path>}"
@@ -48,7 +50,8 @@ IMG="$(find "$BUILD_DIR" -maxdepth 1 -name 'system.img' | head -1)"
 
 echo "==> Patching system.img"
 python3 "$ROOT/scripts/patch-system-image.py" \
-    --image "$IMG" --apk "$APK_PATH" --scripts "$ROOT/scripts"
+    --image "$IMG" --apk "$APK_PATH" --scripts "$ROOT/scripts" \
+    --timezone "${ROM_TIMEZONE:-America/New_York}"
 
 echo "==> Turning adb back on in boot.img"
 # Stock 3.1.7 ships no /sbin/adbd at all and default.prop locked down (ro.secure=1,
