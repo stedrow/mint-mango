@@ -20,3 +20,6 @@ local.properties
 
 # Python bytecode from the build scripts
 __pycache__/
+
+# ROM build output
+/dist
