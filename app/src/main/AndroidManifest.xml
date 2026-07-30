@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SET_TIME" tools:ignore="ProtectedPermissions" />
+    <!-- Separate from SET_TIME, and what AlarmManager.setTimeZone actually checks. Nothing else
+         sets a timezone on this hardware: auto_time_zone is on, but that's NITZ over a cellular
+         network the device doesn't have, so a fresh unit sits on GMT until someone picks one. -->
+    <uses-permission android:name="android.permission.SET_TIME_ZONE" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />

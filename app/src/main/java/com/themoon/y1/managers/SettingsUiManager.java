@@ -870,7 +870,8 @@ public class SettingsUiManager {
                                     Runtime.getRuntime().exec(new String[] { "su", "-c", cmd });
 
                                 } catch (Exception e) {
-                                    Toast.makeText(a, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
+                                    Log.w(TAG, "applying the date/time failed", e);
+                    Toast.makeText(a, a.t("Could not set the clock."), Toast.LENGTH_SHORT).show();
                                 }
                             }
                         })
@@ -1255,6 +1256,72 @@ public class SettingsUiManager {
         }
     }
 
+    /**
+     * Zones offered by the picker. A full tzdata list is hundreds of entries to wheel through on a
+     * device with no keyboard; these are the common ones, and the current zone is always shown
+     * even when it isn't in this list (e.g. one set over adb).
+     */
+    private static final String[][] TIME_ZONES = {
+            {"Pacific",        "America/Los_Angeles"},
+            {"Mountain",       "America/Denver"},
+            {"Central",        "America/Chicago"},
+            {"Eastern",        "America/New_York"},
+            {"UTC",            "UTC"},
+            {"London",         "Europe/London"},
+            {"Berlin / Paris", "Europe/Berlin"},
+            {"Moscow",         "Europe/Moscow"},
+            {"India",          "Asia/Kolkata"},
+            {"Singapore",      "Asia/Singapore"},
+            {"Tokyo / Seoul",  "Asia/Tokyo"},
+            {"Sydney",         "Australia/Sydney"},
+    };
+
+    /** "Eastern" for a zone we list, otherwise the raw id, so the row always says something true. */
+    private static String shortZoneLabel() {
+        String current = java.util.TimeZone.getDefault().getID();
+        for (String[] zone : TIME_ZONES) {
+            if (zone[1].equals(current)) return zone[0];
+        }
+        return current;
+    }
+
+    private void showTimeZonePicker(final MainActivity a) {
+        String current = java.util.TimeZone.getDefault().getID();
+        String[] labels = new String[TIME_ZONES.length];
+        Runnable[] actions = new Runnable[TIME_ZONES.length];
+        for (int i = 0; i < TIME_ZONES.length; i++) {
+            final String id = TIME_ZONES[i][1];
+            // Offset alongside the name, since "Central" means different things to different people.
+            java.util.TimeZone zone = java.util.TimeZone.getTimeZone(id);
+            int minutes = zone.getOffset(System.currentTimeMillis()) / 60000;
+            String offset = String.format(java.util.Locale.US, "GMT%s%d:%02d",
+                    minutes < 0 ? "-" : "+", Math.abs(minutes) / 60, Math.abs(minutes) % 60);
+            labels[i] = (id.equals(current) ? "\u2713  " : "     ") + TIME_ZONES[i][0] + "   " + offset;
+            actions[i] = new Runnable() {
+                @Override
+                public void run() {
+                    // setTimeZone needs SET_TIME, which the launcher holds as a priv-app; it writes
+                    // persist.sys.timezone, so the choice survives a reboot.
+                    try {
+                        android.app.AlarmManager am = (android.app.AlarmManager)
+                                a.getSystemService(android.content.Context.ALARM_SERVICE);
+                        if (am != null) am.setTimeZone(id);
+                    } catch (Exception e) {
+                        Log.w(TAG, "setTimeZone failed", e);
+                        Toast.makeText(a, a.t("Could not set the time zone."), Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    // Repaint the clock now rather than on its next tick.
+                    a.clockHandler.removeCallbacks(a.clockTask);
+                    a.clockHandler.post(a.clockTask);
+                    buildDateTimeUI(a);
+                }
+            };
+        }
+        SongContextMenuManager.getInstance().showThemedOptionsDialog(
+                a, a.t("Time Zone"), null, labels, actions);
+    }
+
     public void buildDateTimeUI(MainActivity a) {
         a.currentSettingsDepth = 2; // 🚀 Main settings is depth 0
         a.containerSettingsItems.removeAllViews();
@@ -1276,6 +1343,21 @@ public class SettingsUiManager {
             }
         });
         a.containerSettingsItems.addView(rowFormat);
+
+        // Timezone had no UI at all, and nothing sets it on this hardware: auto_time_zone is on,
+        // but that is NITZ, which arrives over a cellular network this device does not have. So a
+        // fresh unit sits on GMT with a correct clock displaying the wrong time -- which reads as
+        // "the clock is broken" and sent us looking for an NTP problem that did not exist.
+        final LinearLayout rowZone = a.createSettingRow("Time Zone", shortZoneLabel());
+        rowZone.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                a.clickFeedback();
+                showTimeZonePicker(a);
+            }
+        });
+        a.containerSettingsItems.addView(rowZone);
+
         final LinearLayout rowYear = a.createSettingRow("Year", String.valueOf(a.dtYear));
         rowYear.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1326,60 +1408,49 @@ public class SettingsUiManager {
         });
         a.containerSettingsItems.addView(rowMinute);
 
-        a.createCategoryHeader("━━━━━━━━━━━━━━");
-
-        final Button btnApply = a.createListButton("✅ " + a.t("APPLY DATE & TIME"));
-        btnApply.setTextColor(0xFFFFFFFF);
-        btnApply.setTypeface(null, android.graphics.Typeface.BOLD);
-        btnApply.setOnClickListener(new View.OnClickListener() {
+        // Was a createCategoryHeader whose "title" was a row of box-drawing characters, standing in
+        // for a divider -- it rendered as a stray dashed line. Nothing else in Settings separates
+        // rows, so nothing separates these either.
+        final LinearLayout rowApply = a.createSettingRow("Set Clock", "〉 ");
+        rowApply.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 a.clickFeedback();
                 try {
-                    // 🚀 [Time error permanently fixed] Sets the time without touching the device's existing timezone.
-                    // Android's built-in `date` command parses completely differently depending on the shell built into the device (Toolbox vs Toybox),
-                    // and there's a serious bug where an incorrect format always resets the clock to 1970 or 1980.
-                    // To fully prevent this, we apply one format, then check that the year/month/day were actually applied correctly, and if it failed, try the next format —
-                    // we write a self-verifying script that follows this approach!
+                    // AlarmManager.setTime needs SET_TIME, which is signature|privileged -- granted
+                    // now the launcher lives in /system/priv-app. The old path shelled out to
+                    // "su -c date", and this firmware has no su at all, so applying the time
+                    // always failed with "root access required" no matter what was entered.
+                    java.util.Calendar target = java.util.Calendar.getInstance();
+                    target.set(a.dtYear, a.dtMonth - 1, a.dtDay, a.dtHour, a.dtMinute, 0);
+                    target.set(java.util.Calendar.MILLISECOND, 0);
 
-                    String cmd = "settings put global auto_time 0; settings put system auto_time 0; ";
+                    android.app.AlarmManager am = (android.app.AlarmManager)
+                            a.getSystemService(android.content.Context.ALARM_SERVICE);
+                    if (am == null) throw new IllegalStateException("no AlarmManager");
+                    am.setTime(target.getTimeInMillis());
 
-                    // Build the target date as YYYYMMDD (for verification)
-                    String targetYMD = String.format(java.util.Locale.US, "%04d%02d%02d", a.dtYear, a.dtMonth, a.dtDay);
+                    // The framework re-syncs over NTP whenever auto_time is on, which would undo
+                    // this within minutes; a manual set is a statement that the clock is ours.
+                    try {
+                        android.provider.Settings.Global.putInt(
+                                a.getContentResolver(), android.provider.Settings.Global.AUTO_TIME, 0);
+                    } catch (Exception e) {
+                        Log.d(TAG, "could not turn auto_time off", e);
+                    }
 
-                    // Format 1: legacy-Android (Toolbox) only format -> YYYYMMDD.HHmmss
-                    String dateToolbox = String.format(java.util.Locale.US, "%04d%02d%02d.%02d%02d%02d", a.dtYear,
-                            a.dtMonth, a.dtDay, a.dtHour, a.dtMinute, 0);
-                    // Format 2: POSIX international standard format (Toybox/Busybox compatible) -> MMDDhhmmYYYY.ss
-                    String datePosix = String.format(java.util.Locale.US, "%02d%02d%02d%02d%04d.00", a.dtMonth, a.dtDay,
-                            a.dtHour, a.dtMinute, a.dtYear);
-                    // Format 3: modern-Android (Toybox) string format -> YYYY-MM-DD HH:MM:SS
-                    String dateString = String.format(java.util.Locale.US, "%04d-%02d-%02d %02d:%02d:%02d", a.dtYear,
-                            a.dtMonth, a.dtDay, a.dtHour, a.dtMinute, 0);
-
-                    // 💡 Self-verifying shell script:
-                    // 1. Try the Toolbox format first. (Toybox devices will error out or scramble the time)
-                    // 2. Immediately check the applied time, and if it differs from the target date (e.g. reset to 1970), try the POSIX format.
-                    // 3. If that still doesn't work, try the string format.
-                    String executeCmd = cmd +
-                            "date -s " + dateToolbox + "; " +
-                            "if [ \"$(date +%Y%m%d)\" != \"" + targetYMD + "\" ]; then " +
-                            "  date " + datePosix + "; " +
-                            "  if [ \"$(date +%Y%m%d)\" != \"" + targetYMD + "\" ]; then " +
-                            "    date -s \"" + dateString + "\"; " +
-                            "  fi; " +
-                            "fi; " +
-                            "hwclock -w; sync";
-
-                    Process proc = Runtime.getRuntime().exec(new String[] { "su", "-c", executeCmd });
-                    proc.waitFor(); // 💡 Wait briefly until the time is fully applied to the system.
-
-                    // Force-broadcast system-wide that the time has changed, to sync the main page clock and system apps.
-                    a.sendBroadcast(new Intent(Intent.ACTION_TIME_CHANGED));
+                    // No TIME_CHANGED broadcast from here: it's a protected broadcast only the
+                    // system may send, and trying threw a SecurityException *after* the clock had
+                    // already been set -- so the catch below reported a failure that hadn't
+                    // happened. AlarmManager.setTime makes the framework broadcast it anyway; all
+                    // that's left is repainting our own clock rather than waiting for its tick.
+                    a.clockHandler.removeCallbacks(a.clockTask);
+                    a.clockHandler.post(a.clockTask);
 
                     Toast.makeText(a, "Time applied successfully!", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(a, "Failed: Root access required.", Toast.LENGTH_SHORT).show();
+                    Log.w(TAG, "applying the date/time failed", e);
+                    Toast.makeText(a, a.t("Could not set the clock."), Toast.LENGTH_SHORT).show();
                 }
 
                 // 🚀 [Focus bug fix 1] Force-purge the corrupted index to the 'Date & Time Settings' menu position (item #14)
@@ -1398,7 +1469,7 @@ public class SettingsUiManager {
                 }, 50);
             }
         });
-        a.containerSettingsItems.addView(btnApply);
+        a.containerSettingsItems.addView(rowApply);
 
         if (a.containerSettingsItems.getChildCount() > 0)
             a.containerSettingsItems.getChildAt(0).requestFocus();
