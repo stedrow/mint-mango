@@ -31,6 +31,8 @@ import java.util.List;
  */
 public class MainMenuManager {
     private static final String TAG = "MainMenuManager";
+    /** Theme action for the Videos entry, appended to whatever the active theme provides. */
+    private static final String ACTION_OPEN_VIDEOS = "OPEN_VIDEOS";
     /** Theme actions the main menu no longer draws -- they're on the long-press power menu. */
     private static final java.util.Set<String> POWER_MENU_ACTIONS = new java.util.HashSet<>(
             java.util.Arrays.asList("OPEN_WIFI", "OPEN_BLUETOOTH", "OPEN_SETTINGS"));
@@ -43,6 +45,36 @@ public class MainMenuManager {
             instance = new MainMenuManager();
         }
         return instance;
+    }
+
+    /**
+     * Give every theme a Videos row without editing any theme.
+     *
+     * The main menu is built from the active theme's menuElements, so a new entry would otherwise
+     * mean touching the built-in default plus every theme zip -- and the ones already sitting on
+     * users' SD cards would never get it. Instead the last button is cloned for its geometry and
+     * styling, so the row matches whatever theme is loaded, and only its id, label, icon, action
+     * and focus position are changed. A theme that ships its own OPEN_VIDEOS button wins.
+     */
+    private void appendVideosEntry(List<ThemeManager.MenuElement> buttons) {
+        if (buttons.isEmpty()) return;
+        int maxFocus = -1;
+        for (ThemeManager.MenuElement el : buttons) {
+            if (ACTION_OPEN_VIDEOS.equals(el.action)) return;
+            if (el.focusIndex > maxFocus) maxFocus = el.focusIndex;
+        }
+        ThemeManager.MenuElement template = buttons.get(buttons.size() - 1);
+        ThemeManager.MenuElement videos = new ThemeManager.MenuElement(
+                "btn_videos", template.type, template.parentId, template.liveWidget,
+                template.visibleOnFocus, template.x, template.y, template.width, template.height,
+                "Videos", "Videos", template.textRight,
+                template.textRightColor, template.textRightFocusedColor,
+                template.iconNormal, template.iconFocused, "video_circle.png", ACTION_OPEN_VIDEOS,
+                template.gravity, template.radius, maxFocus + 1, template.textSize,
+                template.textSecondarySize, template.textPosition, template.textAlign,
+                template.bgColor, template.padding, template.focusOffsetX, template.focusOffsetY,
+                template.focusScale);
+        buttons.add(videos);
     }
 
     public int parseGravity(MainActivity a, String gravityStr) {
@@ -160,6 +192,8 @@ public class MainMenuManager {
             if (el.type.equals("button")) buttonElements.add(el);
             else widgetElements.add(el);
         }
+
+        appendVideosEntry(buttonElements);
 
         java.util.Collections.sort(buttonElements, new java.util.Comparator<ThemeManager.MenuElement>() {
             @Override
@@ -622,6 +656,14 @@ public class MainMenuManager {
                             break;
                         case "OPEN_BLUETOOTH": a.changeScreen(a.STATE_BLUETOOTH); break;
                         case "OPEN_SETTINGS": a.changeScreen(a.STATE_SETTINGS); break;
+                        case "OPEN_VIDEOS":
+                            // Reuses the folder browser rather than a mode of its own: video rows
+                            // already launch VideoPlayerActivity from there.
+                            a.currentBrowserMode = a.BROWSER_FOLDER;
+                            a.currentFolder = a.videoRootFolder;
+                            if (!a.videoRootFolder.exists()) a.videoRootFolder.mkdirs();
+                            a.changeScreen(a.STATE_BROWSER);
+                            break;
                         case "OPEN_WEBSERVER": a.changeScreen(a.STATE_WEBSERVER); break;
 // 🚀 [Radio revival] Turns on Android's built-in FM radio when the radio button is pressed in the theme!
                         case "OPEN_RADIO":

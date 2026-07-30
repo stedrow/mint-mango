@@ -425,9 +425,21 @@ public class KeyEventRouter {
                                     isAtFolderRoot = true;
                                 }
                             }
+                            // Videos enters the folder browser rooted at Movies/, so that is a root
+                            // too -- otherwise back from it walked up into /storage/sdcard0 instead
+                            // of leaving, which is not where the user came from.
+                            boolean fromVideos =
+                                    a.currentFolder.getAbsolutePath().equals(a.videoRootFolder.getAbsolutePath());
 
                             // Pressing back at either mode's top-level folder or the device's overall root folder returns to the library main screen (BROWSER_ROOT)!
-                            if (isAtFolderRoot || a.currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
+                            if (isAtFolderRoot || fromVideos
+                                    || a.currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
+                                if (fromVideos) {
+                                    // Came in from the main menu, so go back there rather than into
+                                    // the Music library the user never opened.
+                                    a.changeScreen(MainActivity.STATE_MENU);
+                                    return true;
+                                }
                                 a.currentBrowserMode = MainActivity.BROWSER_ROOT;
                                 a.lastBrowserFocusText = a.t("Folders");
                                 a.buildFileBrowserUI();

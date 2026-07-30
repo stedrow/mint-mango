@@ -60,6 +60,14 @@ public class MusicBrowserManager {
         return instance;
     }
 
+    /** Extensions handed to VideoPlayerActivity rather than the audio pipeline. */
+    private static boolean isVideoFile(File f) {
+        if (f == null || !f.isFile()) return false;
+        String name = f.getName().toLowerCase();
+        return name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".avi")
+                || name.endsWith(".3gp") || name.endsWith(".webm") || name.endsWith(".m4v");
+    }
+
     public void buildFileBrowserUI(MainActivity a) {
         if (a.scrollViewBrowser != null)
             a.scrollViewBrowser.setVisibility(View.VISIBLE);
@@ -1007,12 +1015,15 @@ public class MusicBrowserManager {
         List<File> audioFiles = new ArrayList<File>();
         List<File> apkFiles = new ArrayList<File>();
         List<File> imageFiles = new ArrayList<File>();
+        List<File> videoFiles = new ArrayList<File>();
 
         for (File f : files) {
             if (f.isDirectory())
                 folders.add(f);
             else if (a.isPickingBackground && a.isImageFile(f))
                 imageFiles.add(f);
+            else if (!a.isPickingBackground && isVideoFile(f))
+                videoFiles.add(f);
             else if (!a.isPickingBackground && a.isAudioFile(f))
                 audioFiles.add(f);
             else if (!a.isPickingBackground && a.isApkFile(f))
@@ -1028,6 +1039,7 @@ public class MusicBrowserManager {
         java.util.Collections.sort(folders, fileSorter);
         java.util.Collections.sort(audioFiles, fileSorter);
         java.util.Collections.sort(apkFiles, fileSorter);
+        java.util.Collections.sort(videoFiles, fileSorter);
         java.util.Collections.sort(imageFiles, fileSorter);
         // 🚀🚀🚀 [Add here!] If the current folder has even one audio file, create a 'Play All' button at the top
         if (!a.isPickingBackground && (audioFiles.size() > 0 || folders.size() > 0)) {
@@ -1120,6 +1132,23 @@ public class MusicBrowserManager {
                 a.containerBrowserItems.addView(b);
             }
         } else {
+            // Videos hand off to VideoPlayerActivity: VideoView drives the platform's own AV sync
+            // and the MTK hardware decoders, rather than the audio pipeline the rest of this
+            // browser feeds.
+            for (final File video : videoFiles) {
+                android.view.View b = a.createListButtonWithIcon("\uE04B", video.getName());
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        a.clickFeedback();
+                        android.content.Intent intent =
+                                new android.content.Intent(a, com.themoon.y1.VideoPlayerActivity.class);
+                        intent.putExtra("VIDEO_PATH", video.getAbsolutePath());
+                        a.startActivity(intent);
+                    }
+                });
+                a.containerBrowserItems.addView(b);
+            }
             for (final File apk : apkFiles) {
                 Button b = a.createListButton("📦 [" + a.t("INSTALL") + "] " + apk.getName());
                 b.setTextColor(0xFF00FFFF);

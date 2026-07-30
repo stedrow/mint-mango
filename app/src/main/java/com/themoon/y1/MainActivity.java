@@ -377,6 +377,9 @@ public class MainActivity extends Activity {
     private boolean isMediaScanning = false;
     public AudioManager audioManager;
     public File rootFolder = new File("/storage/sdcard0/Music");
+    /** Where the Videos menu entry starts. Movies/ is the standard Android directory and already
+     *  exists on stock Y2 firmware, so nothing has to be created for it to be browsable. */
+    public File videoRootFolder = new File("/storage/sdcard0/Movies");
     public File currentFolder = rootFolder;
     public List<File> originalPlaylist = new ArrayList<File>();
     public List<File> currentPlaylist = new ArrayList<File>();
