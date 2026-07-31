@@ -95,9 +95,18 @@ public class VideoPlayerActivity extends Activity {
                     }
                 } catch (Exception e) {}
             }
+            // Honour "Disable Built-in Speaker" the same way the music players do -- by muting our
+            // own playback rather than the system's routing. Android's silent/ringer mode does not
+            // affect STREAM_MUSIC (its affected-streams mask has no MUSIC bit), and the three
+            // system-level routes were already tried and rejected on this hardware; see
+            // MainActivity.applySpeakerSetting. Without this, video was the one player that ignored
+            // the setting and blasted out of the speaker.
+            mediaPlayer = mp;
+            applySpeakerMute();
+
             videoView.start();
-            showControls(false); // 재생 시작 시 3초 후 UI 자동 숨김
-            uiHandler.post(updateUITask); // 실시간 재생 바 루프 가동
+            showControls(false); // hide the UI a few seconds after playback starts
+            uiHandler.post(updateUITask); // start the progress-bar loop
         });
 
         videoView.setOnInfoListener((mp, what, extra) -> {
@@ -202,6 +211,7 @@ public class VideoPlayerActivity extends Activity {
      */
     private static final int SCRUB_STEP_MS =
             com.themoon.y1.managers.NowPlayingUiManager.SCRUB_STEP_MS;
+    private MediaPlayer mediaPlayer;
     private boolean isScrubbing = false;
     private int scrubTargetMs = 0;
 
@@ -263,6 +273,20 @@ public class VideoPlayerActivity extends Activity {
         }
 
         return super.onKeyDown(keyCode, event);
+    }
+
+    /** Mute when the setting is on and there is nothing but the built-in speaker to play out of. */
+    private void applySpeakerMute() {
+        if (mediaPlayer == null) return;
+        try {
+            boolean externalAudio =
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().isAnyDeviceConnected();
+            boolean mute = MainActivity.instance != null
+                    && MainActivity.instance.isSpeakerDisabled && !externalAudio;
+            mediaPlayer.setVolume(mute ? 0f : 1f, mute ? 0f : 1f);
+        } catch (Exception e) {
+            android.util.Log.d("VideoPlayerActivity", "could not apply the speaker mute", e);
+        }
     }
 
     /** Move the pending scrub target and show it, without seeking the decoder yet. */
@@ -364,6 +388,12 @@ public class VideoPlayerActivity extends Activity {
     // rebuilds the hardware one before playing. We have no software EQ -- that arrived with their
     // newer audio processors, which this fork doesn't carry -- so there is nothing to switch away
     // from, and MediaPlayer takes the hardware path regardless.
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applySpeakerMute(); // Bluetooth may have connected or dropped while we were away
+    }
 
     @Override
     protected void onDestroy() {

@@ -377,9 +377,9 @@ public class MainActivity extends Activity {
     private boolean isMediaScanning = false;
     public AudioManager audioManager;
     public File rootFolder = new File("/storage/sdcard0/Music");
-    /** Where the Videos menu entry starts. Movies/ is the standard Android directory and already
-     *  exists on stock Y2 firmware, so nothing has to be created for it to be browsable. */
-    public File videoRootFolder = new File("/storage/sdcard0/Movies");
+    /** Where the Videos menu entry starts -- same path upstream uses, so files dropped there by
+     *  anyone following its convention are found. Created on first use if absent. */
+    public File videoRootFolder = new File("/storage/sdcard0/Videos");
     public File currentFolder = rootFolder;
     public List<File> originalPlaylist = new ArrayList<File>();
     public List<File> currentPlaylist = new ArrayList<File>();
@@ -2730,6 +2730,55 @@ public class MainActivity extends Activity {
     }
 
     // 🚀 [Main engine upgrade] Reworked to accept a third parameter, 'customColor' (the color to paint).
+    private java.util.concurrent.ExecutorService thumbnailExecutor;
+
+    /**
+     * First frame of a video, into an already-placed ImageView.
+     *
+     * Decoding a frame per file is slow on this hardware, so: one shared single-thread executor
+     * rather than a thread per row, results cached in the album-art LruCache under a "vid_" key,
+     * and a placeholder shown immediately. The ImageView is tagged with its path and the bitmap
+     * only applied if the tag still matches -- rows get reused as the list scrolls, and without
+     * that check a slow decode lands on whichever file has since taken that row.
+     */
+    public void loadVideoThumbnailAsync(final String path, final android.widget.ImageView iv) {
+        iv.setTag(path);
+
+        android.graphics.Bitmap cached = albumArtCache.get("vid_" + path);
+        if (cached != null) {
+            iv.setImageBitmap(cached);
+            return;
+        }
+        iv.setImageResource(android.R.drawable.presence_video_online);
+
+        if (thumbnailExecutor == null) {
+            thumbnailExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        }
+        thumbnailExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    android.graphics.Bitmap bmp = albumArtCache.get("vid_" + path);
+                    if (bmp == null) {
+                        bmp = android.media.ThumbnailUtils.createVideoThumbnail(path,
+                                android.provider.MediaStore.Video.Thumbnails.MINI_KIND);
+                        if (bmp != null) albumArtCache.put("vid_" + path, bmp);
+                    }
+                    final android.graphics.Bitmap finalBmp = bmp;
+                    if (finalBmp == null) return;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (path.equals(iv.getTag())) iv.setImageBitmap(finalBmp);
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.d(TAG, "video thumbnail failed for " + path, e);
+                }
+            }
+        });
+    }
+
     public android.view.View createListButtonWithIcon(String iconUnicode, String textLabel, final int customColor) {
         float d = getResources().getDisplayMetrics().density;
 

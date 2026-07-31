@@ -1137,6 +1137,25 @@ public class MusicBrowserManager {
             // browser feeds.
             for (final File video : videoFiles) {
                 android.view.View b = a.createListButtonWithIcon("\uE04B", video.getName());
+
+                // Swap the glyph for the video's own first frame, keeping the row's spacing: build
+                // the normal icon row, then replace child 0 with an ImageView of the same size and
+                // right margin. Decoding happens off-thread and lands only if the row still belongs
+                // to this file (see loadVideoThumbnailAsync).
+                LinearLayout row = (LinearLayout) b;
+                TextView tvIcon = (TextView) row.getChildAt(0);
+                float density = a.getResources().getDisplayMetrics().density;
+                int thumbSize = (int) (40 * density);
+
+                ImageView ivThumb = new ImageView(a);
+                LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(thumbSize, thumbSize);
+                thumbLp.rightMargin = ((LinearLayout.LayoutParams) tvIcon.getLayoutParams()).rightMargin;
+                ivThumb.setLayoutParams(thumbLp);
+                ivThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                row.removeViewAt(0);
+                row.addView(ivThumb, 0);
+                a.loadVideoThumbnailAsync(video.getAbsolutePath(), ivThumb);
+
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
