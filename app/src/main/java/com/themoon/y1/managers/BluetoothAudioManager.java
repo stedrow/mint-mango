@@ -61,6 +61,39 @@ public class BluetoothAudioManager {
     private static final long RECONNECT_BACKOFF_MIN_MS = 2000;
     private static final long RECONNECT_BACKOFF_MAX_MS = 15000;
 
+    // Handoff. Apple's own "smart" device switching is an iCloud-account handshake between the
+    // pods and signed-in Apple devices -- nothing a non-Apple device can join, and the pods never
+    // announce it to us. What we *can* do is stop fighting it: the reported symptom (a call lands
+    // on the iPhone and the Y2 rips the pods back until Bluetooth is switched off) is this
+    // launcher, not the pods.
+    //
+    // Three signals say another host is taking them, and standDown() is the single response to all
+    // three. In order of directness:
+    //   1. the pods' own connected-host count reaching 2 (AAP opcode 0x002E, see aapEarListener);
+    //   2. the pods resetting our AAP session (AapService.noteAapContention) -- the one that fires
+    //      first in practice, since cutting our channel is their opening move;
+    //   3. an A2DP link that came up and died again within STEAL_LINK_MS, below.
+    // Each acts on its first occurrence. Waiting for a second was measured on-device to cost the
+    // user their first attempt every time, and standing down wrongly only costs a paused track.
+    //
+    // Not every dropped link is a handoff: out of range or a hand over the antenna leaves connect()
+    // failing outright and the link never comes up, which is what the backoff watchdog exists for
+    // and must keep doing. The user takes the pods back by asking for audio here -- tapping the
+    // device or pressing play (reclaimAudioRoute()), the same gesture a Mac uses.
+    //
+    // Deliberately NOT part of this: setting A2DP PRIORITY_OFF. It does stop the stack accepting
+    // the pods' own re-page, but it's persistent state in Settings.Global
+    // (bluetooth_a2dp_sink_priority_<mac>) and on this platform setPriority() silently refused to
+    // put it back -- measured on-device, the 0 stuck and every restore returned false, leaving the
+    // pods unable to connect at all until the row was rewritten by hand. A temporary handover must
+    // not be able to brick pairing, so noteAudioConnected() hangs up on re-pages instead.
+    private static final long STEAL_LINK_MS = 12000;
+    private long linkUpAtMs = 0;
+    private boolean yieldedRoute = false;
+    /** Long enough for the other host's takeover to finish before we drop our own link. */
+    private static final long YIELD_RELEASE_DELAY_MS = 2500;
+    private Runnable pendingYieldDisconnect = null;
+
     // AirPods have their own in-ear-detection hardware that mutes their local output when a
     // sensor read says "removed" -- independent of whatever the Bluetooth link is actually
     // carrying. A brief false "out" reading (confirmed via web search as a known AirPods/non-Apple
@@ -97,6 +130,18 @@ public class BluetoothAudioManager {
     public final AapService.Listener aapEarListener = new AapService.Listener() {
         @Override
         public void onAapStateChanged(AapService.AapState state) {
+            // The pods count their own hosts (AAP opcode 0x002E) and report 2 the moment a
+            // second one attaches -- on-device capture caught exactly that as an iPhone took a
+            // call, bracketed by 1 before and after. That's the handoff signal outright, so it
+            // doesn't have to be inferred from how fast a reconnected link dies.
+            if (state.connectedDevices >= 2) {
+                reconnectHandler.post(new Runnable() { // publishState runs on the AAP worker thread
+                    @Override
+                    public void run() {
+                        yieldRouteToOtherHost("pods report a second host");
+                    }
+                });
+            }
             boolean nowBothInEar = state.earLeft == AapService.EAR_IN_EAR && state.earRight == AapService.EAR_IN_EAR;
             if (aapLastBothInEar && !nowBothInEar) {
                 earsOutSinceMs = android.os.SystemClock.elapsedRealtime();
@@ -273,6 +318,7 @@ public class BluetoothAudioManager {
      * needing a manual reconnect. */
     public void resyncAapWithConnectedDevice(Context context) {
         if (globalA2dp == null) return;
+        if (yieldedRoute) return; // don't restart the AAP session onto pods we just handed over
         try {
             List<BluetoothDevice> connected = globalA2dp.getConnectedDevices();
             if (!connected.isEmpty()) {
@@ -414,6 +460,14 @@ public class BluetoothAudioManager {
     public void connectBluetoothAudio(final Context context, final BluetoothDevice targetDevice) {
         if (targetDevice == null)
             return;
+        // While handed over, every path in here is a background reflex -- the ears-reinserted
+        // nudge, the post-bond kick, the watchdog. Deliberate paths (device tapped, playback
+        // started) call reclaimAudioRoute() first, which clears the flag, so this bails out on
+        // exactly the callers that were re-grabbing the pods 2s after the handover.
+        if (yieldedRoute) {
+            Log.i(TAG, "ignoring connect while handed over: " + targetDevice.getAddress());
+            return;
+        }
         targetDeviceForAudio = targetDevice; // 1. Permanently lock in the target!
 
         // Reentrancy guard: this method has four independent callers (user tap, the reconnect
@@ -543,6 +597,160 @@ public class BluetoothAudioManager {
         }
     }
 
+    // --- handoff ------------------------------------------------------------------------------
+
+    /** A2DP link came up: start timing it, so the next drop can be judged. */
+    public void noteAudioConnected() {
+        linkUpAtMs = android.os.SystemClock.elapsedRealtime();
+        // Bonded AirPods page us back on their own and the stack accepts before anything here
+        // gets a say -- that's the "Y2 keeps stealing it back" the handover is supposed to end.
+        // The clean block (A2DP PRIORITY_OFF) turned out to be unrestorable on this platform, so
+        // refuse it the other way: let the link come up and hang it up again immediately. Costs
+        // a second of connected time per attempt, keeps every bit of the state in memory.
+        if (yieldedRoute) {
+            BluetoothDevice target = targetDeviceForAudio;
+            if (target != null) {
+                Log.i(TAG, "dropping re-page while handed over: " + target.getAddress());
+                disconnectA2dp(target);
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
+    private void disconnectA2dp(BluetoothDevice device) {
+        if (globalA2dp == null || device == null) return;
+        try {
+            Method disconnect = globalA2dp.getClass().getDeclaredMethod("disconnect", BluetoothDevice.class);
+            disconnect.setAccessible(true);
+            disconnect.invoke(globalA2dp, device);
+        } catch (Exception e) {
+            Log.w(TAG, "A2DP disconnect failed", e);
+        }
+    }
+
+    /** A2DP link dropped. One that lived a while died for physical reasons and is the watchdog's
+     *  business; one that barely came up was never a working connection worth defending. */
+    public void noteAudioDisconnected() {
+        long upMs = linkUpAtMs == 0 ? Long.MAX_VALUE
+                : android.os.SystemClock.elapsedRealtime() - linkUpAtMs;
+        linkUpAtMs = 0;
+        if (upMs >= STEAL_LINK_MS) return;
+        standDown("link lasted only " + upMs + "ms");
+    }
+
+    /**
+     * Stop reaching for the pods, by every route we have. The audio watchdog is only half of it:
+     * AapService's own run loop re-opens the L2CAP channel every 2s regardless of the audio link,
+     * and each attempt pages the pods -- on-device that was the launcher grabbing them back 12s
+     * after a yield that looked, from the audio side alone, like it had worked.
+     */
+    private void standDown(String reason) {
+        yieldedRoute = true;
+        cancelAudioReconnect();
+        Log.i(TAG, "yielding audio route: " + reason);
+        AudioPlayerManager.getInstance().pauseForRouteLoss();
+        releaseAudioLinkSoon();
+        MainActivity a = MainActivity.instance;
+        if (a == null) return;
+        AapService.deviceDisconnected(a);
+        Toast.makeText(a, a.t("Headphones went to another device"), Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Let go of the audio link itself. Every stand-down needs this, not just the one triggered by
+     * the pods' host count: standing down without it leaves the pods still attached here, and the
+     * other device's first connect attempt hangs on that half-held link and fails -- observed as
+     * "connecting the iPhone hung, then went back to the Y2, second attempt worked".
+     *
+     * Delayed rather than immediate, because tearing the link down inside the other host's
+     * takeover handshake aborts it just as surely.
+     */
+    private void releaseAudioLinkSoon() {
+        final BluetoothDevice target = targetDeviceForAudio;
+        if (target == null || !isA2dpConnectedTo(target)) return; // already gone (e.g. strike path)
+        if (pendingYieldDisconnect != null) return;
+        pendingYieldDisconnect = new Runnable() {
+            @Override
+            public void run() {
+                pendingYieldDisconnect = null;
+                if (!yieldedRoute) return; // reclaimed inside the window -- keep the link
+                Log.i(TAG, "releasing the audio link to " + target.getAddress());
+                disconnectA2dp(target);
+            }
+        };
+        reconnectHandler.postDelayed(pendingYieldDisconnect, YIELD_RELEASE_DELAY_MS);
+    }
+
+    public boolean hasYieldedRoute() {
+        return yieldedRoute;
+    }
+
+    /** AapService: the pods keep resetting our channel, which is what contention looks like from
+     *  there. Called off the service's worker thread, with the MAC its session is bound to. */
+    public void noteAapContention(final String mac) {
+        reconnectHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                adoptTargetIfMissing(mac);
+                yieldRouteToOtherHost("pods keep resetting our session");
+            }
+        });
+    }
+
+    /**
+     * targetDeviceForAudio is only set when the user connects through the launcher UI, or by
+     * resyncAapWithConnectedDevice(). AirPods that page us on their own after a boot hit neither,
+     * and a null target silently disables both halves of the handoff: the stand-down bails out
+     * before it does anything, and the watchdog has nothing to reconnect to afterwards, so
+     * pressing play never brings the audio back. If the AAP session knows which device it is
+     * talking to, that is the target.
+     */
+    private void adoptTargetIfMissing(String mac) {
+        if (targetDeviceForAudio != null || mac == null) return;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return;
+        try {
+            targetDeviceForAudio = adapter.getRemoteDevice(mac);
+            Log.i(TAG, "adopted " + mac + " as the audio target (it connected on its own)");
+        } catch (Exception e) {
+            Log.w(TAG, "could not adopt " + mac, e);
+        }
+    }
+
+    /**
+     * Another host has the pods. Hand them over properly: drop our own A2DP link so they're left
+     * with one owner, rather than sitting as a second attached device whose stream and reconnect
+     * loop keep dragging them back. This is the same thing the user was doing by hand -- switching
+     * Bluetooth off on the Y2 so a call could land on their phone.
+     */
+    @SuppressLint("MissingPermission") // system-signed app; Bluetooth permissions are granted at install
+    private void yieldRouteToOtherHost(String reason) {
+        if (yieldedRoute) return;
+        final BluetoothDevice target = targetDeviceForAudio;
+        if (target == null || !isA2dpConnectedTo(target)) return;
+        // Deliberately NOT touching A2DP priority here. Setting PRIORITY_OFF does stop the stack
+        // accepting the pods' own re-page, but it's persistent state in Settings.Global
+        // (bluetooth_a2dp_sink_priority_<mac>) and on this platform setPriority() silently
+        // refused to put it back -- measured on-device, the 0 stuck and every restore returned
+        // false, leaving the pods unable to connect at all until the row was rewritten by hand.
+        // A temporary handover must not be able to brick pairing, so the pods re-pairing to us
+        // is accepted as the cost (noteAudioConnected hangs up on those instead).
+        standDown(reason); // releases the audio link itself, on the shared delay
+    }
+
+    /** "Play it here": the user tapped the device or started playback, so take the pods back. */
+    public void reclaimAudioRoute() {
+        AapService.clearContentionBackoff();
+        if (pendingYieldDisconnect != null) {
+            reconnectHandler.removeCallbacks(pendingYieldDisconnect);
+            pendingYieldDisconnect = null;
+        }
+        if (!yieldedRoute) return;
+        yieldedRoute = false;
+        resetBackoffToMin();
+        scheduleAudioReconnect();
+    }
+
     // --- reconnect watchdog ------------------------------------------------------------------
 
     /** Starts a self-perpetuating backoff loop; the loop only stops when the device is actually
@@ -550,6 +758,7 @@ public class BluetoothAudioManager {
      * connection), the radio goes off, or the device is unpaired. */
     public void scheduleAudioReconnect() {
         if (targetDeviceForAudio == null) return;
+        if (yieldedRoute) return; // pods are on another device; wait to be asked
         if (reconnectRunnable != null) return; // a reconnect cycle is already in flight
         if (reconnectBackoffMs < RECONNECT_BACKOFF_MIN_MS)
             reconnectBackoffMs = RECONNECT_BACKOFF_MIN_MS; // fresh dropout -> start from the short interval

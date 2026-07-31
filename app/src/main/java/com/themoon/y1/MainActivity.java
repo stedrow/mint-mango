@@ -876,6 +876,7 @@ public class MainActivity extends Activity {
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
                     AapService.deviceDisconnected(context);
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().noteAudioDisconnected();
                     BluetoothDevice audioTarget = com.themoon.y1.managers.BluetoothAudioManager.getInstance().getTargetDeviceForAudio();
                     if (audioTarget != null && currentDevice != null
                             && audioTarget.getAddress().equals(currentDevice.getAddress())) {
@@ -885,6 +886,7 @@ public class MainActivity extends Activity {
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
                     Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
                     cancelAudioReconnect();
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().noteAudioConnected();
                     // Delay AAP's raw L2CAP connect so it doesn't race the A2DP link that just came
                     // up -- opening a second low-level connection to the same device in the same
                     // instant destabilized the just-established ACL on this controller and caused a
@@ -894,7 +896,12 @@ public class MainActivity extends Activity {
                         new Handler().postDelayed(new Runnable() {
                             @Override
                             public void run() {
-                                if (com.themoon.y1.managers.BluetoothAudioManager.getInstance().isA2dpConnectedTo(aapTarget)) {
+                                // hasYieldedRoute: a handover can start inside this 2s delay (the
+                                // audio link is deliberately held a beat longer than that), and
+                                // starting the AAP session here would put the launcher straight
+                                // back to paging pods it just handed to another device.
+                                if (com.themoon.y1.managers.BluetoothAudioManager.getInstance().isA2dpConnectedTo(aapTarget)
+                                        && !com.themoon.y1.managers.BluetoothAudioManager.getInstance().hasYieldedRoute()) {
                                     AapService.deviceConnected(MainActivity.this, aapTarget);
                                 }
                             }
@@ -994,7 +1001,10 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().nudgeAudioReconnectForAirpods();
     }
 
+    /** The user-facing connect path (device tapped in the Bluetooth list, or a fresh pair
+     *  completing). Deliberate, so it also cancels a handoff yield. */
     public void connectBluetoothAudio(BluetoothDevice targetDevice) {
+        com.themoon.y1.managers.BluetoothAudioManager.getInstance().reclaimAudioRoute();
         com.themoon.y1.managers.BluetoothAudioManager.getInstance().connectBluetoothAudio(this, targetDevice);
     }
     // Inside the init function (called once when the app launches)

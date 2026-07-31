@@ -276,6 +276,7 @@ public class AudioPlayerManager {
     }
 
     public void playTrackList(List<File> list, int index) {
+        BluetoothAudioManager.getInstance().reclaimAudioRoute(); // starting audio here = take the route back
         isNavidromeMode = false;
         isNavidromeStreaming = false;
         updateNavidromeStreamLock(); // leaving Navidrome — let go of the stream WiFi lock
@@ -393,6 +394,7 @@ public class AudioPlayerManager {
                 legacyPlayer.pause();
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = true;
             } else {
+                BluetoothAudioManager.getInstance().reclaimAudioRoute();
                 legacyPlayer.start();
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = false;
             }
@@ -402,6 +404,7 @@ public class AudioPlayerManager {
                 exoPlayer.setPlayWhenReady(false);
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = true;
             } else {
+                BluetoothAudioManager.getInstance().reclaimAudioRoute();
                 exoPlayer.setPlayWhenReady(true);
                 if (MainActivity.instance != null) MainActivity.instance.isPausedByHand = false;
             }
@@ -1144,6 +1147,7 @@ public class AudioPlayerManager {
             CastManager.getInstance().reloadCurrentTrack(true);
             return;
         }
+        BluetoothAudioManager.getInstance().reclaimAudioRoute();
         saveAudiobookBookmarkIfNeeded();
         isNavidromeMode = true;
         isUsingLegacyPlayer = false;

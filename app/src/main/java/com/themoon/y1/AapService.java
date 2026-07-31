@@ -37,6 +37,21 @@ public class AapService extends Service {
     /** Stands in for an advertiser address when ear state came over L2CAP. */
     private static final String AAP_L2CAP_SOURCE = "l2cap";
     private static final int MAX_BOOTSTRAP_ATTEMPTS = 3;
+    /** A session cut shorter than this was never a working one; see the contention check below. */
+    private static final long SHORT_SESSION_MS = 15000;
+    /** Reconnect delay after a contended session. The usual 2s puts us straight back on the air
+     *  against whoever just took the pods -- that re-page IS the steal, from the user's side, and
+     *  it happened twice before the yield logic got a word in. Long enough here that the other
+     *  host gets a clear run at completing its takeover, while still being a plain retry: nothing
+     *  is torn down, so a misread costs a slower recovery of ear detection and battery, not a
+     *  paused track. */
+    private static final long CONTENDED_RETRY_MS = 20000;
+    /** Static, and deliberately so: this service stops itself after a session it can't hold and is
+     *  restarted moments later by the A2DP-connected path, so as an instance field the deadline
+     *  died with it and the restart paged the pods immediately -- which is the steal this delay
+     *  exists to prevent. Confirmed on-device: create/destroy pairs every few seconds through a
+     *  contended handoff. */
+    private static long backOffUntilMs = 0;
     private static final int MAX_BUFFER_BYTES = 8192;
 
     private static final byte[] AAP_HANDSHAKE = {
@@ -260,6 +275,11 @@ public class AapService extends Service {
         return s.earLeft == EAR_IN_CASE && s.earRight == EAR_IN_CASE;
     }
 
+    /** Clears the contention back-off. The user asking for audio here outranks it. */
+    public static void clearContentionBackoff() {
+        backOffUntilMs = 0;
+    }
+
     public static void deviceConnected(android.content.Context ctx, BluetoothDevice device) {
         if (device == null) return;
         Intent intent = new Intent(ctx, AapService.class);
@@ -445,13 +465,23 @@ public class AapService extends Service {
         int status = p[5] & 0xFF;
         int battery = p[6] & 0xFF;
         int charge = p[7] & 0xFF;
+        // Byte 10 is a plaintext connection-state enum (00 disconnected, 04 idle, 05 music,
+        // 06 call, 07 ringing, 09 hanging up) -- LibrePods' BLEManager reads it the same way,
+        // and unlike the battery levels it sits outside the encrypted tail. Apple's published
+        // reverse-engineering (furiousMAC/continuity) leaves this byte marked "undefined", so
+        // it's logged before anything is built on it. If it reads 05/06/07 while our own A2DP
+        // link is down, the pods are streaming to some other host -- which is the direct
+        // evidence BluetoothAudioManager's handoff yield currently has to infer from how
+        // quickly a reconnected link dies.
+        int conn = p[10] & 0xFF;
 
-        int key = (status << 16) | (battery << 8) | charge;
+        int key = (status << 16) | (battery << 8) | charge | (conn << 24);
         if (key == lastAdvertKey) return; // adverts repeat every ~2s; only act on changes
         lastAdvertKey = key;
         Log.d(TAG, "AAP-BLE status=" + Integer.toHexString(status)
                 + " battery=" + Integer.toHexString(battery)
                 + " charge=" + Integer.toHexString(charge)
+                + " conn=" + Integer.toHexString(conn)
                 + " rssi=" + rssi + " addr=" + addr
                 + " model=" + Integer.toHexString(((p[3] & 0xFF) << 8) | (p[4] & 0xFF)));
 
@@ -554,6 +584,12 @@ public class AapService extends Service {
         boolean everConnected = false;
 
         while (shouldRun) {
+            long waitMs = backOffUntilMs - android.os.SystemClock.elapsedRealtime();
+            if (waitMs > 0) {
+                Log.i(TAG, "holding off the AAP connect for " + waitMs + "ms (contended)");
+                sleepQuiet(waitMs);
+                continue; // re-check shouldRun; the handoff may have stopped us meanwhile
+            }
             BluetoothDevice device = adapter.getRemoteDevice(targetMac);
             BluetoothSocket socket = tryConnect(device);
             if (socket == null) {
@@ -573,11 +609,37 @@ public class AapService extends Service {
             bootstrapFailures = 0;
             activeSocket = socket;
             setConnected(true);
+            long sessionStart = android.os.SystemClock.elapsedRealtime();
+            boolean resetByPeer = false;
             try {
                 sessionLoop(socket);
             } catch (Throwable t) {
                 Log.i(TAG, "AAP session ended: " + t);
+                // How the session died says who ended it, and it says so on the very first one --
+                // which is what the duration heuristic below could never do, since the pods'
+                // opening move is to cut a perfectly healthy session. "Connection reset by peer"
+                // is the pods actively closing our channel, i.e. another host taking them. Running
+                // out of range or landing in the case reads differently ("bt socket closed,
+                // read return: -1"), so this doesn't fire on an ordinary walk-away.
+                String msg = t.getMessage();
+                resetByPeer = msg != null && msg.toLowerCase().contains("reset by peer");
             } finally {
+                // Contention: another host is taking the pods and they're cutting our channel to
+                // do it. Worth detecting here because the cleaner signal (the connected-host count)
+                // rides on this very session, so exactly when a second host is fighting us, the
+                // packet that would say so never arrives.
+                //
+                // Both tests act on a single occurrence. Requiring a second was measured on-device
+                // to cost the user their first handoff attempt every time, and the cost of being
+                // wrong is one paused track plus a button press to take the pods back.
+                long now = android.os.SystemClock.elapsedRealtime();
+                long sessionMs = now - sessionStart;
+                if (resetByPeer || sessionMs < SHORT_SESSION_MS) {
+                    backOffUntilMs = now + CONTENDED_RETRY_MS;
+                    Log.i(TAG, "AAP session " + (resetByPeer ? "reset by the pods" : "died")
+                            + " after " + sessionMs + "ms -- another host is taking them");
+                    com.themoon.y1.managers.BluetoothAudioManager.getInstance().noteAapContention(targetMac);
+                }
                 try {
                     socket.close();
                 } catch (Throwable t) {
@@ -590,6 +652,8 @@ public class AapService extends Service {
                 setConnected(false);
             }
 
+            // The contention deadline set above is enforced at the top of the loop, so this is
+            // just the ordinary breather between reconnect attempts.
             if (shouldRun) sleepQuiet(2000);
         }
 
