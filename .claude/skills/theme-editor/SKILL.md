@@ -31,7 +31,7 @@ already-extracted folder, e.g. `/storage/sdcard0/Y1_Themes/mint_mango/`.
 ```bash
 adb shell ls /storage/sdcard0/Y1_Themes/<Name>/         # confirm it exists first
 adb push <local file> "/storage/sdcard0/Y1_Themes/<Name>/<same filename>"
-adb shell am force-stop com.themoon.y1 && adb shell am start -n com.themoon.y1/.MainActivity
+adb shell am force-stop com.mintmango.y2 && adb shell am start -n com.mintmango.y2/.MainActivity
 ```
 The force-stop+restart (or a full `adb reboot`) is required — theme state is
 loaded once at startup and cached in memory, editing files on disk alone
@@ -92,7 +92,7 @@ device — just don't mistake updating it for the fix.
    for f in $SCRATCH/theme/*; do
      adb push "$f" "/storage/sdcard0/Y1_Themes/<Name>/$(basename "$f")"
    done
-   adb shell am force-stop com.themoon.y1 && adb shell am start -n com.themoon.y1/.MainActivity
+   adb shell am force-stop com.mintmango.y2 && adb shell am start -n com.mintmango.y2/.MainActivity
    ```
    `zip -X -r . -x '.*'` from *inside* the folder keeps files at the zip
    root (no wrapper dir) and skips dotfiles/macOS cruft.
@@ -126,8 +126,8 @@ Source"; short version:
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 bash gradlew assembleDebug
 adb shell mount -o remount,rw /system
-adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk
-adb shell chmod 644 /system/app/com.themoon.y1.apk
+adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.mintmango.y2.apk
+adb shell chmod 644 /system/app/com.mintmango.y2.apk
 adb reboot
 ```
 It's a **system app**, not a normal `adb install` target — remounting
@@ -159,7 +159,7 @@ running it as a routine step.
   `x` is a symmetric left/right margin, `y` is top spacing before the next
   item — not gravity-anchored.
 - Before assuming an asset filename is wired up, grep
-  `app/src/main/java/com/themoon/y1/**/*.java` for the literal string (e.g.
+  `app/src/main/java/com/mintmango/y2/**/*.java` for the literal string (e.g.
   `getCustomIcon("...")`). Some filenames in a theme zip (like a stray
   `cover.png`) are never read by any code path — don't spend effort
   "improving" dead assets, and don't assume a file in the zip is doing

@@ -16,7 +16,7 @@ To brand it (e.g. show "Mint Mango" on the speaker/display):
    SDK) on any public HTTPS host (GitHub Pages, Cloudflare Pages, etc.) —
    this is where the branding, name, and background come from.
 3. Point `DEFAULT_MEDIA_RECEIVER_APP_ID` in
-   `app/src/main/java/com/themoon/y1/cast/CastConnection.java:47` at the new
+   `app/src/main/java/com/mintmango/y2/cast/CastConnection.java:47` at the new
    app ID and launch that instead of `CC1AD845`.
 
 Mostly a side project (web app + hosting to maintain) rather than an

@@ -32,10 +32,10 @@
 07-03 20:20:22. connect() FAILED
 07-03 20:20:22. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
 07-03 20:20:22. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
-07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
-07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
-07-03 20:20:22. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
-07-03 20:20:22. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:22. 	at com.mintmango.y2.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:22. 	at com.mintmango.y2.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:22. 	at com.mintmango.y2.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:22. 	at com.mintmango.y2.AapSpikeService$1.run(AapSpikeService.java:61)
 07-03 20:20:22. 	at java.lang.Thread.run(Thread.java:838)
 07-03 20:20:25. >>> attempt auth=false encrypt=false try#2
 07-03 20:20:25. [JSR82] type=3 fd=-1 auth=false encrypt=false port=4097
@@ -60,10 +60,10 @@
 07-03 20:20:26. connect() FAILED
 07-03 20:20:26. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
 07-03 20:20:26. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
-07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
-07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
-07-03 20:20:26. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
-07-03 20:20:26. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:26. 	at com.mintmango.y2.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:26. 	at com.mintmango.y2.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:26. 	at com.mintmango.y2.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:26. 	at com.mintmango.y2.AapSpikeService$1.run(AapSpikeService.java:61)
 07-03 20:20:26. 	at java.lang.Thread.run(Thread.java:838)
 07-03 20:20:29. >>> attempt auth=true encrypt=true try#1
 07-03 20:20:29. [JSR82] type=3 fd=-1 auth=true encrypt=true port=4097
@@ -88,10 +88,10 @@
 07-03 20:20:30. connect() FAILED
 07-03 20:20:30. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
 07-03 20:20:30. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
-07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
-07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
-07-03 20:20:30. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
-07-03 20:20:30. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:30. 	at com.mintmango.y2.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:30. 	at com.mintmango.y2.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:30. 	at com.mintmango.y2.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:30. 	at com.mintmango.y2.AapSpikeService$1.run(AapSpikeService.java:61)
 07-03 20:20:30. 	at java.lang.Thread.run(Thread.java:838)
 07-03 20:20:33. >>> attempt auth=true encrypt=true try#2
 07-03 20:20:33. [JSR82] type=3 fd=-1 auth=true encrypt=true port=4097
@@ -116,10 +116,10 @@
 07-03 20:20:34. connect() FAILED
 07-03 20:20:34. java.io.IOException: [JSR82] connect: Connection is not created (failed or aborted).
 07-03 20:20:34. 	at android.bluetooth.BluetoothSocket.connect(BluetoothSocket.java:396)
-07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.tryL2cap(AapSpikeService.java:191)
-07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.runSpike(AapSpikeService.java:129)
-07-03 20:20:34. 	at com.themoon.y1.AapSpikeService.access$000(AapSpikeService.java:27)
-07-03 20:20:34. 	at com.themoon.y1.AapSpikeService$1.run(AapSpikeService.java:61)
+07-03 20:20:34. 	at com.mintmango.y2.AapSpikeService.tryL2cap(AapSpikeService.java:191)
+07-03 20:20:34. 	at com.mintmango.y2.AapSpikeService.runSpike(AapSpikeService.java:129)
+07-03 20:20:34. 	at com.mintmango.y2.AapSpikeService.access$000(AapSpikeService.java:27)
+07-03 20:20:34. 	at com.mintmango.y2.AapSpikeService$1.run(AapSpikeService.java:61)
 07-03 20:20:34. 	at java.lang.Thread.run(Thread.java:838)
 07-03 20:20:37. RESULT: all L2CAP connect variants FAILED
 07-03 20:20:37. === M0 spike finished ===

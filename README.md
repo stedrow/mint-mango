@@ -157,15 +157,15 @@ bash gradlew assembleDebug
 
 ### Flash to device
 
-The launcher ships as a **system app** (`/system/app/com.themoon.y1.apk`), so a standard `adb install` won't work. Use the root shell instead:
+The launcher ships as a **system app** (`/system/app/com.mintmango.y2.apk`), so a standard `adb install` won't work. Use the root shell instead:
 
 1. Connect the Y1 via USB (ADB is enabled by default on this firmware — just plug in)
 2. Run:
 
 ```bash
 adb shell mount -o remount,rw /system
-adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk
-adb shell chmod 644 /system/app/com.themoon.y1.apk
+adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.mintmango.y2.apk
+adb shell chmod 644 /system/app/com.mintmango.y2.apk
 adb reboot
 ```
 
@@ -174,8 +174,8 @@ One-liner for subsequent builds:
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && \
 bash gradlew assembleDebug && \
 adb shell mount -o remount,rw /system && \
-adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.themoon.y1.apk && \
-adb shell chmod 644 /system/app/com.themoon.y1.apk && \
+adb push app/build/outputs/apk/debug/app-debug.apk /system/app/com.mintmango.y2.apk && \
+adb shell chmod 644 /system/app/com.mintmango.y2.apk && \
 adb reboot
 ```
 
@@ -184,9 +184,9 @@ adb reboot
 ### Useful ADB commands
 ```bash
 adb devices                        # confirm device is connected
-adb logcat | grep com.themoon.y1   # live logs from the launcher
-adb shell pm path com.themoon.y1   # confirm install location
-adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS  # fix Bluetooth errors
+adb logcat | grep com.mintmango.y2   # live logs from the launcher
+adb shell pm path com.mintmango.y2   # confirm install location
+adb shell pm grant com.mintmango.y2 android.permission.WRITE_SECURE_SETTINGS  # fix Bluetooth errors
 ```
 
 ---
@@ -208,7 +208,7 @@ Bluetooth headphone connection testing has been successfully completed, and it w
 > If you encounter a security-related error message when trying to connect after pairing, you must grant the secure settings permission via ADB by running the following script:
 
 ```bash
-adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
+adb shell pm grant com.mintmango.y2 android.permission.WRITE_SECURE_SETTINGS
 ```
 ---
 
@@ -517,7 +517,7 @@ Full list (`MainMenuManager.java`'s click-handling switch is the source of truth
 
 
 
-# How to Create a Custom Theme for JJ Launcher for v0.6
+# How to Create a Custom Theme for MintMango for v0.6
 
 Creating a custom theme is the ultimate way to make this DAP (Digital Audio Player) truly yours! The launcher dynamically loads theme resources (colors, icons, and fonts) directly from the device's internal storage.
 

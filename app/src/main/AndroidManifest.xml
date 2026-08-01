@@ -39,7 +39,7 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
-    <!-- Lets Y1UsbFocusHelper see which activity stole focus, so it only fights the USB
+    <!-- Lets Y2UsbFocusHelper see which activity stole focus, so it only fights the USB
          storage takeover instead of every system dialog. -->
     <uses-permission android:name="android.permission.GET_TASKS" />
     <application

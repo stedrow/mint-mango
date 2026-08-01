@@ -254,7 +254,7 @@ spike service with a real always-on `AapService` before this needs revisiting.
 
 ### M1 — AAP client service (Path A) ✅ DONE (2026-07-03, branch `feature/aap-service-m1-m2`)
 
-Implemented `app/src/main/java/com/themoon/y1/AapService.java`, replacing
+Implemented `app/src/main/java/com/mintmango/y2/AapService.java`, replacing
 `AapSpikeService` entirely (removed from the manifest and repo). It's a plain
 (non-foreground) `Service` started/stopped by `MainActivity`'s A2DP
 `CONNECTION_STATE_CHANGED` handler (`AapService.deviceConnected(ctx, device)` /
@@ -306,7 +306,7 @@ pauses, matching real AirPods behavior), resumes only when transitioning back
 to both-in-ear **and** only if the auto-pause was the one that fired.
 
 Added `pauseForAirpods()` / `resumeForAirpods()` to `AudioPlayerManager`
-(`app/src/main/java/com/themoon/y1/managers/AudioPlayerManager.java`) as
+(`app/src/main/java/com/mintmango/y2/managers/AudioPlayerManager.java`) as
 planned, backed by a private `pausedByAirpods` flag — separate from
 `isPausedByHand`. `playOrPauseMusic()` (any real user tap) now resets
 `pausedByAirpods = false` at entry, so an explicit user pause or resume always
@@ -341,7 +341,7 @@ reinserted it — playback resumed. Confirmed by the user directly on-device.
   `BluetoothAdapter/Device/Profile`, gets the A2DP profile proxy
   (`getProfileProxy`, ~L789), tracks `targetDeviceForAudio` (L86),
   `STATE_BLUETOOTH` screen (L243), status icon `ivStatusBluetooth`.
-- Package `com.themoon.y1`, Java, `minSdk 17`, `targetSdk/compileSdk 35`.
+- Package `com.mintmango.y2`, Java, `minSdk 17`, `targetSdk/compileSdk 35`.
 - App is a **system app** with `WRITE_SECURE_SETTINGS`; already holds
   `BLUETOOTH`/`BLUETOOTH_ADMIN` (it drives A2DP today).
 
@@ -423,7 +423,7 @@ reinserted it — playback resumed. Confirmed by the user directly on-device.
 > every other JSR82 caller (RFCOMM channels 1-30: headset, OBEX, SPP) is
 > untouched. This patch is **already built, flashed to my Y1, and validated**:
 > the M0 `AapSpikeService` (still on branch `spike/m0-aap-l2cap`,
-> `app/src/main/java/com/themoon/y1/AapSpikeService.java`) connects in 75ms and
+> `app/src/main/java/com/mintmango/y2/AapSpikeService.java`) connects in 75ms and
 > receives a live stream of real AAP packets (device info, battery/status
 > updates) for the full 90s listen window. Full trace at
 > `scripts/airpods-aap/M0.5_patch_success_trace.txt`. **Path A (pure app-level
@@ -433,7 +433,7 @@ reinserted it — playback resumed. Confirmed by the user directly on-device.
 > assuming anything: `scripts/airpods-aap/status.sh` shows whether the patched
 > `libextjsr82.so` is still active (it should be — it survives reboots but not
 > a factory restore/re-flash of `/system`), and `adb shell pm path
-> com.themoon.y1` / a logcat check shows whether the spike-branch launcher (with
+> com.mintmango.y2` / a logcat check shows whether the spike-branch launcher (with
 > the inert `AapSpikeService`) is still installed. If the patched lib isn't
 > active, re-run `scripts/airpods-aap/build.sh && ./install.sh` before doing
 > anything else — nothing below works without it.

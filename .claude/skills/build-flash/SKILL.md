@@ -32,19 +32,19 @@ on the first run or after touching Gradle files.
 
 ## Flash
 
-**This is a privileged system app** (`applicationId com.themoon.y1`, installed at
-`/system/priv-app/com.themoon.y1.apk`) — a plain `adb install` does not work here.
+**This is a privileged system app** (`applicationId com.mintmango.y2`, installed at
+`/system/priv-app/com.mintmango.y2.apk`) — a plain `adb install` does not work here.
 It lives in `priv-app`, not `app`: since Android 4.3 only privileged apps are granted
 `signature|system` permissions (REBOOT, SHUTDOWN, and the WRITE_MEDIA_STORAGE that
 carries gid `input` for the power-key menu). If a unit still has the APK at
-`/system/app/com.themoon.y1.apk`, delete that copy — otherwise both are scanned.
+`/system/app/com.mintmango.y2.apk`, delete that copy — otherwise both are scanned.
 It requires remounting `/system` read-write and overwriting the system APK
 directly, then rebooting:
 
 ```bash
 adb shell mount -o remount,rw /system
-adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.themoon.y1.apk
-adb shell chmod 644 /system/priv-app/com.themoon.y1.apk
+adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.mintmango.y2.apk
+adb shell chmod 644 /system/priv-app/com.mintmango.y2.apk
 adb reboot
 ```
 
@@ -55,8 +55,8 @@ One-liner for repeat builds:
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && \
 bash gradlew assembleDebug && \
 adb shell mount -o remount,rw /system && \
-adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.themoon.y1.apk && \
-adb shell chmod 644 /system/priv-app/com.themoon.y1.apk && \
+adb push app/build/outputs/apk/debug/app-debug.apk /system/priv-app/com.mintmango.y2.apk && \
+adb shell chmod 644 /system/priv-app/com.mintmango.y2.apk && \
 adb reboot
 ```
 
@@ -118,9 +118,9 @@ tree.
 
 ```bash
 adb devices                        # confirm device connected
-adb logcat | grep com.themoon.y1   # live logs from the launcher
-adb shell pm path com.themoon.y1   # confirm install location
-adb shell dumpsys package com.themoon.y1 | grep -i versionName  # confirm which build is running
+adb logcat | grep com.mintmango.y2   # live logs from the launcher
+adb shell pm path com.mintmango.y2   # confirm install location
+adb shell dumpsys package com.mintmango.y2 | grep -i versionName  # confirm which build is running
 ```
 
 ## Scope note

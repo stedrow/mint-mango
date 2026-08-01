@@ -26,9 +26,9 @@ mkdir -p "$BACKUPS"
 adb shell mount -o remount,rw /system
 
 echo "==> [1/3] Moving the launcher into /system/priv-app"
-adb push "$APK" /system/priv-app/com.themoon.y1.apk
-adb shell chmod 644 /system/priv-app/com.themoon.y1.apk
-adb shell "rm -f /system/app/com.themoon.y1.apk"
+adb push "$APK" /system/priv-app/com.mintmango.y2.apk
+adb shell chmod 644 /system/priv-app/com.mintmango.y2.apk
+adb shell "rm -f /system/app/com.mintmango.y2.apk"
 
 echo "==> [2/3] Patching platform.xml and android.policy.jar"
 adb pull /system/etc/permissions/platform.xml "$WORKDIR/platform.xml" >/dev/null
@@ -67,5 +67,5 @@ echo "==> Rebooting (first boot is slower -- android.policy.jar gets dexopted)"
 adb reboot
 adb wait-for-device
 sleep 45
-adb shell dumpsys package com.themoon.y1 | grep gids
+adb shell dumpsys package com.mintmango.y2 | grep gids
 echo "==> Done. gids above should include 1004 (input)."

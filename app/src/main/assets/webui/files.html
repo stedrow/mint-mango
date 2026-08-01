@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Y1 · Files</title>
+<title>Y2 · Files</title>
 <link rel="stylesheet" href="/app.css">
 <style>
   body { padding-bottom: 40px; }
@@ -316,7 +316,7 @@
     fetch('/api/navidrome-settings', {method:'POST', body:JSON.stringify(body)})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d.ok){ s.style.color='var(--good)'; s.textContent='✓ Saved & connected. Open Music on the Y1.'; }
+        if(d.ok){ s.style.color='var(--good)'; s.textContent='✓ Saved & connected. Open Music on the Y2.'; }
         else { s.style.color='var(--danger)'; s.textContent='Saved, but could not connect: '+(d.error||'unknown'); }
         loadNav();
       })

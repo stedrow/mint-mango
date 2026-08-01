@@ -32,5 +32,5 @@
 # (android.bluetooth.*, android.media.AudioSystem, com.mediatek.FMRadio.FMRadioNative) that
 # live outside this APK's own dex and are never touched by R8 -- no keep rules needed for them.
 # The app has no Parcelable/Serializable models and no custom views inflated from XML by class
-# name (all views in app/src/main/java/com/themoon/y1/views are constructed with `new`, not
+# name (all views in app/src/main/java/com/mintmango/y2/views are constructed with `new`, not
 # reflection), so nothing else here depends on exact class/method/field names surviving.

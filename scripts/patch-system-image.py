@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 
-LAUNCHER_APK = "com.themoon.y1.apk"
+LAUNCHER_APK = "com.mintmango.y2.apk"
 STOCK_LAUNCHER = "MyLauncher.apk"
 STOCK_LAUNCHER_ODEX = "MyLauncher.odex"
 POLICY_JAR = "android.policy.jar"
